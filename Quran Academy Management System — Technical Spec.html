@@ -1,0 +1,2295 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}</style><style>:root{color-scheme:light dark;--md-bg:#fff;--md-text:rgba(0,0,0,.8);--md-muted:rgba(0,0,0,.6);--md-fill:rgba(0,0,0,.04);--md-fill-strong:rgba(0,0,0,.06);--md-rule:rgba(0,0,0,.1);--md-rule-strong:rgba(0,0,0,.16);--md-link:hsl(210 100% 45%)}@media (prefers-color-scheme:dark){:root:where(:not([data-theme="light"])){--md-bg:#0d0d0d;--md-text:rgba(255,255,255,.85);--md-muted:rgba(255,255,255,.6);--md-fill:rgba(255,255,255,.06);--md-fill-strong:rgba(255,255,255,.09);--md-rule:rgba(255,255,255,.14);--md-rule-strong:rgba(255,255,255,.22);--md-link:hsl(210 100% 72%)}}:root[data-theme="dark"]{color-scheme:dark;--md-bg:#0d0d0d;--md-text:rgba(255,255,255,.85);--md-muted:rgba(255,255,255,.6);--md-fill:rgba(255,255,255,.06);--md-fill-strong:rgba(255,255,255,.09);--md-rule:rgba(255,255,255,.14);--md-rule-strong:rgba(255,255,255,.22);--md-link:hsl(210 100% 72%)}:root[data-theme="light"]{color-scheme:light}@media print{:root,:root[data-theme="dark"]{color-scheme:light;--md-bg:#fff;--md-text:rgba(0,0,0,.8);--md-muted:rgba(0,0,0,.6);--md-fill:rgba(0,0,0,.04);--md-fill-strong:rgba(0,0,0,.06);--md-rule:rgba(0,0,0,.1);--md-rule-strong:rgba(0,0,0,.16);--md-link:hsl(210 100% 45%)}}body{background:var(--md-bg);color:var(--md-text);max-width:720px;margin:0 auto;padding:32px;display:flex;flex-direction:column;gap:10px;font:14px/1.55 -apple-system,BlinkMacSystemFont,'SF Pro','Segoe UI',sans-serif;overflow-wrap:break-word}body>:first-child{margin-top:0}h1,h2,h3,h4,h5,h6{margin:6px 0 0;line-height:1.25;font-weight:600;text-wrap:balance}h1{font-size:1.35em}h2{font-size:1.15em;color:var(--md-muted)}h3,h4,h5,h6{font-size:1em}p,ul,ol,blockquote,table,pre,hr{margin:0}strong{font-weight:600}a{color:var(--md-link);text-decoration:none}a:hover{text-decoration:underline}ul,ol{display:flex;flex-direction:column;gap:6px;padding-left:22px}ul{list-style:disc}ol{list-style:decimal}:is(li,td,th)>*+:is(p,ul,ol,blockquote){margin-top:6px}blockquote{display:flex;flex-direction:column;gap:10px;border-left:2px solid var(--md-rule);padding-left:10px;color:var(--md-muted)}:not(pre)>code{background:var(--md-fill);padding:1px 3px;border-radius:4px;font:.92em 'SF Mono',ui-monospace,Menlo,Consolas,monospace}a>code{background:none;color:inherit}pre{background:var(--md-fill);padding:10px 12px;border-radius:6px;overflow-x:auto;font:12px/1.5 'SF Mono',ui-monospace,Menlo,Consolas,monospace;margin-block:4px}pre code{background:none;padding:0;font:inherit}table{width:100%;border-collapse:separate;border-spacing:2px;font:inherit}th,td{padding:6px 8px;border-radius:3px;text-align:left;vertical-align:top}th{background:var(--md-fill-strong);font-weight:600}td{background:var(--md-fill)}:is(th,td) :not(pre)>code{background:transparent}hr{border:0;border-top:1px solid var(--md-rule-strong);margin-block:10px}img{max-width:100%;height:auto;border-radius:4px}</style>
+</head><body>
+<h1>Quran Academy Management System — Technical Specification (V1)</h1>
+<p><strong>النطاق:</strong> ERD كامل + Database Schema تفصيلي + API Endpoints + Use Cases
+<strong>الجمهور المستهدف:</strong> فريق التطوير (Backend / Frontend / DB)
+<strong>مرجع:</strong> مبني على Blueprint V1 المتفق عليه سابقًا</p>
+<hr>
+<h2>1. ERD — Entity Relationship Diagram</h2>
+<pre class="mermaid">erDiagram
+    USERS ||--o| TEACHERS : &#34;profile&#34;
+    USERS ||--o| STUDENTS : &#34;profile&#34;
+    USERS ||--o| PARENTS : &#34;profile&#34;
+    USERS }o--|| ROLES : &#34;assigned to&#34;
+    ROLES ||--o{ ROLE_PERMISSIONS : grants
+    PERMISSIONS ||--o{ ROLE_PERMISSIONS : &#34;granted via&#34;
+
+    STUDENTS ||--o{ STUDENT_PARENTS : links
+    PARENTS ||--o{ STUDENT_PARENTS : links
+
+    PROGRAMS ||--o{ SUBSCRIPTION_PLANS : defines
+    SUBSCRIPTION_PLANS ||--o{ SUBSCRIPTIONS : &#34;purchased as&#34;
+    STUDENTS ||--o{ SUBSCRIPTIONS : owns
+    TEACHERS ||--o{ SUBSCRIPTIONS : &#34;assigned teacher&#34;
+
+    SUBSCRIPTIONS ||--o{ LESSONS : covers
+    STUDENTS ||--o{ LESSONS : attends
+    TEACHERS ||--o{ LESSONS : teaches
+    LESSONS ||--o| MEETING_LINKS : uses
+    LESSONS ||--o| LESSON_ATTENDANCE : records
+    LESSONS ||--o{ LESSON_RESCHEDULES : &#34;history of&#34;
+    LESSONS ||--o{ MEMORIZATION_RECORDS : produces
+    LESSONS ||--o{ PROGRESS_RECORDS : produces
+    LESSONS ||--o| TEACHER_EARNINGS : generates
+
+    STUDENTS ||--o{ PAYMENTS : pays
+    PAYMENTS ||--o{ REFUNDS : &#34;may have&#34;
+
+    TEACHERS ||--o{ TEACHER_EARNINGS : accrues
+    TEACHERS ||--o{ TEACHER_PAYMENTS : &#34;settled via&#34;
+
+    LEADS ||--o| ASSESSMENTS : &#34;evaluated by&#34;
+    ASSESSMENTS ||--o| STUDENTS : &#34;converts to&#34;
+    TEACHERS ||--o{ ASSESSMENTS : conducts
+
+    USERS ||--o{ AUDIT_LOGS : performs
+    USERS ||--o{ NOTIFICATIONS : receives
+</pre>
+<blockquote>
+<p>ملاحظة: العلاقات أعلاه مبسّطة لتوضيح التدفق العام. التفاصيل الكاملة (كل عمود ونوعه ومفاتيحه) في القسم التالي.</p>
+</blockquote>
+<hr>
+<h2>2. Database Schema — تفصيلي</h2>
+<p>الترميز: <code>PK</code> = Primary Key، <code>FK</code> = Foreign Key، <code>UQ</code> = Unique، <code>NN</code> = Not Null.
+النوع الافتراضي لأي <code>id</code> هو <code>BIGINT (auto-increment)</code> ما لم يُذكر غير ذلك. جميع الجداول تحتوي <code>created_at</code>, <code>updated_at</code> (<code>TIMESTAMP</code>) ما لم يُذكر خلاف ذلك، ومعظمها <code>deleted_at</code> (<code>TIMESTAMP NULL</code>) لدعم Soft Delete.</p>
+<h3>2.1 <code>users</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+<th>ملاحظات</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+<td></td>
+</tr>
+<tr>
+<td>role_id</td>
+<td>BIGINT</td>
+<td>FK → roles.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>full_name</td>
+<td>VARCHAR(150)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>email</td>
+<td>VARCHAR(150)</td>
+<td>UQ, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>phone</td>
+<td>VARCHAR(30)</td>
+<td>UQ</td>
+<td>مع كود الدولة</td>
+</tr>
+<tr>
+<td>password_hash</td>
+<td>VARCHAR(255)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>user_type</td>
+<td>ENUM('admin','manager','accountant','reception','teacher','student','parent')</td>
+<td>NN</td>
+<td>يحدد نوع الحساب</td>
+</tr>
+<tr>
+<td>status</td>
+<td>ENUM('active','suspended','inactive')</td>
+<td>NN, default 'active'</td>
+<td></td>
+</tr>
+<tr>
+<td>email_verified_at</td>
+<td>TIMESTAMP</td>
+<td>NULL</td>
+<td></td>
+</tr>
+<tr>
+<td>last_login_at</td>
+<td>TIMESTAMP</td>
+<td>NULL</td>
+<td></td>
+</tr>
+<tr>
+<td>timezone</td>
+<td>VARCHAR(50)</td>
+<td>NN, default 'Africa/Cairo'</td>
+<td>مهم للحصص عبر الدول</td>
+</tr>
+<tr>
+<td>preferred_locale</td>
+<td>VARCHAR(10)</td>
+<td>default 'ar'</td>
+<td></td>
+</tr>
+<tr>
+<td>deleted_at</td>
+<td>TIMESTAMP</td>
+<td>NULL</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.2 <code>roles</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>name</td>
+<td>VARCHAR(50)</td>
+<td>UQ, NN</td>
+</tr>
+<tr>
+<td>is_system_role</td>
+<td>BOOLEAN</td>
+<td>default false (يمنع حذف الأدوار الأساسية)</td>
+</tr>
+</tbody>
+</table>
+<h3>2.3 <code>permissions</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>key</td>
+<td>VARCHAR(100)</td>
+<td>UQ, NN (مثل <code>students.create</code>)</td>
+</tr>
+<tr>
+<td>module</td>
+<td>VARCHAR(50)</td>
+<td>NN (مثل <code>students</code>)</td>
+</tr>
+<tr>
+<td>description</td>
+<td>VARCHAR(255)</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.4 <code>role_permissions</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>role_id</td>
+<td>BIGINT</td>
+<td>FK → roles.id, NN</td>
+</tr>
+<tr>
+<td>permission_id</td>
+<td>BIGINT</td>
+<td>FK → permissions.id, NN</td>
+</tr>
+<tr>
+<td>UQ(role_id, permission_id)</td>
+<td></td>
+<td>يمنع التكرار</td>
+</tr>
+</tbody>
+</table>
+<h3>2.5 <code>students</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+<th>ملاحظات</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+<td></td>
+</tr>
+<tr>
+<td>user_id</td>
+<td>BIGINT</td>
+<td>FK → users.id, UQ, NULL</td>
+<td>NULL لو الحساب تابع لولي الأمر فقط</td>
+</tr>
+<tr>
+<td>full_name</td>
+<td>VARCHAR(150)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>date_of_birth</td>
+<td>DATE</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>gender</td>
+<td>ENUM('male','female')</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>country</td>
+<td>VARCHAR(50)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>city</td>
+<td>VARCHAR(50)</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>current_level</td>
+<td>ENUM('beginner','intermediate','advanced')</td>
+<td>default 'beginner'</td>
+<td></td>
+</tr>
+<tr>
+<td>reading_level</td>
+<td>VARCHAR(50)</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>tajweed_level</td>
+<td>VARCHAR(50)</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>current_juz</td>
+<td>SMALLINT</td>
+<td></td>
+<td>آخر جزء</td>
+</tr>
+<tr>
+<td>current_surah</td>
+<td>VARCHAR(50)</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>status</td>
+<td>ENUM('active','paused','cancelled')</td>
+<td>NN, default 'active'</td>
+<td></td>
+</tr>
+<tr>
+<td>lead_id</td>
+<td>BIGINT</td>
+<td>FK → leads.id, NULL</td>
+<td>يربط أصل العميل المحتمل</td>
+</tr>
+<tr>
+<td>notes</td>
+<td>TEXT</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>deleted_at</td>
+<td>TIMESTAMP</td>
+<td>NULL</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.6 <code>parents</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>user_id</td>
+<td>BIGINT</td>
+<td>FK → users.id, UQ, NN</td>
+</tr>
+<tr>
+<td>full_name</td>
+<td>VARCHAR(150)</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>phone</td>
+<td>VARCHAR(30)</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>country</td>
+<td>VARCHAR(50)</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.7 <code>student_parents</code> (Many-to-Many)</h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>student_id</td>
+<td>BIGINT</td>
+<td>FK → students.id, NN</td>
+</tr>
+<tr>
+<td>parent_id</td>
+<td>BIGINT</td>
+<td>FK → parents.id, NN</td>
+</tr>
+<tr>
+<td>relationship</td>
+<td>VARCHAR(30)</td>
+<td>مثل 'father','mother','guardian'</td>
+</tr>
+<tr>
+<td>is_primary_contact</td>
+<td>BOOLEAN</td>
+<td>default false</td>
+</tr>
+<tr>
+<td>UQ(student_id, parent_id)</td>
+<td></td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.8 <code>teachers</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+<th>ملاحظات</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+<td></td>
+</tr>
+<tr>
+<td>user_id</td>
+<td>BIGINT</td>
+<td>FK → users.id, UQ, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>full_name</td>
+<td>VARCHAR(150)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>country</td>
+<td>VARCHAR(50)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>specialization</td>
+<td>VARCHAR(100)</td>
+<td></td>
+<td>مثل 'تحفيظ', 'تجويد'</td>
+</tr>
+<tr>
+<td>max_level_taught</td>
+<td>VARCHAR(50)</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>payment_model</td>
+<td>ENUM('per_lesson','monthly')</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>lesson_rate</td>
+<td>DECIMAL(10,2)</td>
+<td>NULL</td>
+<td>مطلوب إذا payment_model='per_lesson'</td>
+</tr>
+<tr>
+<td>monthly_salary</td>
+<td>DECIMAL(10,2)</td>
+<td>NULL</td>
+<td>مطلوب إذا payment_model='monthly'</td>
+</tr>
+<tr>
+<td>currency</td>
+<td>VARCHAR(3)</td>
+<td>NN, default 'EGP'</td>
+<td>ISO 4217</td>
+</tr>
+<tr>
+<td>status</td>
+<td>ENUM('active','inactive')</td>
+<td>NN, default 'active'</td>
+<td></td>
+</tr>
+<tr>
+<td>deleted_at</td>
+<td>TIMESTAMP</td>
+<td>NULL</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.9 <code>teacher_availability</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+<th>ملاحظات</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+<td></td>
+</tr>
+<tr>
+<td>teacher_id</td>
+<td>BIGINT</td>
+<td>FK → teachers.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>weekday</td>
+<td>SMALLINT</td>
+<td>NN (0=أحد...6=سبت)</td>
+<td></td>
+</tr>
+<tr>
+<td>start_time</td>
+<td>TIME</td>
+<td>NN</td>
+<td>بتوقيت المعلم (timezone من users)</td>
+</tr>
+<tr>
+<td>end_time</td>
+<td>TIME</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>is_active</td>
+<td>BOOLEAN</td>
+<td>default true</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>جدول مضاف عن القائمة الأصلية — ضروري لمنع تعارض الحجز ولإدارة توفر المعلم بشكل مستقل عن جدول حصصه الفعلي.</p>
+</blockquote>
+<h3>2.10 <code>programs</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>name</td>
+<td>VARCHAR(100)</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>description</td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td>target_audience</td>
+<td>ENUM('children','adults','both')</td>
+<td>default 'both'</td>
+</tr>
+<tr>
+<td>is_active</td>
+<td>BOOLEAN</td>
+<td>default true</td>
+</tr>
+</tbody>
+</table>
+<h3>2.11 <code>subscription_plans</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+<th>ملاحظات</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+<td></td>
+</tr>
+<tr>
+<td>program_id</td>
+<td>BIGINT</td>
+<td>FK → programs.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>name</td>
+<td>VARCHAR(100)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>billing_model</td>
+<td>ENUM('per_lesson','monthly')</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>price</td>
+<td>DECIMAL(10,2)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>currency</td>
+<td>VARCHAR(3)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>lessons_included</td>
+<td>SMALLINT</td>
+<td>NULL</td>
+<td>NULL إذا per_lesson مفتوح</td>
+</tr>
+<tr>
+<td>lesson_duration_minutes</td>
+<td>SMALLINT</td>
+<td>NN, default 30</td>
+<td></td>
+</tr>
+<tr>
+<td>duration_days</td>
+<td>SMALLINT</td>
+<td>NULL</td>
+<td>مدة الاشتراك بالأيام (شهري = 30)</td>
+</tr>
+<tr>
+<td>is_active</td>
+<td>BOOLEAN</td>
+<td>default true</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.12 <code>subscriptions</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+<th>ملاحظات</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+<td></td>
+</tr>
+<tr>
+<td>student_id</td>
+<td>BIGINT</td>
+<td>FK → students.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>plan_id</td>
+<td>BIGINT</td>
+<td>FK → subscription_plans.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>teacher_id</td>
+<td>BIGINT</td>
+<td>FK → teachers.id, NULL</td>
+<td></td>
+</tr>
+<tr>
+<td>price_at_purchase</td>
+<td>DECIMAL(10,2)</td>
+<td>NN</td>
+<td><strong>يُنسخ من الخطة وقت الشراء</strong> — لا يتأثر بتغيير سعر الخطة لاحقًا</td>
+</tr>
+<tr>
+<td>currency</td>
+<td>VARCHAR(3)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>start_date</td>
+<td>DATE</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>end_date</td>
+<td>DATE</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>lessons_allowed</td>
+<td>SMALLINT</td>
+<td>NULL</td>
+<td></td>
+</tr>
+<tr>
+<td>lessons_used</td>
+<td>SMALLINT</td>
+<td>default 0</td>
+<td></td>
+</tr>
+<tr>
+<td>status</td>
+<td>ENUM('active','expired','paused','cancelled')</td>
+<td>NN, default 'active'</td>
+<td></td>
+</tr>
+<tr>
+<td>auto_renew</td>
+<td>BOOLEAN</td>
+<td>default false</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.13 <code>lessons</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+<th>ملاحظات</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+<td></td>
+</tr>
+<tr>
+<td>subscription_id</td>
+<td>BIGINT</td>
+<td>FK → subscriptions.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>student_id</td>
+<td>BIGINT</td>
+<td>FK → students.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>teacher_id</td>
+<td>BIGINT</td>
+<td>FK → teachers.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>program_id</td>
+<td>BIGINT</td>
+<td>FK → programs.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>scheduled_start_at</td>
+<td>TIMESTAMP (UTC)</td>
+<td>NN</td>
+<td><strong>يُخزَّن دائمًا UTC</strong>، يُعرض حسب timezone كل طرف</td>
+</tr>
+<tr>
+<td>scheduled_end_at</td>
+<td>TIMESTAMP (UTC)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>duration_minutes</td>
+<td>SMALLINT</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>status</td>
+<td>ENUM('scheduled','confirmed','completed','student_absent','teacher_absent','cancelled','rescheduled','makeup')</td>
+<td>NN, default 'scheduled'</td>
+<td></td>
+</tr>
+<tr>
+<td>cancelled_by</td>
+<td>ENUM('student','teacher','admin')</td>
+<td>NULL</td>
+<td></td>
+</tr>
+<tr>
+<td>cancellation_reason</td>
+<td>VARCHAR(255)</td>
+<td>NULL</td>
+<td></td>
+</tr>
+<tr>
+<td>is_makeup_for_lesson_id</td>
+<td>BIGINT</td>
+<td>FK → lessons.id, NULL</td>
+<td>يمنع خصم الحصة مرتين</td>
+</tr>
+<tr>
+<td>recurrence_group_id</td>
+<td>UUID</td>
+<td>NULL</td>
+<td>يربط الحصص المتكررة الناتجة من نفس القالب</td>
+</tr>
+<tr>
+<td>notes</td>
+<td>TEXT</td>
+<td>NULL</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.14 <code>lesson_attendance</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>lesson_id</td>
+<td>BIGINT</td>
+<td>FK → lessons.id, UQ, NN</td>
+</tr>
+<tr>
+<td>status</td>
+<td>ENUM('present','absent','late','makeup')</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>marked_by_user_id</td>
+<td>BIGINT</td>
+<td>FK → users.id, NN</td>
+</tr>
+<tr>
+<td>marked_at</td>
+<td>TIMESTAMP</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>actual_duration_minutes</td>
+<td>SMALLINT</td>
+<td>NULL</td>
+</tr>
+</tbody>
+</table>
+<h3>2.15 <code>lesson_reschedules</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>lesson_id</td>
+<td>BIGINT</td>
+<td>FK → lessons.id, NN</td>
+</tr>
+<tr>
+<td>old_start_at</td>
+<td>TIMESTAMP</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>new_start_at</td>
+<td>TIMESTAMP</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>reason</td>
+<td>VARCHAR(255)</td>
+<td></td>
+</tr>
+<tr>
+<td>requested_by_user_id</td>
+<td>BIGINT</td>
+<td>FK → users.id, NN</td>
+</tr>
+</tbody>
+</table>
+<h3>2.16 <code>meeting_links</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>lesson_id</td>
+<td>BIGINT</td>
+<td>FK → lessons.id, UQ, NULL</td>
+</tr>
+<tr>
+<td>teacher_id</td>
+<td>BIGINT</td>
+<td>FK → teachers.id, NULL</td>
+</tr>
+<tr>
+<td>provider</td>
+<td>ENUM('zoom','google_meet','other')</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>url</td>
+<td>VARCHAR(500)</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>meeting_id</td>
+<td>VARCHAR(100)</td>
+<td>NULL</td>
+</tr>
+<tr>
+<td>password</td>
+<td>VARCHAR(50)</td>
+<td>NULL</td>
+</tr>
+<tr>
+<td>link_scope</td>
+<td>ENUM('per_lesson','fixed_per_teacher')</td>
+<td>NN</td>
+</tr>
+</tbody>
+</table>
+<h3>2.17 <code>memorization_records</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>lesson_id</td>
+<td>BIGINT</td>
+<td>FK → lessons.id, NN</td>
+</tr>
+<tr>
+<td>student_id</td>
+<td>BIGINT</td>
+<td>FK → students.id, NN</td>
+</tr>
+<tr>
+<td>record_type</td>
+<td>ENUM('new_memorization','revision')</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>surah</td>
+<td>VARCHAR(50)</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>from_ayah</td>
+<td>SMALLINT</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>to_ayah</td>
+<td>SMALLINT</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>memorization_score</td>
+<td>TINYINT</td>
+<td>1–5</td>
+</tr>
+<tr>
+<td>tajweed_score</td>
+<td>TINYINT</td>
+<td>1–5</td>
+</tr>
+<tr>
+<td>pronunciation_score</td>
+<td>TINYINT</td>
+<td>1–5</td>
+</tr>
+<tr>
+<td>fluency_score</td>
+<td>TINYINT</td>
+<td>1–5</td>
+</tr>
+<tr>
+<td>teacher_notes</td>
+<td>TEXT</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.18 <code>progress_records</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+<th>ملاحظات</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+<td></td>
+</tr>
+<tr>
+<td>student_id</td>
+<td>BIGINT</td>
+<td>FK → students.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>lesson_id</td>
+<td>BIGINT</td>
+<td>FK → lessons.id, NULL</td>
+<td></td>
+</tr>
+<tr>
+<td>juz</td>
+<td>SMALLINT</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>surah</td>
+<td>VARCHAR(50)</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td>recorded_at</td>
+<td>TIMESTAMP</td>
+<td>NN</td>
+<td>سجل تاريخي زمني للتقدم (Timeline)</td>
+</tr>
+</tbody>
+</table>
+<h3>2.19 <code>payments</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+<th>ملاحظات</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+<td></td>
+</tr>
+<tr>
+<td>student_id</td>
+<td>BIGINT</td>
+<td>FK → students.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>subscription_id</td>
+<td>BIGINT</td>
+<td>FK → subscriptions.id, NULL</td>
+<td></td>
+</tr>
+<tr>
+<td>amount</td>
+<td>DECIMAL(10,2)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>currency</td>
+<td>VARCHAR(3)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>method</td>
+<td>ENUM('cash','bank_transfer','wallet','online_payment','other')</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>status</td>
+<td>ENUM('pending','completed','failed','voided')</td>
+<td>NN, default 'completed'</td>
+<td></td>
+</tr>
+<tr>
+<td>reference_number</td>
+<td>VARCHAR(100)</td>
+<td>NULL</td>
+<td></td>
+</tr>
+<tr>
+<td>paid_at</td>
+<td>TIMESTAMP</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>created_by_user_id</td>
+<td>BIGINT</td>
+<td>FK → users.id, NN</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>قاعدة عمل:</strong> لا يُحذف أي Payment فعليًا بعد تسجيله؛ التعديل يتم فقط عبر <code>refunds</code> + <code>audit_logs</code>.</p>
+</blockquote>
+<h3>2.20 <code>refunds</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>payment_id</td>
+<td>BIGINT</td>
+<td>FK → payments.id, NN</td>
+</tr>
+<tr>
+<td>amount</td>
+<td>DECIMAL(10,2)</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>reason</td>
+<td>VARCHAR(255)</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>approved_by_user_id</td>
+<td>BIGINT</td>
+<td>FK → users.id, NN</td>
+</tr>
+<tr>
+<td>refunded_at</td>
+<td>TIMESTAMP</td>
+<td>NN</td>
+</tr>
+</tbody>
+</table>
+<h3>2.21 <code>teacher_earnings</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+<th>ملاحظات</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+<td></td>
+</tr>
+<tr>
+<td>teacher_id</td>
+<td>BIGINT</td>
+<td>FK → teachers.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>lesson_id</td>
+<td>BIGINT</td>
+<td>FK → lessons.id, NULL</td>
+<td>NULL للمكافآت/الخصومات العامة</td>
+</tr>
+<tr>
+<td>entry_type</td>
+<td>ENUM('lesson_earning','bonus','deduction','advance')</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>amount</td>
+<td>DECIMAL(10,2)</td>
+<td>NN</td>
+<td>سالب للخصومات والسلف</td>
+</tr>
+<tr>
+<td>currency</td>
+<td>VARCHAR(3)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>note</td>
+<td>VARCHAR(255)</td>
+<td>NULL</td>
+<td></td>
+</tr>
+<tr>
+<td>entry_date</td>
+<td>DATE</td>
+<td>NN</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.22 <code>teacher_payments</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+<th>ملاحظات</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+<td></td>
+</tr>
+<tr>
+<td>teacher_id</td>
+<td>BIGINT</td>
+<td>FK → teachers.id, NN</td>
+<td></td>
+</tr>
+<tr>
+<td>period_start</td>
+<td>DATE</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>period_end</td>
+<td>DATE</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>gross_amount</td>
+<td>DECIMAL(10,2)</td>
+<td>NN</td>
+<td>مجموع teacher_earnings للفترة</td>
+</tr>
+<tr>
+<td>paid_amount</td>
+<td>DECIMAL(10,2)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>remaining_amount</td>
+<td>DECIMAL(10,2)</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>status</td>
+<td>ENUM('pending','partially_paid','paid')</td>
+<td>NN</td>
+<td></td>
+</tr>
+<tr>
+<td>paid_at</td>
+<td>TIMESTAMP</td>
+<td>NULL</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.23 <code>leads</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>full_name</td>
+<td>VARCHAR(150)</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>phone</td>
+<td>VARCHAR(30)</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>country</td>
+<td>VARCHAR(50)</td>
+<td></td>
+</tr>
+<tr>
+<td>student_age</td>
+<td>SMALLINT</td>
+<td>NULL</td>
+</tr>
+<tr>
+<td>interested_program_id</td>
+<td>BIGINT</td>
+<td>FK → programs.id, NULL</td>
+</tr>
+<tr>
+<td>source</td>
+<td>ENUM('facebook','instagram','website','referral','other')</td>
+<td></td>
+</tr>
+<tr>
+<td>assigned_staff_id</td>
+<td>BIGINT</td>
+<td>FK → users.id, NULL</td>
+</tr>
+<tr>
+<td>status</td>
+<td>ENUM('new','contacted','qualified','trial_booked','trial_completed','offer_sent','converted','lost')</td>
+<td>NN, default 'new'</td>
+</tr>
+<tr>
+<td>notes</td>
+<td>TEXT</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<h3>2.24 <code>assessments</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>lead_id</td>
+<td>BIGINT</td>
+<td>FK → leads.id, NULL</td>
+</tr>
+<tr>
+<td>student_id</td>
+<td>BIGINT</td>
+<td>FK → students.id, NULL</td>
+</tr>
+<tr>
+<td>teacher_id</td>
+<td>BIGINT</td>
+<td>FK → teachers.id, NN</td>
+</tr>
+<tr>
+<td>scheduled_at</td>
+<td>TIMESTAMP</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>meeting_link_id</td>
+<td>BIGINT</td>
+<td>FK → meeting_links.id, NULL</td>
+</tr>
+<tr>
+<td>reading_score</td>
+<td>TINYINT</td>
+<td>1–5</td>
+</tr>
+<tr>
+<td>tajweed_score</td>
+<td>TINYINT</td>
+<td>1–5</td>
+</tr>
+<tr>
+<td>memorization_score</td>
+<td>TINYINT</td>
+<td>1–5</td>
+</tr>
+<tr>
+<td>recommended_level</td>
+<td>VARCHAR(50)</td>
+<td></td>
+</tr>
+<tr>
+<td>notes</td>
+<td>TEXT</td>
+<td></td>
+</tr>
+<tr>
+<td>result</td>
+<td>ENUM('ready_to_subscribe','needs_follow_up','not_suitable')</td>
+<td>NULL</td>
+</tr>
+</tbody>
+</table>
+<h3>2.25 <code>notifications</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>user_id</td>
+<td>BIGINT</td>
+<td>FK → users.id, NN</td>
+</tr>
+<tr>
+<td>event_type</td>
+<td>ENUM('lesson_reminder','subscription_expiring','subscription_expired','payment_received','makeup_created','trial_reminder')</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>channel</td>
+<td>ENUM('in_app','email','whatsapp','sms')</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>payload</td>
+<td>JSON</td>
+<td></td>
+</tr>
+<tr>
+<td>sent_at</td>
+<td>TIMESTAMP</td>
+<td>NULL</td>
+</tr>
+<tr>
+<td>read_at</td>
+<td>TIMESTAMP</td>
+<td>NULL</td>
+</tr>
+</tbody>
+</table>
+<h3>2.26 <code>audit_logs</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>user_id</td>
+<td>BIGINT</td>
+<td>FK → users.id, NN</td>
+</tr>
+<tr>
+<td>action</td>
+<td>VARCHAR(100)</td>
+<td>NN (مثل 'subscription.price_changed')</td>
+</tr>
+<tr>
+<td>entity_type</td>
+<td>VARCHAR(50)</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>entity_id</td>
+<td>BIGINT</td>
+<td>NN</td>
+</tr>
+<tr>
+<td>old_value</td>
+<td>JSON</td>
+<td>NULL</td>
+</tr>
+<tr>
+<td>new_value</td>
+<td>JSON</td>
+<td>NULL</td>
+</tr>
+<tr>
+<td>ip_address</td>
+<td>VARCHAR(45)</td>
+<td></td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>TIMESTAMP</td>
+<td>NN</td>
+</tr>
+</tbody>
+</table>
+<h3>2.27 <code>settings</code></h3>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Type</th>
+<th>Constraints</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>id</td>
+<td>BIGINT</td>
+<td>PK</td>
+</tr>
+<tr>
+<td>key</td>
+<td>VARCHAR(100)</td>
+<td>UQ, NN</td>
+</tr>
+<tr>
+<td>value</td>
+<td>JSON</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2>3. API Endpoints (REST)</h2>
+<p>الاصطلاح: كل الاستجابات JSON، المصادقة عبر <code>Bearer Token</code> (JWT)، فحص الصلاحية يتم في Backend دائمًا وليس فقط بإخفاء الزر في الـFrontend.</p>
+<h3>Auth</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الوصف</th>
+<th>الصلاحية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/api/auth/login</code></td>
+<td>تسجيل دخول</td>
+<td>عام</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/auth/logout</code></td>
+<td>تسجيل خروج</td>
+<td>مسجّل</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/auth/forgot-password</code></td>
+<td>طلب استعادة كلمة مرور</td>
+<td>عام</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/auth/reset-password</code></td>
+<td>تعيين كلمة مرور جديدة</td>
+<td>عام (بتوكن)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/auth/me</code></td>
+<td>بيانات المستخدم الحالي</td>
+<td>مسجّل</td>
+</tr>
+</tbody>
+</table>
+<h3>Users / Roles / Permissions</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الوصف</th>
+<th>الصلاحية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET/POST</td>
+<td><code>/api/users</code></td>
+<td>قائمة/إنشاء مستخدم</td>
+<td><code>users.view</code> / <code>users.create</code></td>
+</tr>
+<tr>
+<td>GET/PUT/DELETE</td>
+<td><code>/api/users/{id}</code></td>
+<td>عرض/تعديل/حذف (soft)</td>
+<td><code>users.edit</code></td>
+</tr>
+<tr>
+<td>GET/POST</td>
+<td><code>/api/roles</code></td>
+<td>إدارة الأدوار</td>
+<td><code>settings.manage</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/roles/{id}/permissions</code></td>
+<td>تحديث صلاحيات الدور</td>
+<td><code>settings.manage</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/permissions</code></td>
+<td>قائمة كل الصلاحيات المتاحة</td>
+<td><code>settings.manage</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Students / Parents</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الوصف</th>
+<th>الصلاحية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET/POST</td>
+<td><code>/api/students</code></td>
+<td>قائمة/إنشاء طالب (فلاتر: status, country, teacher_id, program_id)</td>
+<td><code>students.view/create</code></td>
+</tr>
+<tr>
+<td>GET/PUT/DELETE</td>
+<td><code>/api/students/{id}</code></td>
+<td>ملف الطالب الكامل</td>
+<td><code>students.edit/delete</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/students/{id}/schedule</code></td>
+<td>حصص الطالب</td>
+<td><code>students.view</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/students/{id}/attendance</code></td>
+<td>سجل الحضور</td>
+<td><code>students.view</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/students/{id}/progress</code></td>
+<td>Timeline التقدم</td>
+<td><code>students.view</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/students/{id}/payments</code></td>
+<td>سجل المدفوعات</td>
+<td><code>payments.view</code></td>
+</tr>
+<tr>
+<td>GET/POST</td>
+<td><code>/api/parents</code></td>
+<td>إدارة أولياء الأمور</td>
+<td><code>students.view/create</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/parents/{id}/children</code></td>
+<td>ربط طالب بولي أمر</td>
+<td><code>students.edit</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Teachers</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الوصف</th>
+<th>الصلاحية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET/POST</td>
+<td><code>/api/teachers</code></td>
+<td>قائمة/إنشاء معلم</td>
+<td><code>teachers.view/create</code></td>
+</tr>
+<tr>
+<td>GET/PUT/DELETE</td>
+<td><code>/api/teachers/{id}</code></td>
+<td>ملف المعلم</td>
+<td><code>teachers.edit/delete</code></td>
+</tr>
+<tr>
+<td>GET/POST</td>
+<td><code>/api/teachers/{id}/availability</code></td>
+<td>توافر المعلم</td>
+<td><code>teachers.edit</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/teachers/{id}/schedule</code></td>
+<td>جدول حصصه</td>
+<td><code>teachers.view</code> (المعلم نفسه أو الإدارة)</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/teachers/{id}/earnings</code></td>
+<td>كشف المستحقات</td>
+<td><code>payments.view</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Programs / Plans / Subscriptions</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الوصف</th>
+<th>الصلاحية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET/POST</td>
+<td><code>/api/programs</code></td>
+<td>البرامج</td>
+<td><code>settings.manage</code></td>
+</tr>
+<tr>
+<td>GET/POST</td>
+<td><code>/api/plans</code></td>
+<td>باقات الاشتراك</td>
+<td><code>settings.manage</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/plans/{id}</code></td>
+<td>تعديل خطة (لا يؤثر على اشتراكات قائمة)</td>
+<td><code>settings.manage</code></td>
+</tr>
+<tr>
+<td>GET/POST</td>
+<td><code>/api/subscriptions</code></td>
+<td>إنشاء/عرض الاشتراكات</td>
+<td><code>students.edit</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/subscriptions/{id}</code></td>
+<td>تجديد/إيقاف/إلغاء</td>
+<td><code>students.edit</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/subscriptions/{id}/lessons-remaining</code></td>
+<td>الرصيد المتبقي</td>
+<td><code>students.view</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Schedule / Lessons</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الوصف</th>
+<th>الصلاحية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/api/schedule?view=day|week|month&amp;teacher_id=&amp;student_id=</code></td>
+<td>عرض الجدول</td>
+<td><code>lessons.view</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/lessons</code></td>
+<td>إنشاء حصة (يتحقق من تعارض المعلم)</td>
+<td><code>lessons.create</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/lessons/recurring</code></td>
+<td>إنشاء سلسلة حصص متكررة من قالب</td>
+<td><code>lessons.create</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/lessons/{id}</code></td>
+<td>تعديل موعد/بيانات</td>
+<td><code>lessons.edit</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/lessons/{id}/cancel</code></td>
+<td>إلغاء مع سبب وطرف الإلغاء</td>
+<td><code>lessons.cancel</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/lessons/{id}/makeup</code></td>
+<td>إنشاء حصة تعويضية مرتبطة</td>
+<td><code>lessons.create</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/lessons/{id}/complete</code></td>
+<td>إنهاء الحصة (يفتح نموذج الحضور+التسميع)</td>
+<td><code>lessons.edit</code> (المعلم)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/lessons/{id}/attendance</code></td>
+<td>تسجيل الحضور</td>
+<td><code>lessons.edit</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/lessons/{id}/memorization</code></td>
+<td>تسجيل الحفظ/المراجعة/التقييم</td>
+<td><code>lessons.edit</code> (المعلم)</td>
+</tr>
+</tbody>
+</table>
+<h3>Meeting Links</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الوصف</th>
+<th>الصلاحية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST</td>
+<td><code>/api/meeting-links</code></td>
+<td>إنشاء رابط (ثابت للمعلم أو خاص بحصة)</td>
+<td><code>lessons.edit</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/lessons/{id}/meeting-link</code></td>
+<td>جلب رابط الدخول</td>
+<td>الطالب/المعلم المعنيان</td>
+</tr>
+</tbody>
+</table>
+<h3>Payments / Teacher Payments</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الوصف</th>
+<th>الصلاحية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET/POST</td>
+<td><code>/api/payments</code></td>
+<td>تسجيل/عرض المدفوعات</td>
+<td><code>payments.view/create</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/payments/{id}/refund</code></td>
+<td>استرجاع (Void مع سبب)</td>
+<td><code>payments.refund</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/teacher-payments</code></td>
+<td>مستحقات كل المعلمين</td>
+<td><code>payments.view</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/teacher-payments</code></td>
+<td>تسجيل دفعة لمعلم (كلي/جزئي)</td>
+<td><code>payments.create</code></td>
+</tr>
+</tbody>
+</table>
+<h3>CRM (Leads / Assessments)</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الوصف</th>
+<th>الصلاحية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET/POST</td>
+<td><code>/api/leads</code></td>
+<td>إدارة العملاء المحتملين</td>
+<td><code>leads.view/create</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/leads/{id}/status</code></td>
+<td>تغيير حالة الـLead</td>
+<td><code>leads.edit</code></td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/assessments</code></td>
+<td>حجز تقييم تجريبي</td>
+<td><code>leads.edit</code></td>
+</tr>
+<tr>
+<td>PUT</td>
+<td><code>/api/assessments/{id}/result</code></td>
+<td>تسجيل نتيجة التقييم</td>
+<td><code>leads.edit</code> (المعلم)</td>
+</tr>
+<tr>
+<td>POST</td>
+<td><code>/api/assessments/{id}/convert</code></td>
+<td>تحويل إلى Student (مع الحفاظ على تاريخ الـLead)</td>
+<td><code>students.create</code></td>
+</tr>
+</tbody>
+</table>
+<h3>Reports / Dashboard / Notifications</h3>
+<table>
+<thead>
+<tr>
+<th>Method</th>
+<th>Endpoint</th>
+<th>الوصف</th>
+<th>الصلاحية</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>GET</td>
+<td><code>/api/dashboard/summary</code></td>
+<td>أرقام اليوم + التنبيهات المطلوب التصرف فيها</td>
+<td><code>reports.view</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/reports/financial</code></td>
+<td>تقرير مالي (بالعملة)</td>
+<td><code>reports.view</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/reports/academic</code></td>
+<td>تقدم الطلاب/الحضور</td>
+<td><code>reports.view</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/reports/sales</code></td>
+<td>Leads/Trials/Conversion rate</td>
+<td><code>reports.view</code></td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/notifications</code></td>
+<td>إشعارات المستخدم الحالي</td>
+<td>مسجّل</td>
+</tr>
+<tr>
+<td>GET</td>
+<td><code>/api/audit-logs?entity_type=&amp;entity_id=</code></td>
+<td>سجل التدقيق</td>
+<td><code>settings.manage</code></td>
+</tr>
+</tbody>
+</table>
+<hr>
+<h2>4. Use Cases الرئيسية</h2>
+<h3>UC-01: تسجيل طالب جديد من Lead</h3>
+<ul>
+<li><strong>الفاعل:</strong> موظف خدمة العملاء</li>
+<li><strong>الشرط المسبق:</strong> يوجد Lead بحالة <code>trial_completed</code> ونتيجة تقييم <code>ready_to_subscribe</code></li>
+<li><strong>الخطوات:</strong>
+<ol>
+<li>الموظف يفتح الـLead ويضغط &quot;تحويل إلى طالب&quot;</li>
+<li>النظام ينشئ <code>student</code> جديد ويربطه بـ <code>lead_id</code> (لا يُحذف الـLead)</li>
+<li>الموظف يختار <code>subscription_plan</code> والمعلم</li>
+<li>النظام يُنشئ <code>subscription</code> بـ <code>price_at_purchase</code> منسوخ من الخطة الحالية</li>
+<li>الموظف يسجل <code>payment</code> أول</li>
+<li>النظام يُحدّث حالة الـLead إلى <code>converted</code></li>
+</ol>
+</li>
+<li><strong>الشرط اللاحق:</strong> الطالب نشط وله اشتراك ساري، وجاهز لجدولة الحصص</li>
+<li><strong>قواعد العمل:</strong> الاشتراك لا يُنشأ بدون Payment ناجح أو تسجيل صريح &quot;دفع آجل&quot; من مدير مخوّل</li>
+</ul>
+<h3>UC-02: جدولة حصص متكررة</h3>
+<ul>
+<li><strong>الفاعل:</strong> موظف/إدارة</li>
+<li><strong>الخطوات:</strong>
+<ol>
+<li>اختيار الطالب + المعلم + الأيام والوقت (مثال: سبت/اثنين/أربعاء 7:00 مساءً بتوقيت الطالب)</li>
+<li>النظام يحوّل الوقت إلى UTC ويتحقق من <code>teacher_availability</code> وعدم وجود تعارض في <code>lessons</code></li>
+<li>عند عدم وجود تعارض: يُنشئ سلسلة حصص بنفس <code>recurrence_group_id</code> حتى نهاية <code>subscription.end_date</code> أو حتى استنفاد <code>lessons_allowed</code></li>
+<li>عند وجود تعارض: يعرض رسالة &quot;المعلم لديه حصة أخرى في هذا التوقيت&quot; مع اقتراح أقرب وقت متاح</li>
+</ol>
+</li>
+<li><strong>الشرط اللاحق:</strong> حصص بحالة <code>scheduled</code> مرتبطة بالاشتراك</li>
+</ul>
+<h3>UC-03: إجراء الحصة وتسجيل النتائج (من جهة المعلم)</h3>
+<ul>
+<li><strong>الفاعل:</strong> المعلم</li>
+<li><strong>الخطوات:</strong>
+<ol>
+<li>المعلم يفتح &quot;حصص اليوم&quot; ويضغط &quot;دخول الحصة&quot; (فتح رابط Zoom/Meet خارجيًا)</li>
+<li>بعد انتهاء الحصة، يضغط &quot;إنهاء الحصة&quot;</li>
+<li>يسجل الحضور (<code>lesson_attendance</code>)</li>
+<li>يسجل الحفظ الجديد والمراجعة والتقييم (<code>memorization_records</code>)</li>
+<li>النظام يُنشئ سجل <code>progress_records</code> تلقائيًا ويُحدّث <code>students.current_juz/current_surah</code></li>
+<li>إذا <code>subscription.billing_model</code> للمعلم = <code>per_lesson</code>: النظام يُنشئ <code>teacher_earnings</code> بقيمة <code>lesson_rate</code></li>
+<li>حالة الحصة تتغير إلى <code>completed</code>، و<code>subscriptions.lessons_used += 1</code></li>
+</ol>
+</li>
+</ul>
+<h3>UC-04: غياب المعلم وإنشاء حصة تعويضية</h3>
+<ul>
+<li><strong>الفاعل:</strong> الإدارة أو النظام تلقائيًا بعد مرور وقت الحصة بدون تسجيل</li>
+<li><strong>الخطوات:</strong>
+<ol>
+<li>تُسجَّل الحصة الأصلية بحالة <code>teacher_absent</code></li>
+<li>النظام <strong>لا يخصم</strong> هذه الحصة من <code>lessons_used</code></li>
+<li>الإدارة تُنشئ حصة جديدة بـ <code>is_makeup_for_lesson_id</code> = معرّف الحصة الأصلية</li>
+<li>الحصة التعويضية الجديدة عند اكتمالها هي التي تُخصم من الرصيد</li>
+</ol>
+</li>
+<li><strong>قاعدة العمل الحرجة:</strong> أي حصة لها <code>is_makeup_for_lesson_id</code> غير NULL لا تُنشئ خصمًا مضاعفًا؛ فقط إكمالها الفعلي يُحتسب.</li>
+</ul>
+<h3>UC-05: تجديد اشتراك شهري منتهي</h3>
+<ul>
+<li><strong>الفاعل:</strong> النظام (تلقائي) + موظف الحسابات</li>
+<li><strong>الخطوات:</strong>
+<ol>
+<li>Cron يومي يفحص <code>subscriptions.end_date</code> خلال 3 أيام القادمة</li>
+<li>يُرسل <code>notification</code> (event_type=<code>subscription_expiring</code>) للطالب/ولي الأمر وللإدارة</li>
+<li>عند انتهاء الاشتراك فعليًا وعدم التجديد: <code>status</code> → <code>expired</code>، ويتوقف إنشاء حصص جديدة عليه</li>
+<li>عند دفع الطالب: يُنشأ <code>subscription</code> جديد (وليس تعديل القديم) — الحفاظ على السجل التاريخي</li>
+</ol>
+</li>
+</ul>
+<h3>UC-06: محاسبة معلم &quot;بالحصة&quot; آخر الشهر</h3>
+<ul>
+<li><strong>الفاعل:</strong> محاسب</li>
+<li><strong>الخطوات:</strong>
+<ol>
+<li>فتح <code>/api/teachers/{id}/earnings</code> لفترة الشهر</li>
+<li>النظام يجمع كل صفوف <code>teacher_earnings</code> (lesson_earning + bonus + deduction + advance) للفترة</li>
+<li>يُنشئ <code>teacher_payment</code> بـ <code>gross_amount</code> المحسوب</li>
+<li>المحاسب يسجل الدفعة الفعلية (قد تكون جزئية) → <code>paid_amount</code>, <code>remaining_amount</code> يُحدَّث تلقائيًا</li>
+</ol>
+</li>
+<li><strong>ملاحظة:</strong> معلم <code>monthly</code> لا يمر بنفس الحساب — <code>gross_amount</code> = <code>teachers.monthly_salary</code> مباشرة، والحصص تُسجَّل لأغراض التقارير فقط</li>
+</ul>
+<h3>UC-07: طالب اشتراكه شهري ومعلمه بالحصة (السيناريو المركب)</h3>
+<ul>
+<li><strong>الفاعل:</strong> النظام (منطق ضمني، لا تدخل يدوي إضافي)</li>
+<li><strong>يوضح استقلالية النموذجين:</strong>
+<ul>
+<li>عند اكتمال كل حصة: <code>subscriptions.lessons_used += 1</code> (يؤثر فقط على رصيد الطالب)</li>
+<li>وبشكل مستقل تمامًا: يُنشأ <code>teacher_earnings</code> بقيمة <code>teacher.lesson_rate</code> (يؤثر فقط على مستحقات المعلم)</li>
+<li>الجدولان لا يتشاركان أي حقل أو منطق حسابي مشترك؛ التغيير في أحدهما لا يُعدّل الآخر</li>
+</ul>
+</li>
+</ul>
+<h3>UC-08: تسجيل عملية دفع واسترجاعها</h3>
+<ul>
+<li><strong>الفاعل:</strong> محاسب / مدير</li>
+<li><strong>الخطوات:</strong>
+<ol>
+<li>تسجيل <code>payment</code> بحالة <code>completed</code></li>
+<li>عند الحاجة لاسترجاع: <strong>لا حذف</strong> — إنشاء <code>refund</code> مرتبط بـ <code>payment_id</code> مع سبب</li>
+<li>النظام يُحدّث <code>payments.status</code> → <code>voided</code> تلقائيًا عند اكتمال الاسترجاع</li>
+<li>يُسجَّل الإجراء كاملًا في <code>audit_logs</code> (من قام بالإجراء، القيمة القديمة/الجديدة)</li>
+</ol>
+</li>
+</ul>
+<h3>UC-09: حجز وإجراء تقييم تجريبي (Trial Assessment)</h3>
+<ul>
+<li><strong>الفاعل:</strong> موظف خدمة العملاء ثم المعلم</li>
+<li><strong>الخطوات:</strong>
+<ol>
+<li>الموظف يُنشئ <code>assessment</code> مرتبط بـ <code>lead_id</code> مع معلم ومعاد</li>
+<li>النظام يُنشئ <code>meeting_link</code> للتقييم</li>
+<li>بعد الجلسة، يدخل المعلم الدرجات والمستوى المقترح والنتيجة (<code>result</code>)</li>
+<li>عند <code>result = ready_to_subscribe</code>: تتفعل خطوة UC-01</li>
+</ol>
+</li>
+</ul>
+<h3>UC-10: تعارض في الجدولة (Conflict Detection)</h3>
+<ul>
+<li><strong>الفاعل:</strong> النظام (تحقق تلقائي عند أي إنشاء/تعديل حصة)</li>
+<li><strong>المنطق:</strong> قبل حفظ أي <code>lesson</code> جديدة أو معدَّلة، يتحقق النظام من عدم وجود صف آخر بنفس <code>teacher_id</code> تتداخل فيه <code>scheduled_start_at</code>–<code>scheduled_end_at</code> مع حصة أخرى ليست <code>cancelled</code>. عند وجود تداخل → HTTP 409 مع تفاصيل الحصة المتعارضة.</li>
+</ul>
+<hr>
+<h2>5. ملاحظات تنفيذية ختامية</h2>
+<ul>
+<li><strong>Timezone:</strong> كل الأوقات تُخزَّن UTC في قاعدة البيانات، وتُحوَّل للعرض فقط حسب <code>users.timezone</code> لكل طرف (طالب/معلم/إدارة).</li>
+<li><strong>Recurring Lessons:</strong> تُبنى فوق <code>recurrence_group_id</code> لتسهيل التعديل/الإلغاء الجماعي دون كسر الحصص الفردية المُعدَّلة يدويًا.</li>
+<li><strong>لا Migration مفاجئة لاحقًا:</strong> الحقول التي ذُكرت كإضافات محتملة (خصم الإخوة، الحصص الجماعية) يُفضَّل حجز أعمدة/جداول لها من الآن حتى لو لم تُفعَّل في V1، لتفادي إعادة هيكلة الجداول المالية لاحقًا.</li>
+</ul>
+
+
+<!--claude-mermaid-runtime-begin:3477-->
+<style>.mermaid-diagram{margin-block:4px}.mermaid-diagram svg{display:block;margin:0 auto;max-width:100%;height:auto}</style>
+<script src="/_runtime/mermaid-11.16.1.min.js"></script>
+<script>(function(){
+var CFG={"palettes":{"light":{"surface":"#f4efe4","text":"#42392e","line":"#8a7f6d","border":"#7a6c52","bg":"#fffdf8"},"dark":{"surface":"#262b34","text":"#f2f3f5","line":"#a8adb8","border":"#9aa4b8","bg":"#1f232b"}}};
+if(typeof mermaid==='undefined')return;
+var pres=Array.prototype.slice.call(document.querySelectorAll('pre.mermaid')).filter(function(p){if(p.hasAttribute('data-claude-mermaid-claimed'))return false;p.setAttribute('data-claude-mermaid-claimed','1');return true;});
+if(!pres.length)return;
+var mq=window.matchMedia?window.matchMedia('(prefers-color-scheme: dark)'):null;
+var root=document.documentElement;
+var items=pres.map(function(pre){
+var mount=document.createElement('div');mount.className='mermaid-diagram';
+return {pre:pre,mount:mount,src:pre.textContent||''};
+});
+var seq=0;
+var renderGen=0;
+var lastKey='';
+function pageBg(fallback){
+var els=[document.body,document.documentElement];
+for(var i=0;i<els.length;i++){
+var c=els[i]&&getComputedStyle(els[i]).backgroundColor;
+if(c&&c!=='transparent'&&c!=='rgba(0, 0, 0, 0)')return c;
+}
+return fallback;
+}
+function render(){
+var theme=root.getAttribute('data-theme');
+var dark=theme==='dark'||(!!(mq&&mq.matches)&&theme!=='light');
+var pal=dark?CFG.palettes.dark:CFG.palettes.light;
+var bg=pageBg(pal.bg);
+var key=(dark?'d':'l')+'|'+bg;
+if(key===lastKey)return;
+lastKey=key;
+var gen=++renderGen;
+var font=getComputedStyle(document.body).fontFamily||'sans-serif';
+var nat={useMaxWidth:false};
+mermaid.initialize({
+startOnLoad:false,securityLevel:'strict',theme:'base',
+flowchart:nat,sequence:nat,er:nat,state:nat,class:nat,pie:nat,
+gantt:nat,journey:nat,timeline:nat,gitGraph:nat,mindmap:nat,xyChart:nat,
+quadrantChart:nat,sankey:nat,c4:nat,requirement:nat,block:nat,
+packet:nat,kanban:nat,architecture:nat,radar:nat,
+themeVariables:{background:bg,mainBkg:pal.surface,primaryColor:pal.surface,
+primaryTextColor:pal.text,lineColor:pal.line,primaryBorderColor:pal.border,
+nodeBorder:pal.border,clusterBorder:pal.border,edgeLabelBackground:bg,
+clusterBkg:'rgba(127,127,127,0.07)',titleColor:pal.text,
+darkMode:dark,rowOdd:bg,rowEven:'rgba(127,127,127,0.07)',
+attributeBackgroundColorOdd:bg,attributeBackgroundColorEven:'rgba(127,127,127,0.07)',
+fontSize:'16px',fontFamily:font},
+themeCSS:'.node rect, .node circle, .node polygon, .node path, .cluster rect { stroke-width: 2px; }'
+});
+items.forEach(function(it){
+var id='claude-mermaid-'+seq++;
+mermaid.render(id,it.src).then(function(r){
+if(gen!==renderGen)return;
+var prev=it.pre.previousElementSibling;
+if(prev&&prev.className==='mermaid-diagram'&&prev!==it.mount)return;
+it.mount.innerHTML=r.svg;
+if(!it.mount.parentNode)it.pre.parentNode.insertBefore(it.mount,it.pre);
+it.pre.style.display='none';
+},function(){
+var scratch=document.getElementById(id);
+if(scratch)scratch.parentNode.removeChild(scratch);
+scratch=document.getElementById('d'+id);
+if(scratch)scratch.parentNode.removeChild(scratch);
+if(gen!==renderGen)return;
+if(it.mount.parentNode)it.mount.parentNode.removeChild(it.mount);
+it.pre.style.display='';
+});
+});
+}
+render();
+if(mq&&mq.addEventListener)mq.addEventListener('change',render);
+if(typeof MutationObserver!=='undefined')new MutationObserver(render).observe(root,{attributes:true,attributeFilter:['data-theme']});
+})();</script>
+<!--claude-mermaid-runtime-end-->
+</body></html>
