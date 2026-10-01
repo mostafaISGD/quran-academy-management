@@ -1,7 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getPrograms, createProgram, updateProgram, deleteProgram, type Program } from "@/lib/api";
+import Pagination from "@/components/Pagination";
+
+const PAGE_SIZE = 100;
 
 export default function ProgramsPage() {
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -11,15 +14,38 @@ export default function ProgramsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState({ name: "", slug: "", description: "", status: "active" as Program["status"] });
 
-  function loadPrograms() {
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
+  const [statusFilter, setStatusFilter] = useState("");
+
+  const loadPrograms = useCallback(async (targetPage = 1, status = "") => {
     setLoading(true);
-    getPrograms()
-      .then((r) => setPrograms(r.data))
-      .catch((err) => setError(err instanceof Error ? err.message : "تعذر تحميل البيانات"))
-      .finally(() => setLoading(false));
+    setError(null);
+    try {
+      const r = await getPrograms({ per_page: PAGE_SIZE, page: targetPage, status: status || undefined });
+      setPrograms(r.data);
+      setMeta({ total: r.total, last_page: r.last_page });
+      const c = r.counts as Record<string, unknown> | undefined;
+      const st = c?.status;
+      setStatusCounts((st && typeof st === "object" ? st : {}) as Record<string, number>);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadPrograms(1, statusFilter); }, [loadPrograms, statusFilter]);
+
+  function goToPage(target: number) {
+    if (target < 1 || target > meta.last_page || target === page) return;
+    setPage(target);
+    loadPrograms(target, statusFilter);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  useEffect(() => { loadPrograms(); }, []);
+  const refresh = () => loadPrograms(page, statusFilter);
 
   function openCreate() { setForm({ name: "", slug: "", description: "", status: "active" }); setEditingId(null); setShowForm(true); }
   function openEdit(p: Program) { setForm({ name: p.name, slug: p.slug, description: p.description ?? "", status: p.status }); setEditingId(p.id); setShowForm(true); }
@@ -28,20 +54,51 @@ export default function ProgramsPage() {
     e.preventDefault();
     try {
       if (editingId) { await updateProgram(editingId, form); } else { await createProgram(form); }
-      setShowForm(false); loadPrograms();
+      setShowForm(false); loadPrograms(1, statusFilter);
     } catch (err) { setError(err instanceof Error ? err.message : "فشل الحفظ"); }
   }
 
   async function handleDelete(id: number) {
     if (!confirm("هل أنت متأكد من حذف هذا البرنامج؟")) return;
-    try { await deleteProgram(id); loadPrograms(); } catch (err) { setError(err instanceof Error ? err.message : "فشل الحذف"); }
+    try { await deleteProgram(id); loadPrograms(1, statusFilter); } catch (err) { setError(err instanceof Error ? err.message : "فشل الحذف"); }
   }
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-slate-800">البرامج</h1>
-        <button onClick={openCreate} className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">+ برنامج جديد</button>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-semibold text-slate-800">البرامج</h1>
+          <p className="text-sm text-slate-500">{meta.total} برنامج في النظام</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <select
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700"
+          >
+            <option value="">كل الحالات</option>
+            <option value="active">نشط ({statusCounts.active ?? 0})</option>
+            <option value="inactive">غير نشط ({statusCounts.inactive ?? 0})</option>
+          </select>
+          <button onClick={openCreate} className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">
+            + برنامج جديد
+          </button>
+        </div>
+      </div>
+
+      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3">
+        <div className="rounded-xl bg-slate-800 p-4 text-center text-white">
+          <p className="text-xs text-slate-300">إجمالي البرامج</p>
+          <p className="mt-1 text-xl font-bold">{meta.total}</p>
+        </div>
+        <div className="rounded-xl bg-green-50 p-4 text-center">
+          <p className="text-xs text-green-600">نشط</p>
+          <p className="mt-1 text-xl font-bold text-green-800">{statusCounts.active ?? 0}</p>
+        </div>
+        <div className="rounded-xl bg-red-50 p-4 text-center">
+          <p className="text-xs text-red-600">غير نشط</p>
+          <p className="mt-1 text-xl font-bold text-red-800">{statusCounts.inactive ?? 0}</p>
+        </div>
       </div>
 
       {loading && <p className="text-sm text-slate-500">جارٍ التحميل...</p>}
@@ -85,6 +142,16 @@ export default function ProgramsPage() {
           ))}
         </div>
       )}
+
+      <Pagination
+        page={page}
+        lastPage={meta.last_page}
+        total={meta.total}
+        perPage={PAGE_SIZE}
+        onChange={goToPage}
+        loading={loading}
+        itemLabel="برنامج"
+      />
     </div>
   );
 }

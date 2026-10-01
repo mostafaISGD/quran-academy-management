@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getAssessments, createAssessment, updateAssessmentResult, type Assessment } from "@/lib/api";
+import Pagination from "@/components/Pagination";
 
 const RESULT_LABEL: Record<string, string> = {
   ready_to_subscribe: "جاهز للاشتراك", needs_follow_up: "يحتاج متابعة", not_suitable: "غير مناسب",
 };
+
+const PAGE_SIZE = 100;
 
 export default function AssessmentsPage() {
   const [assessments, setAssessments] = useState<Assessment[]>([]);
@@ -17,19 +20,39 @@ export default function AssessmentsPage() {
   const [form, setForm] = useState({ lead_id: "", teacher_id: "", scheduled_at: "" });
   const [resultForm, setResultForm] = useState({ reading_score: "", tajweed_score: "", memorization_score: "", recommended_level: "", notes: "", result: "" as Assessment["result"] | "" });
 
-  function loadAssessments() {
-    setLoading(true);
-    getAssessments()
-      .then((r) => setAssessments(r.data))
-      .catch((err) => setError(err instanceof Error ? err.message : "تعذر تحميل البيانات"))
-      .finally(() => setLoading(false));
-  }
+  const [page, setPage] = useState(1);
+  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
+  const [resultCounts, setResultCounts] = useState<Record<string, number>>({});
 
-  useEffect(() => { loadAssessments(); }, []);
+  const loadAssessments = useCallback(async (targetPage = 1) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await getAssessments({ per_page: PAGE_SIZE, page: targetPage });
+      setAssessments(r.data);
+      setMeta({ total: r.total, last_page: r.last_page });
+      const c = r.counts as Record<string, unknown> | undefined;
+      const rs = c?.result;
+      setResultCounts((rs && typeof rs === "object" ? rs : {}) as Record<string, number>);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadAssessments(1); }, [loadAssessments]);
+
+  function goToPage(target: number) {
+    if (target < 1 || target > meta.last_page || target === page) return;
+    setPage(target);
+    loadAssessments(target);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    try { await createAssessment({ lead_id: Number(form.lead_id), teacher_id: Number(form.teacher_id), scheduled_at: form.scheduled_at }); setShowForm(false); loadAssessments(); }
+    try { await createAssessment({ lead_id: Number(form.lead_id), teacher_id: Number(form.teacher_id), scheduled_at: form.scheduled_at }); setShowForm(false); loadAssessments(1); }
     catch (err) { setError(err instanceof Error ? err.message : "فشل إنشاء التقييم"); }
   }
 
@@ -47,15 +70,35 @@ export default function AssessmentsPage() {
       });
       setSelectedAssessment(null);
       setResultForm({ reading_score: "", tajweed_score: "", memorization_score: "", recommended_level: "", notes: "", result: "" });
-      loadAssessments();
+      loadAssessments(page);
     } catch (err) { setError(err instanceof Error ? err.message : "فشل حفظ النتيجة"); }
   }
 
   return (
     <div>
-      <div className="mb-6 flex items-center justify-between">
+      <div className="mb-5 flex items-center justify-between">
         <h1 className="text-lg font-semibold text-slate-800">التقييمات التجريبية</h1>
         <button onClick={() => setShowForm(!showForm)} className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">{showForm ? "إخفاء" : "+ حجز تقييم"}</button>
+      </div>
+
+      {/* إحصائيات — من الداتابيز على كل التقييمات */}
+      <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+        <div className="rounded-xl bg-slate-800 p-4 text-center text-white">
+          <p className="text-xs text-slate-300">إجمالي التقييمات</p>
+          <p className="mt-1 text-xl font-bold">{meta.total}</p>
+        </div>
+        <div className="rounded-xl bg-green-50 p-4 text-center">
+          <p className="text-xs text-green-600">جاهز للاشتراك</p>
+          <p className="mt-1 text-xl font-bold text-green-800">{resultCounts.ready_to_subscribe ?? 0}</p>
+        </div>
+        <div className="rounded-xl bg-amber-50 p-4 text-center">
+          <p className="text-xs text-amber-600">يحتاج متابعة</p>
+          <p className="mt-1 text-xl font-bold text-amber-800">{resultCounts.needs_follow_up ?? 0}</p>
+        </div>
+        <div className="rounded-xl bg-red-50 p-4 text-center">
+          <p className="text-xs text-red-600">غير مناسب</p>
+          <p className="mt-1 text-xl font-bold text-red-800">{resultCounts.not_suitable ?? 0}</p>
+        </div>
       </div>
       {loading && <p className="text-sm text-slate-500">جارٍ التحميل...</p>}
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
@@ -116,6 +159,16 @@ export default function AssessmentsPage() {
           </div>
         </div>
       )}
+
+      <Pagination
+        page={page}
+        lastPage={meta.last_page}
+        total={meta.total}
+        perPage={PAGE_SIZE}
+        onChange={goToPage}
+        loading={loading}
+        itemLabel="تقييم"
+      />
     </div>
   );
 }
