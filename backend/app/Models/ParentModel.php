@@ -16,6 +16,8 @@ class ParentModel extends Model
         'email', 'country_code', 'preferred_language', 'notes', 'status',
     ];
 
+    protected $appends = ['relationships'];
+
     public function organization() { return $this->belongsTo(Organization::class); }
     public function user() { return $this->belongsTo(User::class); }
     public function students() {
@@ -24,4 +26,20 @@ class ParentModel extends Model
             ->withTimestamps();
     }
     public function payments() { return $this->hasMany(Payment::class); }
+
+    /** كل صلات القرابة المميّزة — مفيدة للفلترة والعرض */
+    public function relationshipList(): array
+    {
+        return $this->students
+            ->pluck('pivot.relationship')
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
+    public function getRelationshipsAttribute(): array
+    {
+        return $this->relationshipList();
+    }
 }
