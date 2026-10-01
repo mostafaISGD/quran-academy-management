@@ -40,13 +40,30 @@ class ExpenseController extends Controller
             'amount' => 'required|numeric|min:0.01',
             'expense_date' => 'required|date',
             'description' => 'required|string',
-            'payment_method' => 'nullable|string',
+            'payment_method' => 'nullable|string|max:50',
+            'category_id' => 'nullable|exists:expense_categories,id',
+            'reference' => 'nullable|string',
+            'notes' => 'nullable|string',
         ]);
 
-        $data['organization_id'] = $request->user()->organization_id;
-        $data['created_by'] = $request->user()->id;
-        $data['status'] = 'pending';
+        // category_id إجباري في الجدول — لو مش مبعوت، خود أول فئة
+        if (empty($data['category_id'])) {
+            $firstCategory = \App\Models\ExpenseCategory::query()->first();
+            if (!$firstCategory) {
+                return response()->json(['error' => 'مفيش فئات مصروفات — أضف فئة الأول'], 422);
+            }
+            $data['category_id'] = $firstCategory->id;
+        }
 
-        return response()->json(Expense::create($data), 201);
+        $data['organization_id'] = $request->user()->organization_id;
+        $data['branch_id'] = $request->input('branch_id');
+        $data['currency'] = $request->input('currency', 'EGP');
+        $data['created_by'] = $request->user()->id;
+        $data['status'] = $request->input('status', 'pending');
+        if ($data['status'] !== 'pending') {
+            $data['status'] = 'pending'; // اعتماد المصروف بيحصل من صفحة المصروفات
+        }
+
+        return response()->json(Expense::create($data)->load('category'), 201);
     }
 }

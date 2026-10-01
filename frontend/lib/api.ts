@@ -399,6 +399,83 @@ export function getExpenses(params?: {
   return apiFetch<Paginated<Expense>>(`/expenses?${search.toString()}`);
 }
 
+export type TeacherEarning = {
+  id: number;
+  teacher_id: number;
+  lesson_id: number | null;
+  contract_id: number | null;
+  rate_id: number | null;
+  amount: string;
+  currency: string;
+  earning_date: string;
+  status: "pending" | "approved" | "paid" | "cancelled";
+  notes: string | null;
+  teacher?: { id: number; full_name: string } | null;
+};
+
+export type TeacherPayment = {
+  id: number;
+  teacher_id: number;
+  payroll_period_id: number | null;
+  amount: string;
+  currency: string;
+  payment_method: string | null;
+  reference: string | null;
+  paid_at: string | null;
+  status: "pending" | "completed" | "failed";
+  teacher?: { id: number; full_name: string } | null;
+  payrollPeriod?: { id: number; name: string; status: string } | null;
+};
+
+export function getTeacherEarnings(params?: {
+  teacher_id?: number;
+  status?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  per_page?: number;
+}) {
+  const s = new URLSearchParams();
+  if (params?.teacher_id) s.set("teacher_id", String(params.teacher_id));
+  if (params?.status) s.set("status", params.status);
+  if (params?.from) s.set("from", params.from);
+  if (params?.to) s.set("to", params.to);
+  if (params?.page) s.set("page", String(params.page));
+  s.set("per_page", String(params?.per_page ?? 100));
+  return apiFetch<Paginated<TeacherEarning>>(`/teacher-earnings?${s.toString()}`);
+}
+
+export function getTeacherPayments(params?: {
+  teacher_id?: number;
+  status?: string;
+  payroll_period_id?: number;
+  page?: number;
+  per_page?: number;
+}) {
+  const s = new URLSearchParams();
+  if (params?.teacher_id) s.set("teacher_id", String(params.teacher_id));
+  if (params?.status) s.set("status", params.status);
+  if (params?.payroll_period_id) s.set("payroll_period_id", String(params.payroll_period_id));
+  if (params?.page) s.set("page", String(params.page));
+  s.set("per_page", String(params?.per_page ?? 100));
+  return apiFetch<Paginated<TeacherPayment>>(`/teacher-payments?${s.toString()}`);
+}
+
+export function createExpense(payload: {
+  amount: number;
+  expense_date: string;
+  description: string;
+  payment_method?: string;
+  category_id?: number;
+  reference?: string;
+  notes?: string;
+}) {
+  return apiFetch<Expense>("/expenses", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export type Notification = {
   id: number;
   user_id: number;
