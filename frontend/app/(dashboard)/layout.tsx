@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useState } from "react";
 import { logout } from "@/lib/api";
+import { UIProvider } from "@/components/ui/UIProvider";
 
 interface NavItem {
   href: string;
@@ -105,7 +106,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div dir="rtl" className="flex min-h-screen bg-slate-50">
+    <UIProvider>
+      <div dir="rtl" className="flex min-h-screen bg-slate-50">
       <aside className="w-60 shrink-0 border-l border-slate-200 bg-white p-3">
         <p className="mb-4 px-2 text-sm font-bold text-slate-800">أكاديمية القرآن</p>
         <nav className="space-y-1">
@@ -148,7 +150,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           🚪 تسجيل الخروج
         </button>
       </aside>
-      <main className="flex-1 p-6">{children}</main>
-    </div>
+        <main className="flex-1 p-6">{children}</main>
+      </div>
+    </UIProvider>
   );
 }

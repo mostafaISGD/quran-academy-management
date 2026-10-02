@@ -13,6 +13,7 @@ import {
   getPrograms, getSubscriptions,
   type Lesson, type Student, type Teacher, type Program, type Subscription,
 } from "@/lib/api";
+import { useUI } from "@/components/ui";
 
 type ViewMode = "day" | "week" | "teachers";
 type LessonType = "single" | "weekly" | "monthly";
@@ -45,6 +46,8 @@ function formatDate(date: Date) {
 }
 
 export default function SchedulePage() {
+  const { toast, prompt } = useUI();
+
   const [lessons, setLessons] = useState<Lesson[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -201,17 +204,59 @@ export default function SchedulePage() {
   }
 
   async function handleCancel(lesson: Lesson) {
-    const reason = prompt("سبب الإلغاء:");
-    if (!reason) return;
-    try { await cancelLesson(lesson.id, reason); loadSchedule(); } catch (err) { setError(err instanceof Error ? err.message : "فشل الإلغاء"); }
+    const who = lesson.student?.full_name ?? `الحصة #${lesson.id}`;
+    const reason = await prompt({
+      title: "إلغاء الحصة",
+      message: `اختر سبب إلغاء حصة ${who} في ${new Date(lesson.scheduled_start_at).toLocaleString("ar-EG")}.`,
+      label: "سبب الإلغاء",
+      options: [
+        { value: "غياب الطالب", label: "غياب الطالب" },
+        { value: "غياب المعلم", label: "غياب المعلم" },
+        { value: "مرض", label: "مرض" },
+        { value: "سفر", label: "سفر" },
+        { value: "ظرف طارئ", label: "ظرف طارئ" },
+        { value: "طلب ولي الأمر", label: "طلب ولي الأمر" },
+        { value: "إعادة جدولة", label: "إعادة جدولة" },
+      ],
+      allowCustom: true,
+      required: true,
+      placeholder: "اكتب السبب…",
+      confirmLabel: "ألغِ الحصة",
+      tone: "danger",
+    });
+    if (!reason) return false;
+
+    try {
+      await cancelLesson(lesson.id, reason);
+      toast.success("تم إلغاء الحصة", `${who} — ${reason}`);
+      loadSchedule();
+      return true;
+    } catch (err) {
+      toast.error("فشل الإلغاء", err instanceof Error ? err.message : undefined);
+      setError(err instanceof Error ? err.message : "فشل الإلغاء");
+      return false;
+    }
   }
 
   async function handleComplete(lesson: Lesson) {
-    try { await completeLesson(lesson.id); loadSchedule(); } catch (err) { setError(err instanceof Error ? err.message : "فشل الإكمال"); }
+    try {
+      await completeLesson(lesson.id);
+      toast.success("تم تعليم الحصة كمكتملة");
+      loadSchedule();
+    } catch (err) {
+      toast.error("فشل الإكمال", err instanceof Error ? err.message : undefined);
+      setError(err instanceof Error ? err.message : "فشل الإكمال");
+    }
   }
 
   async function handleAttendance(lesson: Lesson, status: string) {
-    try { await markAttendance(lesson.id, status); loadSchedule(); } catch (err) { setError(err instanceof Error ? err.message : "فشل تسجيل الحضور"); }
+    try {
+      await markAttendance(lesson.id, status);
+      loadSchedule();
+    } catch (err) {
+      toast.error("فشل تسجيل الحضور", err instanceof Error ? err.message : undefined);
+      setError(err instanceof Error ? err.message : "فشل تسجيل الحضور");
+    }
   }
 
   function handleDragStart(event: DragStartEvent) {
@@ -523,7 +568,15 @@ export default function SchedulePage() {
                     <button onClick={() => { handleComplete(selectedLesson); setSelectedLesson(null); }} className="flex-1 rounded-lg bg-green-100 px-3 py-2 text-sm text-green-700 hover:bg-green-200">إنهاء</button>
                     <button onClick={() => { handleAttendance(selectedLesson, "present"); setSelectedLesson(null); }} className="flex-1 rounded-lg bg-blue-100 px-3 py-2 text-sm text-blue-700 hover:bg-blue-200">حاضر</button>
                     <button onClick={() => { handleAttendance(selectedLesson, "absent"); setSelectedLesson(null); }} className="flex-1 rounded-lg bg-amber-100 px-3 py-2 text-sm text-amber-700 hover:bg-amber-200">غائب</button>
-                    <button onClick={() => { handleCancel(selectedLesson); setSelectedLesson(null); }} className="flex-1 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700 hover:bg-red-200">إلغاء</button>
+                    <button
+                      onClick={async () => {
+                        // نقفل تفاصيل الحصة بس لو الإلغاء تم فعلاً
+                        if (await handleCancel(selectedLesson)) setSelectedLesson(null);
+                      }}
+                      className="flex-1 rounded-lg bg-red-100 px-3 py-2 text-sm text-red-700 hover:bg-red-200"
+                    >
+                      إلغاء
+                    </button>
                   </>
                 )}
               </div>

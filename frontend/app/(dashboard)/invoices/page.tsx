@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { getInvoices, createInvoice, deleteInvoice, type Invoice } from "@/lib/api";
 import Pagination from "@/components/Pagination";
+import { useUI } from "@/components/ui";
 
 const STATUS_LABEL: Record<Invoice["status"], string> = {
   draft: "مسودة", issued: "مصدرة", partially_paid: "مدفوعة جزئياً",
@@ -24,6 +25,8 @@ export default function InvoicesPage() {
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState({ total: 0, last_page: 1 });
   const [sums, setSums] = useState<Record<string, number>>({});
+
+  const { toast, confirm } = useUI();
 
   function loadInvoices(targetPage = 1) {
     setLoading(true);
@@ -59,13 +62,27 @@ export default function InvoicesPage() {
         items: form.items,
       });
       setShowForm(false);
+      toast.success("تم إنشاء الفاتورة");
       loadInvoices();
-    } catch (err) { setError(err instanceof Error ? err.message : "فشل إنشاء الفاتورة"); }
+    } catch (err) { toast.error("فشل إنشاء الفاتورة", err instanceof Error ? err.message : undefined); setError(err instanceof Error ? err.message : "فشل إنشاء الفاتورة"); }
   }
 
-  async function handleDelete(id: number) {
-    if (!confirm("هل أنت متأكد من حذف هذه الفاتورة؟")) return;
-    try { await deleteInvoice(id); loadInvoices(); } catch (err) { setError(err instanceof Error ? err.message : "فشل الحذف"); }
+  async function handleDelete(id: number, number: string, studentName: string) {
+    const ok = await confirm({
+      title: "حذف الفاتورة",
+      message: `متأكد إنك عايز تحذف الفاتورة «${number}»\nبتاعت ${studentName}؟\nمش هينفع ترجّعها بعد كده.`,
+      confirmLabel: "احذف الفاتورة",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      await deleteInvoice(id);
+      toast.success("تم حذف الفاتورة", number);
+      loadInvoices();
+    } catch (err) {
+      toast.error("فشل حذف الفاتورة", err instanceof Error ? err.message : undefined);
+      setError(err instanceof Error ? err.message : "فشل الحذف");
+    }
   }
 
   return (
@@ -142,7 +159,7 @@ export default function InvoicesPage() {
                   <td className="px-4 py-3 text-green-600">{inv.paid_amount}</td>
                   <td className="px-4 py-3 text-red-600">{inv.balance_due}</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${inv.status === "paid" ? "bg-green-100 text-green-700" : inv.status === "overdue" ? "bg-red-100 text-red-700" : inv.status === "partially_paid" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{STATUS_LABEL[inv.status]}</span></td>
-                  <td className="px-4 py-3"><button onClick={() => handleDelete(inv.id)} className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100">حذف</button></td>
+                  <td className="px-4 py-3"><button onClick={() => handleDelete(inv.id, inv.invoice_number, inv.student?.full_name ?? "—")} className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">حذف</button></td>
                 </tr>
               ))}
             </tbody>

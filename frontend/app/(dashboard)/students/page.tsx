@@ -6,6 +6,7 @@ import {
   getTeachers, getPrograms, getSubscriptions, getSchedule, getStudent,
   getParents, getStudentPhones, addStudentPhone, updateStudentPhone,
   deleteStudentPhone, setPrimaryPhone,
+  bulkChangeTeacher, bulkCreateInvoices, bulkNotify,
   getAttendanceReport, getSubscriptionReport,
   searchParents, PARENT_RELATIONSHIPS, parentRelationshipLabel,
   getStudentParents, setPrimaryParent,
@@ -13,6 +14,7 @@ import {
   type StudentParent,
 } from "@/lib/api";
 import Pagination from "@/components/Pagination";
+import { useUI, IconTrash } from "@/components/ui";
 
 const STATUS_LABEL: Record<Student["status"], string> = {
   lead: "Lead", active: "نشط", paused: "متوقف", inactive: "غير نشط", graduated: "تخرج", archived: "مؤرشف",
@@ -135,6 +137,8 @@ type SubscriptionReport = {
 };
 
 export default function StudentsPage() {
+  const { toast, confirm, prompt } = useUI();
+
   const [students, setStudents] = useState<Student[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -380,6 +384,7 @@ export default function StudentsPage() {
 
   // Local Phone Manager Component for new students
 const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.Dispatch<React.SetStateAction<any>> }) => {
+    const { toast } = useUI();
     const phones = form.phones || [];
     const phoneInputRef = useRef<HTMLInputElement>(null);
     const parentNameInputRef = useRef<HTMLInputElement>(null);
@@ -426,7 +431,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
       const cleaned = number.replace(/[\s\-\(\)]/g, '');
       
       if (!/^\d+$/.test(cleaned)) {
-        alert("الرقم يجب أن يحتوي على أرقام فقط");
+        toast.error("الرقم يجب أن يحتوي على أرقام فقط", "شيل المسافات والرموز واكتب الأرقام فقط.");
         return false;
       }
       
@@ -444,7 +449,10 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
       
       const rule = lengths[countryCode] ?? { min: 7, max: 15 };
       if (cleaned.length < rule.min || cleaned.length > rule.max) {
-        alert(`الرقم يجب أن يكون بين ${rule.min} و ${rule.max} رقماً لهذه الدولة`);
+        toast.error(
+          "رقم غير صحيح",
+          `أرقام الدولة ${countryCode} لازم تكون من ${rule.min} لـ ${rule.max} رقماً — دلوقتي ${cleaned.length}.`,
+        );
         return false;
       }
       
@@ -453,19 +461,22 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
 
     const addPhone = () => {
       const number = localPhoneValue.trim();
-      if (!number) { alert("يرجى إدخال الرقم"); return; }
-      
+      if (!number) {
+        toast.error("الرقم مطلوب", "اكتب رقم التليفون الأول.");
+        return;
+      }
+
       if (!validatePhone(number, localCountryCode)) return;
 
       // لو رقم لولي أمر → الاسم والصلة مطلوبين
       if (localIsParent) {
         if (!localParentName.trim()) {
-          alert("اسم ولي الأمر مطلوب");
+          toast.error("اسم ولي الأمر مطلوب", "اكتب اسم صاحب الرقم.");
           return;
         }
         const rel = localParentRelationship === "other" ? localCustomRelationship.trim() : localParentRelationship;
         if (!rel) {
-          alert("صلة القرابة مطلوبة");
+          toast.error("صلة القرابة مطلوبة", "اختر صلة القرابة بين الطالب وولي الأمر.");
           return;
         }
       }
@@ -730,9 +741,39 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
     e.preventDefault();
     if (!phoneManagerStudent) return;
 
+    const number = phoneForm.phone_number.trim();
+    if (!number) {
+      toast.error("الرقم مطلوب", "اكتب رقم التليفون الأول.");
+      return;
+    }
+
+    // نفس قواعد الطول المستخدمة في نموذج الطالب الجديد
+    const LENGTHS: Record<string, { min: number; max: number }> = {
+      "+20": { min: 10, max: 11 }, "+966": { min: 9, max: 10 }, "+971": { min: 9, max: 10 },
+      "+965": { min: 8, max: 8 }, "+974": { min: 8, max: 8 }, "+962": { min: 9, max: 10 },
+      "+212": { min: 9, max: 10 }, "+216": { min: 8, max: 8 }, "+249": { min: 9, max: 10 },
+    };
+    const cleaned = number.replace(/[\s\-\(\)]/g, "");
+    if (!/^\d+$/.test(cleaned)) {
+      toast.error("الرقم يجب أن يحتوي على أرقام فقط", "شيل المسافات والرموز واكتب الأرقام فقط.");
+      return;
+    }
+    const rule = LENGTHS[phoneForm.country_code] ?? { min: 7, max: 15 };
+    if (cleaned.length < rule.min || cleaned.length > rule.max) {
+      toast.error(
+        "رقم غير صحيح",
+        `أرقام الدولة ${phoneForm.country_code} لازم تكون من ${rule.min} لـ ${rule.max} رقماً — دلوقتي ${cleaned.length}.`,
+      );
+      return;
+    }
+    if (phoneForm.is_parent && !phoneForm.parent_name.trim()) {
+      toast.error("اسم ولي الأمر مطلوب", "اكتب اسم صاحب الرقم.");
+      return;
+    }
+
     try {
       const payload = {
-        phone_number: phoneForm.phone_number,
+        phone_number: number,
         country_code: phoneForm.country_code,
         is_personal: phoneForm.is_personal,
         is_parent: phoneForm.is_parent,
@@ -745,8 +786,10 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
 
       if (phoneForm.editingId) {
         await updateStudentPhone(phoneManagerStudent.id, phoneForm.editingId, payload);
+        toast.success("تم تعديل الرقم", number);
       } else {
         await addStudentPhone(phoneManagerStudent.id, payload);
+        toast.success("تمت إضافة الرقم", number);
       }
 
       // Reload phones
@@ -754,19 +797,30 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
       setStudentPhones((prev) => ({ ...prev, [phoneManagerStudent.id]: phones.data }));
       resetPhoneForm();
     } catch (err) {
+      toast.error("فشل حفظ الرقم", err instanceof Error ? err.message : undefined);
       setError(err instanceof Error ? err.message : "فشل الحفظ");
     }
   };
 
-  const handleDeletePhone = async (phoneId: number) => {
+  const handleDeletePhone = async (phoneId: number, phoneNumber: string) => {
     if (!phoneManagerStudent) return;
-    if (!confirm("هل أنت متأكد من حذف هذا الرقم؟")) return;
+
+    const ok = await confirm({
+      title: "حذف رقم التليفون",
+      message: `متأكد إنك عايز تحذف الرقم «${phoneNumber}» من ${phoneManagerStudent.full_name}؟\n\nلو الرقم ده لولي أمر، علاقة القرابة هتتشال من قائمة أولياء الأمور كمان.`,
+      confirmLabel: "احذف الرقم",
+      tone: "danger",
+      icon: <IconTrash size={16} />,
+    });
+    if (!ok) return;
 
     try {
       await deleteStudentPhone(phoneManagerStudent.id, phoneId);
+      toast.success("تم حذف الرقم", phoneNumber);
       const phones = await getStudentPhones(phoneManagerStudent.id);
       setStudentPhones((prev) => ({ ...prev, [phoneManagerStudent.id]: phones.data }));
     } catch (err) {
+      toast.error("فشل حذف الرقم", err instanceof Error ? err.message : undefined);
       setError(err instanceof Error ? err.message : "فشل الحذف");
     }
   };
@@ -777,7 +831,9 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
       await setPrimaryPhone(phoneManagerStudent.id, phoneId);
       const phones = await getStudentPhones(phoneManagerStudent.id);
       setStudentPhones((prev) => ({ ...prev, [phoneManagerStudent.id]: phones.data }));
+      toast.success("تم تعيين الرقم الأساسي");
     } catch (err) {
+      toast.error("فشل التحديث", err instanceof Error ? err.message : undefined);
       setError(err instanceof Error ? err.message : "فشل التحديث");
     }
   };
@@ -1113,9 +1169,24 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
     } catch (err) { setError(err instanceof Error ? err.message : "فشل الحفظ"); }
   }
 
-  async function handleDelete(id: number) {
-    if (!confirm("هل أنت متأكد من حذف هذا الطالب؟")) return;
-    try { await deleteStudent(id); loadStudents(); } catch (err) { setError(err instanceof Error ? err.message : "فشل الحذف"); }
+  async function handleDelete(id: number, name: string) {
+    const ok = await confirm({
+      title: "حذف الطالب",
+      message: `متأكد إنك عايز تحذف الطالب «${name}»؟\n\n• الحصص والفواتير السابقة ليه هتفضل في التقارير.\n• البيانات هتتشال من القوائم النشطة على طول.`,
+      confirmLabel: "احذف الطالب",
+      tone: "danger",
+      icon: <IconTrash size={16} />,
+    });
+    if (!ok) return;
+    try {
+      await deleteStudent(id);
+      toast.success("تم حذف الطالب", name);
+      setSelectedIds((prev) => prev.filter((i) => i !== id));
+      loadStudents();
+    } catch (err) {
+      toast.error("فشل حذف الطالب", err instanceof Error ? err.message : undefined);
+      setError(err instanceof Error ? err.message : "فشل الحذف");
+    }
   }
 
   function toggleSelect(id: number) {
@@ -1129,6 +1200,176 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
 
   function toggleSmartSegment(key: string) {
     setSmartSegment((prev) => prev === key ? "" : key);
+  }
+
+  /* ============================================================
+     الإجراءات الجماعية — بتطلب اختيار المعلم/المبلغ/نص الإشعار
+     من مودال، وبعدين بتنادي الـ API فعلاً
+     ========================================================== */
+  const [bulkBusy, setBulkBusy] = useState<string | null>(null);
+
+  async function handleBulkChangeTeacher() {
+    if (selectedIds.length === 0) return;
+
+    const picked = await prompt({
+      title: "تغيير المدرس",
+      message: `هتغيّر مدرس ${selectedIds.length} طالب. هيتم التحديث على الاشتراكات النشطة والحصص المجدولة بس — أما الحصص السابقة فتفضل زي ما هي عشان التقارير.`,
+      label: "اختر المعلم الجديد",
+      options: teachers
+        .filter((t) => t.status === "active")
+        .map((t) => ({ value: String(t.id), label: t.full_name, description: t.specialization ?? undefined })),
+      required: true,
+      confirmLabel: "غيّر المدرس",
+    });
+    if (!picked) return;
+
+    const teacher = teachers.find((t) => String(t.id) === picked);
+    setBulkBusy("teacher");
+    try {
+      const r = await bulkChangeTeacher({ student_ids: selectedIds, teacher_id: Number(picked) });
+      toast.success(
+        `تم تغيير مدرس ${r.students} طالب إلى ${r.teacher.full_name}`,
+        `${r.subscriptions_updated} اشتراك · ${r.lessons_updated} حصة مجدولة`,
+      );
+      setSelectedIds([]);
+      loadStudents();
+    } catch (err) {
+      toast.error("فشل تغيير المدرس", err instanceof Error ? err.message : undefined);
+    } finally {
+      setBulkBusy(null);
+    }
+  }
+
+  async function handleBulkCreateInvoices() {
+    if (selectedIds.length === 0) return;
+
+    const amountStr = await prompt({
+      title: "إنشاء فواتير",
+      message: `هنعمل فاتورة واحدة لكل طالب عنده اشتراك نشط (من ${selectedIds.length} محدد).\nسيبها فاضي عشان ناخد المبلغ من سعر اشتراك كل طالب — أو اكتب مبلغ موحّد للجميع.`,
+      label: "المبلغ لكل فاتورة (اختياري)",
+      placeholder: "مثال: 500 — اتركه فاضي للاشتراك",
+      validate: (v) => (v && Number(v) <= 0 ? "المبلغ لازم يكون أكبر من صفر" : null),
+      confirmLabel: "أنشئ الفواتير",
+    });
+    if (amountStr === null) return;
+
+    setBulkBusy("invoices");
+    try {
+      const r = await bulkCreateInvoices({
+        student_ids: selectedIds,
+        amount: amountStr ? Number(amountStr) : undefined,
+      });
+
+      if (r.created_count === 0) {
+        toast.warning(
+          "مفيش فواتير اتعملت",
+          "الطلاب المحددين كلهم مفيش ليهم اشتراك نشط.",
+        );
+      } else if (r.skipped_count > 0) {
+        toast.warning(
+          `تم إنشاء ${r.created_count} فاتورة بإجمالي ${r.total_amount.toLocaleString("ar-EG")} ج.م`,
+          `${r.skipped_count} طالب اتخطوا (مفيش ليهم اشتراك نشط).`,
+        );
+      } else {
+        toast.success(
+          `تم إنشاء ${r.created_count} فاتورة`,
+          `إجمالي ${r.total_amount.toLocaleString("ar-EG")} ج.م`,
+        );
+      }
+      setSelectedIds([]);
+      loadStudents();
+    } catch (err) {
+      toast.error("فشل إنشاء الفواتير", err instanceof Error ? err.message : undefined);
+    } finally {
+      setBulkBusy(null);
+    }
+  }
+
+  async function bulkSendNotification() {
+    if (selectedIds.length === 0) return;
+
+    const text = await prompt({
+      title: "إرسال إشعار",
+      message: `هيتسجل الإشعار لـ ${selectedIds.length} طالب.`,
+      label: "نص الإشعار",
+      placeholder: "مثال: اجتماع أولياء الأمور يوم الأحد الساعة 10",
+      multiline: true,
+      rows: 4,
+      required: true,
+      confirmLabel: "أرسل الإشعار",
+    });
+    if (!text) return;
+
+    setBulkBusy("notify");
+    try {
+      const r = await bulkNotify({
+        student_ids: selectedIds,
+        title: "إشعار جديد",
+        message: text,
+        channel: "in_app",
+      });
+      toast.success(r.message, "الإشعار اتسجل في صفحة الإشعارات.");
+      setSelectedIds([]);
+    } catch (err) {
+      toast.error("فشل إرسال الإشعار", err instanceof Error ? err.message : undefined);
+    } finally {
+      setBulkBusy(null);
+    }
+  }
+
+  function bulkExportCsv() {
+    const data = filteredStudents.filter((s) => selectedIds.includes(s.id));
+    if (data.length === 0) {
+      toast.warning("مفيش بيانات للتصدير");
+      return;
+    }
+    const csv = data.map((s) => `${s.student_code},${s.full_name},${s.phone},${s.status}`).join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `students-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success(`تم تصدير ${data.length} طالب`, a.download);
+  }
+
+  async function bulkDeleteStudents() {
+    if (selectedIds.length === 0) return;
+
+    const ok = await confirm({
+      title: `حذف ${selectedIds.length} طالب`,
+      message: `متأكد إنك عايز تحذف الطلاب المحددين كلهم؟\n\n• الحصص والفواتير السابقة هتفضل في التقارير.\n• العملية دي مش هتتراجع.`,
+      confirmLabel: `احذف ${selectedIds.length} طالب`,
+      tone: "danger",
+      icon: <IconTrash size={16} />,
+    });
+    if (!ok) return;
+
+    setBulkBusy("delete");
+    let failed = 0;
+    try {
+      // حذف واحد واحد — الـ endpoint الحالي مافيش bulk delete
+      for (const id of selectedIds) {
+        try {
+          await deleteStudent(id);
+        } catch {
+          failed += 1;
+        }
+      }
+      if (failed === 0) {
+        toast.success(`تم حذف ${selectedIds.length} طالب`);
+      } else {
+        toast.warning(
+          `تم حذف ${selectedIds.length - failed} طالب`,
+          `${failed} فشلت — يمكن ليهم فواتير مدفوعة.`,
+        );
+      }
+      setSelectedIds([]);
+      loadStudents();
+    } finally {
+      setBulkBusy(null);
+    }
   }
 
   // Report Functions
@@ -1165,7 +1406,11 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
   const handlePrintTable = () => {
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
-      alert("يرجى السماح بالنوافذ المنبثقة للطباعة");
+      toast.warning(
+        "المتصفح 막ّ نافذة الطباعة",
+        "اسمح بالنوافذ المنبثقة (Popups) للموقع من إعدادات المتصفح وبعدين جرّب تاني.",
+        8000,
+      );
       return;
     }
 
@@ -1409,61 +1654,61 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
         </div>
       )}
 
-      {/* Bulk Actions */}
+      {/* Bulk Actions — شريط الإجراءات الجماعية */}
       {selectedIds.length > 0 && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl bg-slate-800 p-3 text-white">
-          <span className="text-sm font-medium">{selectedIds.length} طالب محدد</span>
-          <div className="flex gap-2">
-            <button 
-              onClick={() => {
-                const teacherId = prompt("أدخل رقم المعلم الجديد:");
-                if (teacherId) {
-                  // TODO: Implement bulk teacher change
-                  alert(`سيتم تغيير المدرس للطلاب المحددين إلى المعلم رقم ${teacherId}`);
-                }
-              }} 
-              className="rounded-lg bg-white/20 px-3 py-1.5 text-xs hover:bg-white/30"
+        <div className="sticky top-3 z-40 mb-4 rounded-2xl bg-slate-800 p-3 text-white shadow-lg shadow-slate-900/20">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-3 py-1.5 text-sm font-semibold">
+              <span className="flex size-6 items-center justify-center rounded-full bg-white text-xs font-bold text-slate-800">
+                {selectedIds.length.toLocaleString("ar-EG")}
+              </span>
+              طالب محدد
+            </span>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={handleBulkChangeTeacher}
+                disabled={bulkBusy !== null}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-medium transition hover:bg-white/25 disabled:opacity-50"
+              >
+                {bulkBusy === "teacher" ? "جارٍ التنفيذ..." : "👨‍🏫 تغيير المدرس"}
+              </button>
+              <button
+                onClick={handleBulkCreateInvoices}
+                disabled={bulkBusy !== null}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-medium transition hover:bg-white/25 disabled:opacity-50"
+              >
+                {bulkBusy === "invoices" ? "جارٍ الإنشاء..." : "🧾 إنشاء فواتير"}
+              </button>
+              <button
+                onClick={bulkSendNotification}
+                disabled={bulkBusy !== null}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-medium transition hover:bg-white/25 disabled:opacity-50"
+              >
+                {bulkBusy === "notify" ? "جارٍ الإرسال..." : "🔔 إرسال إشعار"}
+              </button>
+              <button
+                onClick={bulkExportCsv}
+                disabled={bulkBusy !== null}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 px-3 py-1.5 text-xs font-medium transition hover:bg-white/25 disabled:opacity-50"
+              >
+                ⬇️ تصدير CSV
+              </button>
+              <button
+                onClick={bulkDeleteStudents}
+                disabled={bulkBusy !== null}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-red-500/90 px-3 py-1.5 text-xs font-medium transition hover:bg-red-500 disabled:opacity-50"
+              >
+                {bulkBusy === "delete" ? "جارٍ الحذف..." : "🗑 حذف"}
+              </button>
+            </div>
+
+            <button
+              onClick={() => setSelectedIds([])}
+              className="ms-auto rounded-lg px-3 py-1.5 text-xs text-slate-300 transition hover:bg-white/10 hover:text-white"
             >
-              تغيير المدرس
+              إلغاء التحديد
             </button>
-            <button 
-              onClick={() => {
-                // TODO: Implement bulk invoice creation
-                alert(`سيتم إنشاء فواتير للطلاب المحددين (${selectedIds.length} طالب)`);
-              }} 
-              className="rounded-lg bg-white/20 px-3 py-1.5 text-xs hover:bg-white/30"
-            >
-              إنشاء فواتير
-            </button>
-            <button 
-              onClick={() => {
-                const message = prompt("أدخل نص الإشعار:");
-                if (message) {
-                  // TODO: Implement bulk notification
-                  alert(`سيتم إرسال الإشعار للطلاب المحددين: ${message}`);
-                }
-              }} 
-              className="rounded-lg bg-white/20 px-3 py-1.5 text-xs hover:bg-white/30"
-            >
-              إرسال إشعار
-            </button>
-            <button 
-              onClick={() => {
-                // TODO: Implement export
-                const data = filteredStudents.filter(s => selectedIds.includes(s.id));
-                const csv = data.map(s => `${s.student_code},${s.full_name},${s.phone},${s.status}`).join('\n');
-                const blob = new Blob([csv], { type: 'text/csv' });
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'students.csv';
-                a.click();
-              }} 
-              className="rounded-lg bg-white/20 px-3 py-1.5 text-xs hover:bg-white/30"
-            >
-              تصدير
-            </button>
-            <button onClick={() => setSelectedIds([])} className="rounded-lg bg-white/20 px-3 py-1.5 text-xs hover:bg-white/30">إلغاء</button>
           </div>
         </div>
       )}
@@ -1509,7 +1754,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                       <div className="flex gap-1">
                         <button onClick={() => setSelectedStudent(s)} className="rounded bg-slate-100 px-2 py-1 text-xs text-slate-600 hover:bg-slate-200">👁</button>
                         <button onClick={() => openEdit(s)} className="rounded bg-blue-50 px-2 py-1 text-xs text-blue-600 hover:bg-blue-100">✏</button>
-                        <button onClick={() => handleDelete(s.id)} className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100">🗑</button>
+                        <button onClick={() => handleDelete(s.id, s.full_name)} className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100">🗑</button>
                       </div>
                     </td>
                   </tr>
@@ -1534,8 +1779,9 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
 
       {/* Add/Edit Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-black/50 p-4">
-          <div className="my-8 w-full max-w-2xl rounded-xl bg-white shadow-2xl">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto p-4">
+          <div className="ui-anim-backdrop fixed inset-0 bg-slate-900/45 backdrop-blur-[2px]" onClick={() => setShowForm(false)} />
+          <div className="ui-anim-dialog relative my-8 w-full max-w-2xl rounded-2xl bg-white shadow-2xl shadow-slate-900/25">
             <form onSubmit={handleSubmit} className="max-h-[85vh] overflow-y-auto">
               <div className="p-5 space-y-4">
                   <input placeholder="الاسم الأول *" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" required />
@@ -1664,7 +1910,10 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
       {/* Student Profile Drawer */}
       {selectedStudent && (
         <div className="fixed inset-0 z-50 flex">
-          <div className="flex-1 bg-black/50" onClick={() => { setSelectedStudent(null); setStudentDetail(null); }} />
+          <div
+            className="flex-1 bg-slate-900/45 backdrop-blur-[2px]"
+            onClick={() => { setSelectedStudent(null); setStudentDetail(null); }}
+          />
           <div className="flex h-full w-full max-w-2xl flex-col bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-200 p-4">
               <div>
@@ -1875,11 +2124,16 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
 
       {/* Phone Manager Modal */}
       {showPhoneManager && phoneManagerStudent && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl bg-white p-6">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="ui-anim-backdrop fixed inset-0 bg-slate-900/45 backdrop-blur-[2px]" onClick={() => setShowPhoneManager(false)} />
+          <div className="ui-anim-dialog relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl shadow-slate-900/25">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-800">إدارة أرقام الطالب: {phoneManagerStudent.full_name}</h3>
-              <button onClick={() => setShowPhoneManager(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+              <h3 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+                <span className="flex size-8 items-center justify-center rounded-full bg-purple-50 text-base ring-4 ring-purple-50">📱</span>
+                أرقام الطالب
+                <span className="font-normal text-slate-500">· {phoneManagerStudent.full_name}</span>
+              </h3>
+              <button onClick={() => setShowPhoneManager(false)} aria-label="إغلاق" className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600">✕</button>
             </div>
 
             {/* Add/Edit Phone Form */}
@@ -1993,7 +2247,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                             {!phone.is_primary && (
                               <button onClick={() => handleSetPrimaryPhone(phone.id)} className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-600 hover:bg-amber-100" title="تعيين كافتراضي">⭐</button>
                             )}
-                            <button onClick={() => handleDeletePhone(phone.id)} className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100" title="حذف">🗑</button>
+                            <button onClick={() => handleDeletePhone(phone.id, phone.phone_number)} className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100" title="حذف">🗑</button>
                           </div>
                         </div>
                       </div>
@@ -2024,11 +2278,15 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
 
       {/* Reports Modal */}
       {showReports && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-xl bg-white p-6">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="ui-anim-backdrop absolute inset-0 bg-slate-900/45 backdrop-blur-[2px]" onClick={() => setShowReports(false)} />
+          <div className="ui-anim-dialog relative max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl shadow-slate-900/25">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-800">📊 تقارير الطلاب</h3>
-              <button onClick={() => setShowReports(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+              <h3 className="flex items-center gap-2 text-lg font-semibold text-slate-900">
+                <span className="flex size-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 ring-4 ring-slate-100">📊</span>
+                تقارير الطلاب
+              </h3>
+              <button onClick={() => setShowReports(false)} aria-label="إغلاق" className="rounded-lg p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600">✕</button>
             </div>
 
             {/* Report Type Tabs */}

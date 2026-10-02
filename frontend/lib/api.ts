@@ -461,6 +461,71 @@ export function getTeacherPayments(params?: {
   return apiFetch<Paginated<TeacherPayment>>(`/teacher-payments?${s.toString()}`);
 }
 
+/* ============================================================
+   الإجراءات الجماعية على الطلاب
+   ========================================================== */
+
+/** تغيير المدرس لمجموعة طلاب (اشتراكات نشطة + حصص مجدولة) */
+export function bulkChangeTeacher(payload: {
+  student_ids: number[];
+  teacher_id: number;
+  include_upcoming_lessons?: boolean;
+}) {
+  return apiFetch<{
+    message: string;
+    students: number;
+    subscriptions_updated: number;
+    lessons_updated: number;
+    teacher: { id: number; full_name: string };
+  }>("/students/bulk/change-teacher", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export type BulkInvoiceResult = {
+  message: string;
+  created_count: number;
+  skipped_count: number;
+  total_amount: number;
+  invoices: { invoice_id: number; invoice_number: string; student_id: number; total: number }[];
+  skipped: { student_id: number; reason: string }[];
+};
+
+/** إنشاء فاتورة من الاشتراك النشط لكل طالب — المبلغ من سعر الاشتراك أو مبلغ موحّد */
+export function bulkCreateInvoices(payload: {
+  student_ids: number[];
+  issue_date?: string;
+  due_date?: string;
+  amount?: number;
+  description?: string;
+}) {
+  return apiFetch<BulkInvoiceResult>("/students/bulk/create-invoices", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export type BulkNotifyResult = {
+  message: string;
+  sent_count: number;
+  requested_count: number;
+  channel: string;
+};
+
+/** إرسال إشعار جماعي لمجموعة طلاب */
+export function bulkNotify(payload: {
+  student_ids: number[];
+  title?: string;
+  message: string;
+  channel?: "in_app" | "whatsapp" | "sms" | "email";
+}) {
+  return apiFetch<BulkNotifyResult>("/students/bulk/notify", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export function createExpense(payload: {
   amount: number;
   expense_date: string;

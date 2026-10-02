@@ -39,6 +39,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/students/{student}', [StudentController::class, 'show'])->middleware('permission:students.view');
     Route::put('/students/{student}', [StudentController::class, 'update'])->middleware('permission:students.edit');
     Route::delete('/students/{student}', [StudentController::class, 'destroy'])->middleware('permission:students.delete');
+// إجراءات جماعية — لازم تيجي قبل /students/{student} عشان ما تلتقطش كـ id
+Route::post('/students/bulk/change-teacher', [StudentController::class, 'bulkChangeTeacher'])->middleware('permission:students.edit');
+Route::post('/students/bulk/create-invoices', [StudentController::class, 'bulkCreateInvoices'])->middleware('permission:payments.create');
+Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->middleware('permission:students.edit');
     Route::get('/students/{student}/schedule', [StudentController::class, 'schedule'])->middleware('permission:students.view');
     Route::get('/students/{student}/attendance', [StudentController::class, 'attendance'])->middleware('permission:students.view');
     Route::get('/students/{student}/progress', [StudentController::class, 'progress'])->middleware('permission:students.view');

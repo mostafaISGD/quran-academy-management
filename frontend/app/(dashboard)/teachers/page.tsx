@@ -8,6 +8,7 @@ import {
   type TeacherFinancialSummary, type Lesson,
 } from "@/lib/api";
 import Pagination from "@/components/Pagination";
+import { useUI, IconTrash } from "@/components/ui";
 
 // ---------- ثوابت العرض ----------
 
@@ -863,6 +864,8 @@ function TeacherDrawer({ teacher, onClose, onEdit, onRefresh }: {
 // ============================================================
 
 export default function TeachersPage() {
+  const { toast, confirm } = useUI();
+
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -972,12 +975,21 @@ export default function TeachersPage() {
   }
 
   async function handleDelete(t: Teacher) {
-    if (!confirm(`هل أنت متأكد من حذف المعلم "${t.display_name}"؟\nلن يتم حذف الحصص السابقة.`)) return;
+    const ok = await confirm({
+      title: "حذف المعلم",
+      message: `متأكد إنك عايز تحذف المعلم «${t.display_name}»؟\n\n• الحصص السابقة ليه مش هتتحذف.\n• الاشتراكات المرتبطة بيه هيفضلوا بدون مدرس لحد ما تغيّرهم.`,
+      confirmLabel: "احذف المعلم",
+      tone: "danger",
+      icon: <IconTrash size={16} />,
+    });
+    if (!ok) return;
     try {
       await deleteTeacher(t.id);
+      toast.success("تم حذف المعلم", t.display_name);
       setSelectedId(null);
       load();
     } catch (err) {
+      toast.error("فشل حذف المعلم", err instanceof Error ? err.message : undefined);
       setError(err instanceof Error ? err.message : "فشل الحذف");
     }
   }

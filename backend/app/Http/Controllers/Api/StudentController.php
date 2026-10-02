@@ -3,8 +3,16 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Invoice;
+use App\Models\InvoiceItem;
+use App\Models\Lesson;
+use App\Models\Notification;
 use App\Models\Student;
+use App\Models\StudentLedgerEntry;
+use App\Models\Subscription;
+use App\Models\Teacher;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class StudentController extends Controller
 {
@@ -187,5 +195,208 @@ class StudentController extends Controller
     public function payments(Request $request, Student $student)
     {
         return response()->json($student->payments()->with(['invoice', 'receivedBy'])->orderBy('paid_at', 'desc')->paginate(50));
+    }
+
+    /**
+     * تغيير المدرس لمجموعة طلاب مرة واحدة.
+     *
+     * بيغيّر teacher_id على الاشتراكات النشطة + الحصص المجدولة اللي بعد النهاردة.
+     * الحصص السابقة (المكتملة/الملغاة) مش بتتغيّر عشان التقارير تبقى صحيحة.
+     */
+    public function bulkChangeTeacher(Request $request)
+    {
+        $data = $request->validate([
+            'student_ids' => 'required|array|min:1|max:500',
+            'student_ids.*' => 'exists:students,id',
+            'teacher_id' => 'required|exists:teachers,id',
+            'include_upcoming_lessons' => 'nullable|boolean',
+        ]);
+
+        $teacher = Teacher::findOrFail($data['teacher_id']);
+        $ids = array_values(array_unique($data['student_ids']));
+        $includeLessons = $request->boolean('include_upcoming_lessons', true);
+
+        $subs = Subscription::whereIn('student_id', $ids)
+            ->where('status', 'active')
+            ->update(['teacher_id' => $teacher->id, 'updated_at' => now()]);
+
+        $lessons = 0;
+        if ($includeLessons) {
+            $lessons = Lesson::whereIn('student_id', $ids)
+                ->whereIn('status', ['scheduled', 'rescheduled'])
+                ->where('scheduled_start_at', '>=', now())
+                ->update(['teacher_id' => $teacher->id, 'updated_at' => now()]);
+        }
+
+        return response()->json([
+            'message' => "تم تغيير المدرس إلى {$teacher->full_name}",
+            'students' => count($ids),
+            'subscriptions_updated' => $subs,
+            'lessons_updated' => $lessons,
+            'teacher' => ['id' => $teacher->id, 'full_name' => $teacher->full_name],
+        ]);
+    }
+
+    /**
+     * إنشاء فاتورة لكل طالب من اشتراكه النشط (دفعة واحدة).
+     * المبلغ بيتحسب من سعر الاشتراك — أو مبلغ موحّد لو اتبعت.
+     */
+    public function bulkCreateInvoices(Request $request)
+    {
+        $data = $request->validate([
+            'student_ids' => 'required|array|min:1|max:500',
+            'student_ids.*' => 'exists:students,id',
+            'issue_date' => 'nullable|date',
+            'due_date' => 'nullable|date|after_or_equal:issue_date',
+            'amount' => 'nullable|numeric|min:0',
+            'description' => 'nullable|string|max:255',
+        ]);
+
+        $user = $request->user();
+        $issueDate = $data['issue_date'] ?? now()->toDateString();
+        $dueDate = $data['due_date'] ?? now()->addDays(14)->toDateString();
+        $ids = array_values(array_unique($data['student_ids']));
+
+        $subs = Subscription::with('student')
+            ->whereIn('student_id', $ids)
+            ->where('status', 'active')
+            ->orderBy('start_date')
+            ->get()
+            ->groupBy('student_id')
+            ->map(fn ($group) => $group->first());
+
+        $created = [];
+        $skipped = [];
+
+        foreach ($ids as $studentId) {
+            $sub = $subs->get($studentId);
+
+            if (!$sub) {
+                $skipped[] = ['student_id' => $studentId, 'reason' => 'مفيش اشتراك نشط'];
+                continue;
+            }
+
+            $amount = isset($data['amount']) && $data['amount'] > 0
+                ? (float) $data['amount']
+                : (float) $sub->price;
+
+            $invoice = DB::transaction(function () use ($sub, $amount, $issueDate, $dueDate, $user, $data) {
+                $invoice = Invoice::create([
+                    'organization_id' => $user->organization_id,
+                    'student_id' => $sub->student_id,
+                    'subscription_id' => $sub->id,
+                    'invoice_number' => 'INV-' . strtoupper(uniqid()),
+                    'currency' => $sub->currency ?? 'EGP',
+                    'issue_date' => $issueDate,
+                    'due_date' => $dueDate,
+                    'subtotal' => $amount,
+                    'total' => $amount,
+                    'paid_amount' => 0,
+                    'balance_due' => $amount,
+                    'status' => 'issued',
+                    'notes' => $data['description'] ?? null,
+                ]);
+
+                InvoiceItem::create([
+                    'invoice_id' => $invoice->id,
+                    'description' => $data['description'] ?? "اشتراك {$sub->plan?->name}",
+                    'quantity' => 1,
+                    'unit_price' => $amount,
+                    'total' => $amount,
+                ]);
+
+                StudentLedgerEntry::create([
+                    'student_id' => $sub->student_id,
+                    'invoice_id' => $invoice->id,
+                    'type' => 'invoice',
+                    'debit' => $amount,
+                    'balance_after' => $amount,
+                    'currency' => $invoice->currency,
+                    'description' => 'فاتورة ' . $invoice->invoice_number,
+                    'reference_type' => 'invoice',
+                    'reference_id' => $invoice->id,
+                    'created_by' => $user->id,
+                ]);
+
+                return $invoice;
+            });
+
+            $created[] = [
+                'invoice_id' => $invoice->id,
+                'invoice_number' => $invoice->invoice_number,
+                'student_id' => $sub->student_id,
+                'total' => (float) $invoice->total,
+            ];
+        }
+
+        return response()->json([
+            'message' => 'تم إنشاء ' . count($created) . ' فاتورة',
+            'created_count' => count($created),
+            'skipped_count' => count($skipped),
+            'total_amount' => array_sum(array_column($created, 'total')),
+            'invoices' => $created,
+            'skipped' => $skipped,
+        ]);
+    }
+
+    /**
+     * إرسال إشعار جماعي لمجموعة طلاب.
+     * بيتسجل كـ announcement في جدول الإشعارات (أو في كاش في الإرسال الفعلي).
+     */
+    public function bulkNotify(Request $request)
+    {
+        $data = $request->validate([
+            'student_ids' => 'required|array|min:1|max:500',
+            'student_ids.*' => 'exists:students,id',
+            'title' => 'nullable|string|max:255',
+            'message' => 'required|string|max:2000',
+            'channel' => 'nullable|in:in_app,whatsapp,sms,email',
+        ]);
+
+        $channel = $data['channel'] ?? 'in_app';
+        $title = $data['title'] ?? 'إشعار جديد';
+        $ids = array_values(array_unique($data['student_ids']));
+
+        $students = Student::whereIn('id', $ids)
+            ->with('phones')
+            ->get(['id', 'user_id', 'full_name']);
+
+        $now = now();
+        $rows = [];
+
+        foreach ($students as $student) {
+            $contact = $student->phones->first(fn ($p) => $p->is_parent) ?? $student->phones->first();
+
+            $rows[] = [
+                'user_id' => $student->user_id,
+                'student_id' => $student->id,
+                'event_type' => 'announcement',
+                'channel' => $channel,
+                'payload' => json_encode([
+                    'title' => $title,
+                    'message' => $data['message'],
+                    'student_id' => $student->id,
+                    'student_name' => $student->full_name,
+                    'contact_phone' => $contact?->phone_number,
+                    'sent_by' => $request->user()->id,
+                    'sent_by_name' => $request->user()->name,
+                ], JSON_UNESCAPED_UNICODE),
+                'sent_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+        }
+
+        // chunks عشان ما نعملش insert ضخم على SQLite
+        foreach (array_chunk($rows, 100) as $chunk) {
+            Notification::insert($chunk);
+        }
+
+        return response()->json([
+            'message' => 'تم إرسال الإشعار لـ ' . count($rows) . ' طالب',
+            'sent_count' => count($rows),
+            'requested_count' => count($ids),
+            'channel' => $channel,
+        ]);
     }
 }

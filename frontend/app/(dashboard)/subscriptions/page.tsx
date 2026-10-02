@@ -7,6 +7,7 @@ import {
   type Subscription,
 } from "@/lib/api";
 import Pagination from "@/components/Pagination";
+import { useUI } from "@/components/ui";
 
 const STATUS_LABEL: Record<Subscription["status"], string> = {
   active: "نشط", expired: "منتهي", paused: "متوقف", cancelled: "ملغي",
@@ -42,6 +43,8 @@ export default function SubscriptionsPage() {
 
   const [statusFilter, setStatusFilter] = useState("");
 
+  const { toast, confirm } = useUI();
+
   const load = useCallback(async (targetPage = 1, status = "") => {
     setLoading(true);
     setError(null);
@@ -73,12 +76,20 @@ export default function SubscriptionsPage() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  async function handleDelete(id: number) {
-    if (!confirm("هل أنت متأكد من حذف هذا الاشتراك؟")) return;
+  async function handleDelete(id: number, studentName: string) {
+    const ok = await confirm({
+      title: "حذف الاشتراك",
+      message: `متأكد إنك عايز تحذف اشتراك «${studentName}»؟\nالفواتير المرتبطة بيه مش هتتحذف.`,
+      confirmLabel: "احذف",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       await deleteSubscription(id);
+      toast.success("تم حذف الاشتراك", studentName);
       load(1, statusFilter);
     } catch (err) {
+      toast.error("فشل حذف الاشتراك", err instanceof Error ? err.message : undefined);
       setError(err instanceof Error ? err.message : "فشل الحذف");
     }
   }
@@ -180,8 +191,8 @@ export default function SubscriptionsPage() {
                   </td>
                   <td className="px-3 py-3 text-left">
                     <button
-                      onClick={() => handleDelete(s.id)}
-                      className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100"
+                      onClick={() => handleDelete(s.id, s.student?.full_name ?? `اشتراك #${s.id}`)}
+                      className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
                     >
                       حذف
                     </button>

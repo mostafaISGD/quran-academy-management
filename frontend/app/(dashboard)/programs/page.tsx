@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getPrograms, createProgram, updateProgram, deleteProgram, type Program } from "@/lib/api";
 import Pagination from "@/components/Pagination";
+import { useUI } from "@/components/ui";
 
 const PAGE_SIZE = 100;
 
@@ -18,6 +19,8 @@ export default function ProgramsPage() {
   const [meta, setMeta] = useState({ total: 0, last_page: 1 });
   const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [statusFilter, setStatusFilter] = useState("");
+
+  const { toast, confirm } = useUI();
 
   const loadPrograms = useCallback(async (targetPage = 1, status = "") => {
     setLoading(true);
@@ -53,14 +56,28 @@ export default function ProgramsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
-      if (editingId) { await updateProgram(editingId, form); } else { await createProgram(form); }
+      if (editingId) { await updateProgram(editingId, form); toast.success("تم تحديث البرنامج", form.name); }
+      else { await createProgram(form); toast.success("تم إضافة البرنامج", form.name); }
       setShowForm(false); loadPrograms(1, statusFilter);
-    } catch (err) { setError(err instanceof Error ? err.message : "فشل الحفظ"); }
+    } catch (err) { toast.error("فشل الحفظ", err instanceof Error ? err.message : undefined); setError(err instanceof Error ? err.message : "فشل الحفظ"); }
   }
 
-  async function handleDelete(id: number) {
-    if (!confirm("هل أنت متأكد من حذف هذا البرنامج؟")) return;
-    try { await deleteProgram(id); loadPrograms(1, statusFilter); } catch (err) { setError(err instanceof Error ? err.message : "فشل الحذف"); }
+  async function handleDelete(id: number, name: string) {
+    const ok = await confirm({
+      title: "حذف البرنامج",
+      message: `متأكد إنك عايز تحذف البرنامج «${name}»؟\nالاشتراكات والحصص المرتبطة بيه مش هتتحذف.`,
+      confirmLabel: "احذف البرنامج",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      await deleteProgram(id);
+      toast.success("تم حذف البرنامج", name);
+      loadPrograms(1, statusFilter);
+    } catch (err) {
+      toast.error("فشل حذف البرنامج", err instanceof Error ? err.message : undefined);
+      setError(err instanceof Error ? err.message : "فشل الحذف");
+    }
   }
 
   return (
@@ -130,7 +147,7 @@ export default function ProgramsPage() {
                 <h3 className="font-medium text-slate-800">{p.name}</h3>
                 <div className="flex gap-1">
                   <button onClick={() => openEdit(p)} className="rounded bg-blue-50 px-2 py-1 text-xs text-blue-600 hover:bg-blue-100">تعديل</button>
-                  <button onClick={() => handleDelete(p.id)} className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100">حذف</button>
+                  <button onClick={() => handleDelete(p.id, p.name)} className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100">حذف</button>
                 </div>
               </div>
               {p.description && <p className="mb-3 text-sm text-slate-500">{p.description}</p>}

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getLeads, createLead, updateLeadStatus, deleteLead, type Lead } from "@/lib/api";
 import Pagination from "@/components/Pagination";
+import { useUI } from "@/components/ui";
 
 const PAGE_SIZE = 100;
 
@@ -30,6 +31,8 @@ export default function LeadsPage() {
   const [meta, setMeta] = useState({ total: 0, last_page: 1 });
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [form, setForm] = useState({ full_name: "", phone: "", email: "", country_code: "", student_age: "", interested_program_id: "", source: "" as Lead["source"] | "" });
+
+  const { toast, confirm } = useUI();
 
   const loadLeads = useCallback(async (targetPage = 1, status = "", q = "") => {
     setLoading(true);
@@ -67,17 +70,31 @@ export default function LeadsPage() {
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    try { await createLead({ ...form, student_age: form.student_age ? Number(form.student_age) : undefined, source: form.source || undefined, email: form.email || undefined, country_code: form.country_code || undefined, interested_program_id: form.interested_program_id || undefined }); setShowForm(false); setForm({ full_name: "", phone: "", email: "", country_code: "", student_age: "", interested_program_id: "", source: "" }); refresh(); }
-    catch (err) { setError(err instanceof Error ? err.message : "فشل إنشاء الـ Lead"); }
+    try { await createLead({ ...form, student_age: form.student_age ? Number(form.student_age) : undefined, source: form.source || undefined, email: form.email || undefined, country_code: form.country_code || undefined, interested_program_id: form.interested_program_id || undefined }); toast.success("تمت إضافة العميل المحتمل", form.full_name); setShowForm(false); setForm({ full_name: "", phone: "", email: "", country_code: "", student_age: "", interested_program_id: "", source: "" }); refresh(); }
+    catch (err) { toast.error("فشل إنشاء العميل المحتمل", err instanceof Error ? err.message : undefined); setError(err instanceof Error ? err.message : "فشل إنشاء الـ Lead"); }
   }
 
   async function handleStatusChange(leadId: number, status: Lead["status"]) {
-    try { await updateLeadStatus(leadId, status); refresh(); } catch (err) { setError(err instanceof Error ? err.message : "فشل تحديث الحالة"); }
+    try { await updateLeadStatus(leadId, status); refresh(); }
+    catch (err) { toast.error("فشل تحديث الحالة", err instanceof Error ? err.message : undefined); setError(err instanceof Error ? err.message : "فشل تحديث الحالة"); }
   }
 
-  async function handleDelete(id: number) {
-    if (!confirm("هل أنت متأكد من حذف هذا الـ Lead؟")) return;
-    try { await deleteLead(id); refresh(); } catch (err) { setError(err instanceof Error ? err.message : "فشل الحذف"); }
+  async function handleDelete(id: number, name: string) {
+    const ok = await confirm({
+      title: "حذف العميل المحتمل",
+      message: `متأكد إنك عايز تحذف «${name}» من قائمة العملاء المحتملين؟`,
+      confirmLabel: "احذف",
+      tone: "danger",
+    });
+    if (!ok) return;
+    try {
+      await deleteLead(id);
+      toast.success("تم حذف العميل المحتمل", name);
+      refresh();
+    } catch (err) {
+      toast.error("فشل الحذف", err instanceof Error ? err.message : undefined);
+      setError(err instanceof Error ? err.message : "فشل الحذف");
+    }
   }
 
   return (
@@ -168,7 +185,7 @@ export default function LeadsPage() {
                       <select value={lead.status} onChange={(e) => handleStatusChange(lead.id, e.target.value as Lead["status"])} className="rounded border border-slate-200 px-2 py-1 text-xs">
                         {Object.entries(STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
                       </select>
-                      <button onClick={() => handleDelete(lead.id)} className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100">حذف</button>
+                      <button onClick={() => handleDelete(lead.id, lead.full_name)} className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">حذف</button>
                     </div>
                   </td>
                 </tr>
