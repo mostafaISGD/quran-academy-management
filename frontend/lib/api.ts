@@ -222,7 +222,8 @@ export type Level = {
 export type Subscription = {
   id: number;
   student_id: number;
-  plan_id: number;
+  /** اختياري — الاشتراك بيتسجّل بالسعر ونوع الفوترة مباشرة */
+  plan_id: number | null;
   program_id: number;
   teacher_id: number | null;
   start_date: string;
@@ -235,9 +236,10 @@ export type Subscription = {
   status: "active" | "expired" | "paused" | "cancelled";
   auto_renew: boolean;
   notes: string | null;
-  student?: { id: number; full_name: string };
-  plan?: { id: number; name: string };
-  teacher?: { id: number; full_name: string };
+  student?: { id: number; full_name: string } | null;
+  plan?: { id: number; name: string } | null;
+  program?: { id: number; name: string } | null;
+  teacher?: { id: number; full_name: string } | null;
 };
 
 export type SubscriptionPlan = {

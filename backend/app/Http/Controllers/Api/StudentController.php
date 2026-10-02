@@ -257,7 +257,7 @@ class StudentController extends Controller
         $dueDate = $data['due_date'] ?? now()->addDays(14)->toDateString();
         $ids = array_values(array_unique($data['student_ids']));
 
-        $subs = Subscription::with('student')
+        $subs = Subscription::with(['student', 'program'])
             ->whereIn('student_id', $ids)
             ->where('status', 'active')
             ->orderBy('start_date')
@@ -299,7 +299,8 @@ class StudentController extends Controller
 
                 InvoiceItem::create([
                     'invoice_id' => $invoice->id,
-                    'description' => $data['description'] ?? "اشتراك {$sub->plan?->name}",
+                    'description' => $data['description']
+                ?? 'اشتراك ' . ($sub->plan?->name ?? $sub->program?->name ?? 'البرنامج'),
                     'quantity' => 1,
                     'unit_price' => $amount,
                     'total' => $amount,

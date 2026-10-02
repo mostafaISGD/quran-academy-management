@@ -224,7 +224,6 @@ export default function StudentsPage() {
     notes: string;
     program_id: string;
     teacher_id: string;
-    plan_id: string;
     start_date: string;
     end_date: string;
     billing_type: "monthly" | "per_lesson" | "custom";
@@ -260,7 +259,7 @@ export default function StudentsPage() {
     first_name: "", last_name: "", middle_name: "", date_of_birth: "", gender: "",
     country_code: "", email: "", status: "active" as Student["status"], notes: "",
     // الاشتراك
-    program_id: "", teacher_id: "", plan_id: "",
+    program_id: "", teacher_id: "",
     start_date: new Date().toISOString().split("T")[0],
     end_date: new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().split("T")[0],
     billing_type: "monthly" as "monthly" | "per_lesson" | "custom",
@@ -1088,7 +1087,6 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
       email: s.email ?? "", status: s.status,
       notes: (s as StudentWithRelations).notes ?? "",
       program_id: sub?.program_id?.toString() ?? "", teacher_id: sub?.teacher_id?.toString() ?? "",
-      plan_id: sub?.plan_id?.toString() ?? "",
       start_date: sub?.start_date ?? new Date().toISOString().split("T")[0],
       end_date: sub?.end_date ?? new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().split("T")[0],
       billing_type: (sub?.billing_type as "monthly" | "per_lesson" | "custom") ?? "monthly",
@@ -1126,10 +1124,10 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
       if (form.program_id && form.teacher_id) {
         const programId = Number(form.program_id);
         const teacherId = Number(form.teacher_id);
-        const planId = form.plan_id ? Number(form.plan_id) : 1;
         const existingSub = subscriptions.find((s) => s.student_id === studentId);
         const subPayload = {
-          student_id: studentId, plan_id: planId, program_id: programId, teacher_id: teacherId,
+          // ملاحظة: مفيش plan_id — الاشتراك بيتسجّل بالسعر ونوع الفوترة مباشرة
+          student_id: studentId, program_id: programId, teacher_id: teacherId,
           start_date: form.start_date,
           end_date: form.end_date,
           billing_type: form.billing_type, price: form.price, currency: form.currency,
@@ -1818,12 +1816,6 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     <option value="">المعلم *</option>
                     {teachers.map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)}
                   </select>
-                  <select value={form.plan_id} onChange={(e) => setForm({ ...form, plan_id: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                    <option value="">الخطة</option>
-                    <option value="1">شهري قياسي</option>
-                    <option value="2">لكل حصة</option>
-                    <option value="3">مخصص</option>
-                  </select>
                   <div>
                     <label className="mb-1 block text-xs text-slate-500">تاريخ البداية</label>
                     <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
@@ -1832,11 +1824,14 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     <label className="mb-1 block text-xs text-slate-500">تاريخ النهاية</label>
                     <input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
                   </div>
-                  <select value={form.billing_type} onChange={(e) => setForm({ ...form, billing_type: e.target.value as "monthly" | "per_lesson" | "custom" })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                    <option value="monthly">شهري</option>
-                    <option value="per_lesson">لكل حصة</option>
-                    <option value="custom">مخصص</option>
-                  </select>
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500">نوع الفوترة *</label>
+                    <select value={form.billing_type} onChange={(e) => setForm({ ...form, billing_type: e.target.value as "monthly" | "per_lesson" | "custom" })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                      <option value="monthly">شهري</option>
+                      <option value="per_lesson">لكل حصة</option>
+                      <option value="custom">مخصص</option>
+                    </select>
+                  </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="mb-1 block text-xs text-slate-500">السعر</label>

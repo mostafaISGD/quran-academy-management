@@ -157,7 +157,7 @@ export default function SubscriptionsPage() {
             <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
               <tr>
                 <th className="px-4 py-3 text-right font-medium">الطالب</th>
-                <th className="px-3 py-3 text-right font-medium">الباقة</th>
+                <th className="px-3 py-3 text-right font-medium">البرنامج</th>
                 <th className="px-3 py-3 text-right font-medium">المعلم</th>
                 <th className="hidden px-3 py-3 text-right font-medium lg:table-cell">الفترة</th>
                 <th className="px-2 py-3 text-center font-medium">الفوترة</th>
@@ -171,9 +171,9 @@ export default function SubscriptionsPage() {
                 <tr key={s.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                   <td className="px-4 py-3">
                     <p className="font-medium text-slate-800">{s.student?.full_name ?? `طالب ${s.student_id}`}</p>
-                    <p className="text-xs text-slate-400">برنامج {s.program_id}</p>
+                    {s.plan?.name && <p className="text-xs text-slate-400">{s.plan.name}</p>}
                   </td>
-                  <td className="px-3 py-3 text-slate-600">{s.plan?.name ?? `باقة ${s.plan_id}`}</td>
+                  <td className="px-3 py-3 text-slate-600">{s.program?.name ?? `برنامج ${s.program_id}`}</td>
                   <td className="px-3 py-3 text-slate-600">{s.teacher?.full_name ?? "—"}</td>
                   <td className="hidden px-3 py-3 text-xs text-slate-500 lg:table-cell">
                     {s.start_date} — {s.end_date ?? "مفتوح"}

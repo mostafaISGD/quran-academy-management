@@ -36,11 +36,12 @@ class SubscriptionController extends Controller
     {
         $data = $request->validate([
             'student_id' => 'required|exists:students,id',
-            'plan_id' => 'required|exists:subscription_plans,id',
+            // الباقة اختيارية — الاشتراك بيتسجّل بالسعر ونوع الفوترة مباشرة
+            'plan_id' => 'nullable|exists:subscription_plans,id',
             'program_id' => 'required|exists:programs,id',
             'teacher_id' => 'nullable|exists:teachers,id',
             'start_date' => 'required|date',
-            'end_date' => 'nullable|date',
+            'end_date' => 'nullable|date|after_or_equal:start_date',
             'billing_type' => 'nullable|in:monthly,per_lesson,custom',
             'price' => 'nullable|numeric',
             'currency' => 'nullable|string|size:3',
