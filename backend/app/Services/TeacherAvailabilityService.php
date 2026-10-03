@@ -415,25 +415,42 @@ class TeacherAvailabilityService
         $out = [];
 
         foreach ($teachers as $teacher) {
+            $dayBlocks = $blocksByTeacher->get($teacher->id, collect());
+
             // كتلة «أكاديمية» = نافذة تدريس المعلم، يعني وقت متاح للحجز.
             // اللي بيحجز فعلاً هو: شغل خارجي، إجازة، أو التزام شخصي.
             $blocking = null;
-            foreach ($blocksByTeacher->get($teacher->id, collect()) as $b) {
-                if ($b->kind === 'academy') continue;
+            $hasTeachingWindow = false;
+            foreach ($dayBlocks as $b) {
+                if ($b->kind === 'academy') {
+                    if ($b->overlaps($startTime, $endTime)) {
+                        $hasTeachingWindow = true;
+                    }
+                    continue;
+                }
                 if ($b->overlaps($startTime, $endTime)) {
                     $blocking = $b;
                     break;
                 }
             }
 
+            $hasSchedule = (int) ($totalBlocks[$teacher->id] ?? 0) > 0;
+
+            // معلم مالوش جدول أصلاً بيبان مع علامة تحذير (قرار أداري)،
+            // لكن معلم عنده جدول وما فيهوش نافذة تدريس على المواعيد دي
+            // مش من حقه ياخد حصة — بنعتبره مش متاح
+            $noTeachingWindow = !$hasTeachingWindow && $hasSchedule;
+
             $lessonsBusy = $busyFromLessons->has($teacher->id);
-            $available = !$blocking && !$lessonsBusy;
+            $available = !$blocking && !$lessonsBusy && !$noTeachingWindow;
 
             $reason = null;
             if ($blocking) {
                 $reason = "مشغول ({$blocking->kind_label}" . ($blocking->title ? " — {$blocking->title}" : '') . ')';
             } elseif ($lessonsBusy) {
                 $reason = 'عنده حصة في نفس الوقت';
+            } elseif ($noTeachingWindow) {
+                $reason = 'ما عندوش نافذة تدريس في المواعيد دي';
             }
 
             // السعة: كام موعد يقدر ياخده خلال الفترة
@@ -462,7 +479,7 @@ class TeacherAvailabilityService
                 'available' => $available,
                 'reason' => $reason,
                 // مالهوش جدول مسجّل — ظاهر في الـ dropdown مع علامة تحذير
-                'has_schedule' => (int) ($totalBlocks[$teacher->id] ?? 0) > 0,
+                'has_schedule' => $hasSchedule,
                 // السعة: كام حصة لسه فاضية في المواعيد دي (0 لو مشغول)
                 'capacity' => $capacity,
                 'booked' => $bookedCount,

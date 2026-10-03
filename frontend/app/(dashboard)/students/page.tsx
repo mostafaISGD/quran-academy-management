@@ -7,6 +7,7 @@ import {
   getParents, getStudentPhones, addStudentPhone, updateStudentPhone,
   deleteStudentPhone, setPrimaryPhone,
   bulkChangeTeacher, bulkCreateInvoices, bulkNotify,
+  createSubscription, updateSubscription,
   getAvailableTeachers,
   getAttendanceReport, getSubscriptionReport,
   searchParents, PARENT_RELATIONSHIPS, parentRelationshipLabel,
@@ -1102,8 +1103,12 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
       start_date: sub?.start_date ?? new Date().toISOString().split("T")[0],
       end_date: sub?.end_date ?? new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().split("T")[0],
       billing_type: (sub?.billing_type as "monthly" | "per_lesson") ?? "monthly",
-      weekdays: [],
-      start_time: "16:00",
+      // المواعيد محفوظة مع الاشتراك — لو مش موجودة نخليها فاضية
+      // عشان الأدمن يختارها تاني بدل ما يتعامل مع قيمة غلط
+      weekdays: Array.isArray(sub?.schedule_weekdays)
+        ? (sub.schedule_weekdays as number[]).slice().sort((a, b) => a - b)
+        : [],
+      start_time: sub?.schedule_start_time ?? "16:00",
       price: sub?.price ? Number(sub.price) : 500, currency: sub?.currency ?? "EGP",
       lesson_duration_minutes: sub?.lesson_duration_minutes ?? 30, lessons_included: sub?.lessons_included ?? 8,
       phones: mappedPhones,
@@ -1202,19 +1207,35 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
           student_id: studentId, program_id: programId, teacher_id: teacherId,
           start_date: form.start_date,
           end_date: form.end_date,
-          billing_type: form.billing_type, price: form.price, currency: form.currency,
-          lesson_duration_minutes: form.lesson_duration_minutes, lessons_included: form.lessons_included,
+          billing_type: form.billing_type as "monthly" | "per_lesson",
+          price: form.price, currency: form.currency,
+          lesson_duration_minutes: form.lesson_duration_minutes,
+          lessons_included: form.lessons_included,
+          // المواعيد الأسبوعية — دي اللي بتتحوّل لحصص على تقويم المعلم
+          weekdays: form.weekdays, start_time: form.start_time,
         };
-        if (existingSub) {
-          await apiFetch(`/subscriptions/${existingSub.id}`, {
-            method: "PUT",
-            body: JSON.stringify(subPayload),
-          });
-        } else {
-          await apiFetch("/subscriptions", {
-            method: "POST",
-            body: JSON.stringify(subPayload),
-          });
+        const result = existingSub
+          ? await updateSubscription(existingSub.id, subPayload)
+          : await createSubscription(subPayload);
+
+        // نقول للـ admin إيه اللي حصل تلقائياً: فاتورة، رصيد، وحصص
+        const { activation } = result;
+        const skipped = activation.lessons_skipped.length;
+
+        if (skipped > 0) {
+          toast.warning(
+            `${activation.lessons_created} حصة اتجدولت`,
+            `${skipped} موعد اتخطّى لأن المعلم كان مشغول فيه: ${activation.lessons_skipped
+              .slice(0, 3)
+              .map((s) => s.date)
+              .join("، ")}${skipped > 3 ? "…" : ""}`,
+            10000,
+          );
+        } else if (activation.lessons_created > 0) {
+          toast.success(
+            `تم إنشاء الاشتراك · ${activation.lessons_created} حصة اتجدولت`,
+            activation.invoice_id ? `فاتورة #${activation.invoice_id} جاهزة` : undefined,
+          );
         }
       }
       // Save phone numbers — ولي الأمر بيتسجل تلقائي من الأرقام اللي عليها parent_name

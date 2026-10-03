@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -14,8 +15,14 @@ class SeedLessons extends Seeder
 {
     private const TARGET = 500;
 
-    /** الحصص الموزعة على الأسابيع السابقة */
-    private const PAST_WEEKS = 6;
+    /**
+     * الحصص الموزعة على الأسابيع السابقة
+     *
+     * ٩ أسابيع مش ٦: مع منع التزاحم (مفيش معلم ياخد طالبين في نفس
+     * الوقت) أصبحت الأيام المتاحة لكل اشتراك ٥ بدل ٧، فعدد الحصص
+     * قلّ. نوسّع المدى التاريخي عشان نوصل ~500 حصة.
+     */
+    private const PAST_WEEKS = 9;
 
     /** نسبة الحصص القادمة من المجموع */
     private const FUTURE_SHARE = 0.3;
@@ -58,16 +65,24 @@ class SeedLessons extends Seeder
         // مصادر السور للتحفيظ
         $surahs = DB::table('quran_surahs')->get();
 
-        // نولّد الحصص على شكل جدول أسبوعي لكل اشتراك
-        // الأسبوع: السبت(6) .. الخميس(4) — الجمعة(5) إجازة
-        $slots = [
-            [6, 16], [6, 18], [6, 20],
-            [0, 16], [0, 18], [0, 20],
-            [1, 16], [1, 18], [1, 20],
-            [2, 16], [2, 18], [2, 20],
-            [3, 16], [3, 18], [3, 20],
-            [4, 16], [4, 18], [4, 20],
-        ];
+        // كل اشتراك: وقت واحد ثابت + أيام متفرقة.
+        // ليش وقت واحد؟ لأن الاشتراك بيخزّن وقت بداية واحد
+        // (schedule_start_time) — فلازم اللي بنولّده يطابقه، وإلا
+        // فورم تعديل الطالب هيبان عليه مواعيد مش موجودة أصلاً.
+        //
+        // الأيام ٠(الأحد)..٤(الخميس) — الجمعة(٥) والسبت(٦) راحة
+        $days = [0, 1, 2, 3, 4];
+
+        // المواعيد اللي كل اشتراك اتولّد عليها فعلاً — بنكتبها
+        // على جدول subscriptions بعد التوليد
+        $subSlots = [];
+
+        // الخانات المحجوزة: "teacher_id|timestamp" — عشان مفيش
+        // معلم ياخد طالبين في نفس الوقت
+        $takenSlots = [];
+
+        // الأيام المستخدمة لكل معلم: "teacher_id => [day => true]"
+        $teacherDays = [];
 
         foreach ($subs as $index => $sub) {
             $levelList = $levels[$sub->program_id] ?? collect();
@@ -75,18 +90,42 @@ class SeedLessons extends Seeder
 
             // كل اشتراك نشط: عدد حصص أقل عشان نغطي طلاب أكثر
             $perWeek = [1, 2, 2][mt_rand(0, 2)];
+            $hour = mt_rand(16, 20);
+
+            // المعلم الواحد بياخد أكتر من اشتراك، فبنفضّل الأيام
+            // اللي لسه فاضية عنده. من غير كده بنضيع نص الحصص في
+            // تعارضات مع اشتراك تاني لنفس المعلم.
+            $free = array_values(array_filter(
+                $days,
+                fn ($d) => !isset($teacherDays[$sub->teacher_id][$d])
+            ));
+            $pool = $free ?: $days;
+
             $slotIdx = [];
-            $maxSlots = count($slots);
-            $picked = 0;
             $guard = 0;
+            $picked = 0;
             while ($picked < $perWeek && $guard < 50) {
-                $idx = mt_rand(0, $maxSlots - 1);
-                if (!in_array($idx, $slotIdx, true)) {
-                    $slotIdx[] = $idx;
+                $day = $pool[mt_rand(0, count($pool) - 1)];
+                if (!in_array($day, $slotIdx, true)) {
+                    $slotIdx[] = $day;
                     $picked++;
                 }
                 $guard++;
             }
+            sort($slotIdx);
+
+            foreach ($slotIdx as $d) {
+                $teacherDays[$sub->teacher_id][$d] = true;
+            }
+
+            // الأسبوع بيبدأ بالأحد عشان يطابق ترقيم الأيام في الجدول
+            // (٠=الأحد)..٤(الخميس). startOfWeek() الافتراضي بيبدأ
+            // بالاثنين فكان 날ص تاريخ كل حصة بيوم غلط.
+            $weekStart = $now->copy()->startOfWeek(Carbon::SUNDAY);
+
+            // الأيام اللي اتعملت فيها حصص فعلاً — ممكن تقل عن
+            // slotIdx لو الخانة كانت محجوزة لمعلم تاني
+            $usedDays = [];
 
             // نمر على الأسابيع السابقة + الأسابيع القادمة (نسبة من الحصص)
             $futureCap = (int) ceil(self::TARGET * self::FUTURE_SHARE);
@@ -101,11 +140,7 @@ class SeedLessons extends Seeder
                         continue;
                     }
 
-                    [$dow, $hour] = $slots[$si] ?? $slots[0];
-
-                    // الوقت: نحسبه من الأسبوع الحالي
-                    $weekStart = $now->copy()->startOfWeek(); // السبت
-                    $date = $weekStart->copy()->addDays($dow)->setTime($hour, 0);
+                    $date = $weekStart->copy()->addDays($si)->setTime($hour, 0);
                     $date = $date->subWeeks($w);
 
                     if ($date->timestamp > $nowTs + 86400 * 2) {
@@ -115,6 +150,16 @@ class SeedLessons extends Seeder
                     $duration = $sub->lesson_duration_minutes ?: 30;
                     $start = $date->timestamp;
                     $end = $start + ($duration * 60);
+
+                    // ممنوع طالبين مع نفس المعلم في نفس الوقت (قرار إداري
+                    // بالنظام نفسه) — لو الخانة محجوزة بنعدّيها بدل ما
+                    // نعمل حصة متداخلة
+                    $key = $sub->teacher_id . '|' . $start;
+                    if (isset($takenSlots[$key])) {
+                        continue;
+                    }
+                    $takenSlots[$key] = true;
+                    $usedDays[$si] = true;
 
                     // حالة الحصة حسب الوقت
                     $isFuture = $start > $nowTs;
@@ -255,11 +300,36 @@ class SeedLessons extends Seeder
                     }
                 }
             }
+
+            // بنسجّل المواعيد اللي اتعملت فيها حصص فعلاً — لو
+            // مفيش ولا حصة ما بنكتبش، عشان فورم تعديل الطالب
+            // ما يبقاش فيه أسبوع مالهوش حصص
+            if ($usedDays) {
+                $days = array_keys($usedDays);
+                sort($days);
+                $subSlots[$sub->id] = [
+                    'weekdays' => $days,
+                    'start_time' => sprintf('%02d:00', $hour),
+                ];
+            }
         }
 
         foreach (array_chunk($lessons, 100) as $chunk) {
             DB::table('lessons')->insert($chunk);
         }
+
+        // نكتب المواعيد اللي اتولّدت عليها فعلاً على الاشتراكات، عشان
+        // فورم تعديل الطالب يطلع بنفس المواعيد اللي في التقويم
+        foreach ($subSlots as $subId => $slot) {
+            DB::table('subscriptions')
+                ->where('id', $subId)
+                ->update([
+                    'schedule_weekdays' => json_encode($slot['weekdays']),
+                    'schedule_start_time' => $slot['start_time'],
+                    'updated_at' => $now,
+                ]);
+        }
+
         if ($attendance) {
             foreach (array_chunk($attendance, 100) as $chunk) {
                 DB::table('lesson_attendance')->insert($chunk);
@@ -280,6 +350,7 @@ class SeedLessons extends Seeder
         }
 
         $this->command?->info('   → ' . count($lessons) . ' حصة');
+        $this->command?->info('   → ' . count($subSlots) . ' اشتراك اتسجّل له موعد أسبوعي');
         $this->command?->info('   → ' . count($attendance) . ' سجل حضور');
         $this->command?->info('   → ' . count($progress) . ' سجل تقدم');
         $this->command?->info('   → ' . count($memorization) . ' سجل تحفيظ');

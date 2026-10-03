@@ -284,6 +284,10 @@ export type Subscription = {
   currency: string;
   lesson_duration_minutes: number;
   lessons_included: number | null;
+  /** الأيام في الأسبوع (٠=الأحد) — اتخزّنوا عشان نرجعهم في الفورم */
+  schedule_weekdays: number[] | null;
+  /** وقت بداية الحصة HH:MM */
+  schedule_start_time: string | null;
   status: "active" | "expired" | "paused" | "cancelled";
   auto_renew: boolean;
   notes: string | null;
@@ -291,6 +295,43 @@ export type Subscription = {
   plan?: { id: number; name: string } | null;
   program?: { id: number; name: string } | null;
   teacher?: { id: number; full_name: string } | null;
+};
+
+/** طلب إنشاء/تعديل اشتراك — المواعيد الأسبوعية جزء أساسي منه */
+export type SubscriptionPayload = {
+  student_id: number;
+  program_id: number;
+  teacher_id?: number | null;
+  plan_id?: number | null;
+  start_date: string;
+  end_date?: string | null;
+  billing_type?: "monthly" | "per_lesson";
+  price?: number | string | null;
+  currency?: string | null;
+  lesson_duration_minutes?: number | null;
+  lessons_included?: number | null;
+  auto_renew?: boolean | null;
+  notes?: string | null;
+  /** الأيام في الأسبوع (٠=الأحد) — بتتحوّل لحصص على التقويم */
+  weekdays?: number[];
+  /** وقت بداية الحصة HH:MM */
+  start_time?: string | null;
+};
+
+/** نتيجة تشغيل الاشتراك — بتتولّد تلقائياً أول ما يتحفظ */
+export type SubscriptionActivation = {
+  invoice_id: number | null;
+  invoice_total: number;
+  credit_account_id: number | null;
+  /** عدد الحصص اللي اتجدولت فعلاً */
+  lessons_created: number;
+  /** المواعيد اللي اتخطّت لأن المعلم كان مشغول فيها */
+  lessons_skipped: { date: string; reason: string }[];
+};
+
+export type SubscriptionActivationResult = {
+  subscription: Subscription;
+  activation: SubscriptionActivation;
 };
 
 export type SubscriptionPlan = {
@@ -1102,6 +1143,25 @@ export function getSubscriptions(params?: {
   if (params?.page) search.set("page", String(params.page));
   search.set("per_page", String(params?.per_page ?? 100));
   return apiFetch<Paginated<Subscription>>(`/subscriptions?${search.toString()}`);
+}
+
+/**
+ * إنشاء اشتراك — بيتشغّل تلقائياً: فاتورة + رصيد حصص + جدولة الحصص.
+ * بيرجّع نتيجة التشغيل عشان الـ UI يعرض عدد اللي اتجدول واللي اتخطّى.
+ */
+export function createSubscription(payload: SubscriptionPayload) {
+  return apiFetch<SubscriptionActivationResult>("/subscriptions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** تعديل اشتراك — بيرجّع نفس نتيجة التشغيل (بيتجدول الناقص بس) */
+export function updateSubscription(id: number, payload: SubscriptionPayload) {
+  return apiFetch<SubscriptionActivationResult>(`/subscriptions/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
 }
 
 export function deleteSubscription(id: number) {

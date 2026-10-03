@@ -10,6 +10,7 @@ class Subscription extends Model
         'organization_id', 'student_id', 'plan_id', 'program_id', 'teacher_id',
         'start_date', 'end_date', 'billing_type', 'price', 'currency',
         'lesson_duration_minutes', 'lessons_included', 'status', 'auto_renew', 'notes',
+        'schedule_weekdays', 'schedule_start_time',
     ];
 
     protected function casts(): array
@@ -19,6 +20,7 @@ class Subscription extends Model
             'start_date' => 'date',
             'end_date' => 'date',
             'auto_renew' => 'boolean',
+            'schedule_weekdays' => 'array',
         ];
     }
 
