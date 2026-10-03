@@ -142,6 +142,28 @@ class TeacherAvailabilityService
     }
 
     /**
+     * معرّفات المعلمين اللي مشغولين في المواعيد دي.
+     *
+     * عشان الـ controller يتحقق قبل الحفظ من غير ما يطلب تقرير كامل
+     * بالأسماء والأسباب.
+     *
+     * @return int[]
+     */
+    public function busyTeacherIds(
+        array $weekdays,
+        string $startTime,
+        int $durationMinutes,
+        ?Carbon $onDate = null,
+    ): array {
+        $all = $this->availableTeachers($weekdays, $startTime, $durationMinutes, $onDate);
+
+        return array_values(array_map(
+            fn (array $t) => (int) $t['id'],
+            array_filter($all, fn (array $t) => !$t['available'])
+        ));
+    }
+
+    /**
      * قائمة المعلمين المتاحين في المواعيد المطلوبة — للـ dropdown.
      *
      * @param  int[]  $weekdays

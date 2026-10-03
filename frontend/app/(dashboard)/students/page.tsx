@@ -7,6 +7,7 @@ import {
   getParents, getStudentPhones, addStudentPhone, updateStudentPhone,
   deleteStudentPhone, setPrimaryPhone,
   bulkChangeTeacher, bulkCreateInvoices, bulkNotify,
+  getAvailableTeachers,
   getAttendanceReport, getSubscriptionReport,
   searchParents, PARENT_RELATIONSHIPS, parentRelationshipLabel,
   getStudentParents, setPrimaryParent,
@@ -14,6 +15,8 @@ import {
   type StudentParent,
 } from "@/lib/api";
 import Pagination from "@/components/Pagination";
+import LessonCalendarPreview from "@/components/LessonCalendarPreview";
+import TeacherPicker from "@/components/TeacherPicker";
 import { useUI, IconTrash } from "@/components/ui";
 
 const STATUS_LABEL: Record<Student["status"], string> = {
@@ -24,6 +27,9 @@ const STATUS_COLORS: Record<Student["status"], string> = {
   lead: "bg-blue-100 text-blue-700", active: "bg-green-100 text-green-700", paused: "bg-amber-100 text-amber-700",
   inactive: "bg-slate-100 text-slate-500", graduated: "bg-purple-100 text-purple-700", archived: "bg-red-100 text-red-700",
 };
+
+/** أسماء الأيام المختصرة — نفس ترتيب dayOfWeek (0=الأحد) */
+const DAYS_SHORT = ["أحد", "إثنين", "ثلاثاء", "أربعاء", "خميس", "جمعة", "سبت"];
 
 const COUNTRIES = [
   { code: "+20", name: "مصر", flag: "🇪🇬" },
@@ -226,7 +232,11 @@ export default function StudentsPage() {
     teacher_id: string;
     start_date: string;
     end_date: string;
-    billing_type: "monthly" | "per_lesson" | "custom";
+    /** أيام الحصص الأسبوعية (0=الأحد) — بتتحدد قبل اختيار المعلم */
+    weekdays: number[];
+    /** وقت بداية الحصة HH:MM */
+    start_time: string;
+    billing_type: "monthly" | "per_lesson";
     price: number;
     currency: string;
     lesson_duration_minutes: number;
@@ -262,7 +272,9 @@ export default function StudentsPage() {
     program_id: "", teacher_id: "",
     start_date: new Date().toISOString().split("T")[0],
     end_date: new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().split("T")[0],
-    billing_type: "monthly" as "monthly" | "per_lesson" | "custom",
+    weekdays: [] as number[],
+    start_time: "16:00",
+    billing_type: "monthly" as "monthly" | "per_lesson",
     price: 500, currency: "EGP",
     lesson_duration_minutes: 30, lessons_included: 8,
     // أرقام الهواتف (للطلاب الجدد) — ولي الأمر بيتسجل من هنا
@@ -1089,7 +1101,9 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
       program_id: sub?.program_id?.toString() ?? "", teacher_id: sub?.teacher_id?.toString() ?? "",
       start_date: sub?.start_date ?? new Date().toISOString().split("T")[0],
       end_date: sub?.end_date ?? new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString().split("T")[0],
-      billing_type: (sub?.billing_type as "monthly" | "per_lesson" | "custom") ?? "monthly",
+      billing_type: (sub?.billing_type as "monthly" | "per_lesson") ?? "monthly",
+      weekdays: [],
+      start_time: "16:00",
       price: sub?.price ? Number(sub.price) : 500, currency: sub?.currency ?? "EGP",
       lesson_duration_minutes: sub?.lesson_duration_minutes ?? 30, lessons_included: sub?.lessons_included ?? 8,
       phones: mappedPhones,
@@ -1105,6 +1119,45 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
         setError("يجب إضافة رقم هاتف واحد على الأقل للطالب الجديد");
         return;
       }
+
+      // لازم أيام الحصة والوقت قبل ما نختار معلم
+      const wantsSubscription = Boolean(form.program_id && form.teacher_id);
+      if (wantsSubscription && form.weekdays.length === 0) {
+        toast.warning("اختر أيام الحصة الأسبوعية", "من غيرها مش هينفع نحجز الحصص للمعلم.");
+        return;
+      }
+
+      // نتأكد من توافر المعلم في المواعيد دي قبل الحفظ (الفلترة لوحدها مش كفاية
+      // — ممكن يكون اتحجز بعد ما القائمة اتحمّلت)
+      if (wantsSubscription) {
+        try {
+          const check = await getAvailableTeachers({
+            weekdays: form.weekdays,
+            start_time: form.start_time,
+            duration: form.lesson_duration_minutes,
+            on_date: form.start_date || undefined,
+          });
+          const me = check.teachers.find((t) => String(t.id) === form.teacher_id);
+
+          if (!me) {
+            toast.error("المعلم مش موجود", "حاول تختاره تاني من القائمة.");
+            return;
+          }
+          if (!me.available) {
+            const proceed = await confirm({
+              title: "المعلم مشغول في المواعيد دي",
+              message: `${me.name} ${me.reason ?? "مشغول"}.\n\nتحب تكمل برضه؟ الحجز ممكن يفشل لو في تعارض.`,
+              confirmLabel: "اكمل",
+              cancelLabel: "رجوع",
+              tone: "warning",
+            });
+            if (!proceed) return;
+          }
+        } catch {
+          // لو فشل التحقق ما بنمنعش الحفظ — السيرفر هيحمي نفسه
+        }
+      }
+
       const payload = {
         first_name: form.first_name, last_name: form.last_name, middle_name: form.middle_name || undefined,
         date_of_birth: form.date_of_birth || undefined, gender: (form.gender || undefined) as "male" | "female" | undefined,
@@ -1807,58 +1860,140 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
               {/* Section: Subscription */}
               <div className="rounded-lg bg-emerald-50 p-4 space-y-3 border border-emerald-100">
                 <h4 className="font-medium text-emerald-700 flex items-center gap-2">📋 الاشتراك</h4>
+
+                {/* ① البرنامج */}
                 <div className="grid grid-cols-2 gap-3">
-                  <select value={form.program_id} onChange={(e) => setForm({ ...form, program_id: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                    <option value="">البرنامج *</option>
-                    {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                  <select value={form.teacher_id} onChange={(e) => setForm({ ...form, teacher_id: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                    <option value="">المعلم *</option>
-                    {teachers.map((t) => <option key={t.id} value={t.id}>{t.full_name}</option>)}
-                  </select>
                   <div>
-                    <label className="mb-1 block text-xs text-slate-500">تاريخ البداية</label>
-                    <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-slate-500">تاريخ النهاية</label>
-                    <input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs text-slate-500">نوع الفوترة *</label>
-                    <select value={form.billing_type} onChange={(e) => setForm({ ...form, billing_type: e.target.value as "monthly" | "per_lesson" | "custom" })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                      <option value="monthly">شهري</option>
-                      <option value="per_lesson">لكل حصة</option>
-                      <option value="custom">مخصص</option>
+                    <label className="mb-1 block text-xs text-slate-500">البرنامج *</label>
+                    <select value={form.program_id} onChange={(e) => setForm({ ...form, program_id: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                      <option value="">اختر البرنامج</option>
+                      {programs.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                     </select>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500">المدة</label>
+                    <select value={form.lesson_duration_minutes} onChange={(e) => setForm({ ...form, lesson_duration_minutes: Number(e.target.value) })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                      <option value="30">30 دقيقة</option>
+                      <option value="45">45 دقيقة</option>
+                      <option value="60">60 دقيقة</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* ② أيام الحصة الأسبوعية — بتتحدد قبل اختيار المعلم */}
+                <div className="rounded-lg border border-emerald-200 bg-white p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <label className="text-xs font-medium text-slate-700">
+                      أيام الحصة الأسبوعية <span className="text-red-500">*</span>
+                    </label>
+                    {form.weekdays.length > 0 && (
+                      <span className="text-[11px] text-slate-500">
+                        {form.weekdays.length} يوم في الأسبوع
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {DAYS_SHORT.map((day, i) => {
+                      const on = form.weekdays.includes(i);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          onClick={() => setForm({
+                            ...form,
+                            weekdays: on
+                              ? form.weekdays.filter((d) => d !== i)
+                              : [...form.weekdays, i].sort(),
+                          })}
+                          className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                            on
+                              ? "bg-emerald-600 text-white shadow-sm"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                          }`}
+                        >
+                          {day}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-2.5 grid grid-cols-2 gap-2">
                     <div>
-                      <label className="mb-1 block text-xs text-slate-500">السعر</label>
-                      <input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                      <label className="mb-1 block text-xs text-slate-500">وقت الحصة</label>
+                      <input
+                        type="time"
+                        value={form.start_time}
+                        onChange={(e) => setForm({ ...form, start_time: e.target.value })}
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      />
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs text-slate-500">العملة</label>
-                      <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                        <option value="EGP">جنيه مصري</option>
-                        <option value="SAR">ريال سعودي</option>
-                        <option value="USD">دولار أمريكي</option>
-                      </select>
+                      <label className="mb-1 block text-xs text-slate-500">من / إلى</label>
+                      <div className="flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700">
+                        <span className="tabular-nums">{form.start_date || "—"}</span>
+                        <span className="text-slate-400">←</span>
+                        <span className="tabular-nums">{form.end_date || "—"}</span>
+                      </div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
+
+                  <div className="mt-2.5 grid grid-cols-2 gap-2">
                     <div>
-                      <label className="mb-1 block text-xs text-slate-500">مدة الحصة (دقيقة)</label>
-                      <select value={form.lesson_duration_minutes} onChange={(e) => setForm({ ...form, lesson_duration_minutes: Number(e.target.value) })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
-                        <option value="30">30 دقيقة</option>
-                        <option value="45">45 دقيقة</option>
-                        <option value="60">60 دقيقة</option>
-                      </select>
+                      <label className="mb-1 block text-xs text-slate-500">تاريخ البداية</label>
+                      <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs text-slate-500">الحصص المشمولة</label>
-                      <input type="number" value={form.lessons_included} onChange={(e) => setForm({ ...form, lessons_included: Number(e.target.value) })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                      <label className="mb-1 block text-xs text-slate-500">تاريخ النهاية</label>
+                      <input type="date" min={form.start_date || undefined} value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
                     </div>
+                  </div>
+
+                  {/* معاينة التقويم */}
+                  <div className="mt-2.5">
+                    <p className="mb-1.5 text-xs font-medium text-slate-700">معاينة الحصص</p>
+                    <LessonCalendarPreview
+                      from={form.start_date}
+                      to={form.end_date}
+                      weekdays={form.weekdays}
+                      durationMinutes={form.lesson_duration_minutes}
+                    />
+                  </div>
+                </div>
+
+                {/* ③ المعلم — مفلتر على المواعيد اللي فوق */}
+                <TeacherPicker
+                  weekdays={form.weekdays}
+                  startTime={form.start_time}
+                  durationMinutes={form.lesson_duration_minutes}
+                  value={form.teacher_id}
+                  onChange={(id) => setForm({ ...form, teacher_id: id })}
+                />
+
+                {/* ④ باقي بيانات الاشتراك */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500">نوع الفوترة *</label>
+                    <select value={form.billing_type} onChange={(e) => setForm({ ...form, billing_type: e.target.value as "monthly" | "per_lesson" })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                      <option value="monthly">شهري</option>
+                      <option value="per_lesson">لكل حصة</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500">الحصص المشمولة</label>
+                    <input type="number" value={form.lessons_included} onChange={(e) => setForm({ ...form, lessons_included: Number(e.target.value) })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500">السعر</label>
+                    <input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-slate-500">العملة</label>
+                    <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                      <option value="EGP">جنيه مصري</option>
+                      <option value="SAR">ريال سعودي</option>
+                      <option value="USD">دولار أمريكي</option>
+                    </select>
                   </div>
                 </div>
 

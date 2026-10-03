@@ -42,15 +42,42 @@ class SubscriptionController extends Controller
             'teacher_id' => 'nullable|exists:teachers,id',
             'start_date' => 'required|date',
             'end_date' => 'nullable|date|after_or_equal:start_date',
-            'billing_type' => 'nullable|in:monthly,per_lesson,custom',
+            'billing_type' => 'nullable|in:monthly,per_lesson',
             'price' => 'nullable|numeric',
             'currency' => 'nullable|string|size:3',
             'lesson_duration_minutes' => 'nullable|integer',
             'lessons_included' => 'nullable|integer',
             'auto_renew' => 'nullable|boolean',
             'notes' => 'nullable|string',
+
+            // المواعيد الأسبوعية — اختيارية، بس لو بُعتت لازم تتحقق
+            'weekdays' => 'nullable|array|min:1|max:7',
+            'weekdays.*' => 'integer|min:0|max:6',
+            'start_time' => 'nullable|date_format:H:i',
         ]);
+
         $data['organization_id'] = $request->user()->organization_id;
+
+        // لو بعت مواعيد + معلم، نتأكد إن المعلم فاضي فعلاً
+        if (!empty($data['weekdays']) && !empty($data['teacher_id'])) {
+            $start = $data['start_time'] ?? '16:00';
+            $duration = $data['lesson_duration_minutes'] ?? 30;
+
+            $busy = app(\App\Services\TeacherAvailabilityService::class)
+                ->busyTeacherIds(
+                    array_map('intval', $data['weekdays']),
+                    $start,
+                    (int) $duration,
+                    \Carbon\Carbon::parse($data['start_date']),
+                );
+
+            if (in_array((int) $data['teacher_id'], $busy, true)) {
+                return response()->json([
+                    'message' => 'المعلم مشغول في المواعيد دي — غيّر المواعيد أو المعلم',
+                ], 422);
+            }
+        }
+
         return response()->json(Subscription::create($data), 201);
     }
 
