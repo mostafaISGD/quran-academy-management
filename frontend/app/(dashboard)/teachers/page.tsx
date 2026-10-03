@@ -4,11 +4,14 @@ import { useEffect, useState, useMemo, useCallback, memo } from "react";
 import {
   getTeachers, createTeacher, updateTeacher, deleteTeacher,
   getTeacherOverview, getTeacherStudents, getTeacherLessonsSummary, getTeacherFinancialSummary,
+  getTeacherAvailability, createScheduleBlock, updateScheduleBlock, deleteScheduleBlock,
+  WEEKDAY_LABELS, SCHEDULE_KIND_LABEL,
   type Teacher, type TeacherOverview, type TeacherStudent, type TeacherLessonsSummary,
   type TeacherFinancialSummary, type Lesson,
+  type TeacherScheduleBlock, type ScheduleKind,
 } from "@/lib/api";
 import Pagination from "@/components/Pagination";
-import { useUI, IconTrash } from "@/components/ui";
+import { useUI, Modal, IconTrash, IconPencil, IconCheck, IconAlert } from "@/components/ui";
 
 // ---------- ثوابت العرض ----------
 
@@ -497,6 +500,312 @@ function LessonsTab({ teacherId }: { teacherId: number }) {
 }
 
 // ============================================================
+// تبويب: جدول commitments المعلم
+// ============================================================
+
+const KIND_TONE: Record<string, string> = {
+  academy: "bg-emerald-50 text-emerald-800 ring-emerald-200",
+  external: "bg-violet-50 text-violet-800 ring-violet-200",
+  leave: "bg-amber-50 text-amber-800 ring-amber-200",
+  personal: "bg-slate-100 text-slate-700 ring-slate-200",
+};
+
+const KIND_DOT: Record<string, string> = {
+  academy: "bg-emerald-500",
+  external: "bg-violet-500",
+  leave: "bg-amber-500",
+  personal: "bg-slate-400",
+};
+
+const DAY_ORDER = [0, 1, 2, 3, 4, 5, 6];
+
+function ScheduleTab({ teacherId }: { teacherId: number }) {
+  const { toast, confirm } = useUI();
+  const [blocks, setBlocks] = useState<TeacherScheduleBlock[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState<TeacherScheduleBlock | null>(null);
+  const [openForm, setOpenForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState({
+    weekday: 0,
+    starts_at: "16:00",
+    ends_at: "18:00",
+    kind: "academy" as ScheduleKind,
+    title: "",
+  });
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    getTeacherAvailability(teacherId)
+      .then((r) => setBlocks(r.blocks))
+      .catch((e) => setError(e instanceof Error ? e.message : "تعذر التحميل"))
+      .finally(() => setLoading(false));
+  }, [teacherId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const byDay = useMemo(() => {
+    const map = new Map<number, TeacherScheduleBlock[]>(DAY_ORDER.map((d) => [d, []]));
+    for (const b of blocks) map.get(b.weekday)?.push(b);
+    for (const [, list] of map) list.sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+    return map;
+  }, [blocks]);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      const payload = {
+        weekday: draft.weekday,
+        starts_at: draft.starts_at,
+        ends_at: draft.ends_at,
+        kind: draft.kind,
+        title: draft.title.trim() || undefined,
+      };
+      if (editing) {
+        await updateScheduleBlock(teacherId, editing.id, payload);
+        toast.success("تم تعديل الفترة", `${WEEKDAY_LABELS[draft.weekday]} ${draft.starts_at} - ${draft.ends_at}`);
+      } else {
+        await createScheduleBlock(teacherId, payload);
+        toast.success("تمت إضافة الفترة", `${WEEKDAY_LABELS[draft.weekday]} ${draft.starts_at} - ${draft.ends_at}`);
+      }
+      setOpenForm(false);
+      setEditing(null);
+      load();
+    } catch (err) {
+      toast.error("فشل الحفظ", err instanceof Error ? err.message : undefined);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete(b: TeacherScheduleBlock) {
+    const ok = await confirm({
+      title: "حذف الفترة",
+      message: `متأكد إنك عايز تحذف «${WEEKDAY_LABELS[b.weekday]} من ${b.starts_at} إلى ${b.ends_at}»؟\n\n${b.kind === "leave" ? "الإجازة هتتشال من الجدول." : "الوقت ده هيبقى متاح تاني في الحجز."}`,
+      confirmLabel: "احذف",
+      tone: "danger",
+      icon: <IconTrash size={16} />,
+    });
+    if (!ok) return;
+    try {
+      await deleteScheduleBlock(teacherId, b.id);
+      toast.success("تم حذف الفترة");
+      load();
+    } catch (err) {
+      toast.error("فشل الحذف", err instanceof Error ? err.message : undefined);
+    }
+  }
+
+  if (loading) return <TabSkeleton />;
+  if (error) return <p className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>;
+
+  return (
+    <div className="space-y-4">
+      {/* تنبيه الجدول الفاضي */}
+      {blocks.length === 0 ? (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
+          <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-700">
+            <IconAlert size={16} />
+          </span>
+          <div>
+            <p className="text-sm font-semibold text-amber-900">جدول المعلم فاضي</p>
+            <p className="mt-0.5 text-sm leading-relaxed text-amber-800">
+              لازم يسجّل مواعيده (الأكاديمية والشغل الخارجي) قبل ما يتبعت له طلاب
+              جدد. أي وقت مش مسجّل بيتحسب فاضي.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600">
+          <span className="font-medium">{blocks.length} موعد مسجّل</span>
+          <span className="text-slate-300">·</span>
+          {(["academy", "external", "leave", "personal"] as const).map((k) => {
+            const n = blocks.filter((b) => b.kind === k).length;
+            if (n === 0) return null;
+            return (
+              <span key={k} className="inline-flex items-center gap-1">
+                <span className={`size-2 rounded-full ${KIND_DOT[k]}`} />
+                {SCHEDULE_KIND_LABEL[k]} {n.toLocaleString("ar-EG")}
+              </span>
+            );
+          })}
+        </div>
+      )}
+
+      {/* الجدول الأسبوعي */}
+      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+        <div className="grid min-w-[760px] grid-cols-7 divide-x divide-x-reverse divide-slate-100">
+          {DAY_ORDER.map((day) => {
+            const list = byDay.get(day) ?? [];
+            return (
+              <div key={day} className="flex min-h-[200px] flex-col">
+                <div className="border-b border-slate-100 bg-slate-50 px-2 py-2 text-center">
+                  <p className={`text-xs font-semibold ${list.length ? "text-slate-800" : "text-slate-400"}`}>
+                    {WEEKDAY_LABELS[day]}
+                  </p>
+                  <button
+                    onClick={() => {
+                      setEditing(null);
+                      setDraft({ weekday: day, starts_at: "16:00", ends_at: "18:00", kind: "academy", title: "" });
+                      setOpenForm(true);
+                    }}
+                    className="mt-0.5 rounded px-1 py-0.5 text-[11px] text-slate-400 transition hover:bg-slate-200 hover:text-slate-700"
+                  >
+                    + إضافة
+                  </button>
+                </div>
+
+                <div className="flex-1 space-y-1.5 p-1.5">
+                  {list.length === 0 ? (
+                    <p className="py-6 text-center text-[11px] text-slate-300">فاضي</p>
+                  ) : (
+                    list.map((b) => (
+                      <div key={b.id} className={`group rounded-lg px-2 py-1.5 ring-1 ${KIND_TONE[b.kind]}`}>
+                        <div className="flex items-start justify-between gap-1">
+                          <span dir="ltr" className="text-[11px] font-semibold tabular-nums">
+                            {b.starts_at.slice(0, 5)}–{b.ends_at.slice(0, 5)}
+                          </span>
+                          <div className="flex shrink-0 gap-0.5 opacity-0 transition group-hover:opacity-100">
+                            <button
+                              onClick={() => {
+                                setEditing(b);
+                                setDraft({
+                                  weekday: b.weekday,
+                                  starts_at: b.starts_at.slice(0, 5),
+                                  ends_at: b.ends_at.slice(0, 5),
+                                  kind: b.kind,
+                                  title: b.title ?? "",
+                                });
+                                setOpenForm(true);
+                              }}
+                              aria-label="تعديل"
+                              className="rounded p-0.5 hover:bg-white/60"
+                            >
+                              <IconPencil size={11} />
+                            </button>
+                            <button
+                              onClick={() => handleDelete(b)}
+                              aria-label="حذف"
+                              className="rounded p-0.5 text-red-600 hover:bg-white/60"
+                            >
+                              <IconTrash size={11} />
+                            </button>
+                          </div>
+                        </div>
+                        <p className="mt-0.5 truncate text-[11px] font-medium">
+                          {SCHEDULE_KIND_LABEL[b.kind]}
+                          {b.title ? ` · ${b.title}` : ""}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* نموذج */}
+      {openForm && (
+        <Modal
+          open
+          onClose={() => { setOpenForm(false); setEditing(null); }}
+          title={editing ? "تعديل الفترة" : "إضافة وقت مشغول"}
+          icon={<IconPencil size={16} />}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => { setOpenForm(false); setEditing(null); }}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                إلغاء
+              </button>
+              <button
+                type="submit"
+                form="teacher-block-form"
+                disabled={saving}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:opacity-60"
+              >
+                <IconCheck size={14} />
+                {saving ? "جارٍ الحفظ..." : "حفظ"}
+              </button>
+            </>
+          }
+        >
+          <form id="teacher-block-form" onSubmit={handleSave} className="space-y-3">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-slate-700">اليوم</label>
+              <select
+                value={draft.weekday}
+                onChange={(e) => setDraft({ ...draft, weekday: Number(e.target.value) })}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+              >
+                {DAY_ORDER.map((d) => (
+                  <option key={d} value={d}>{WEEKDAY_LABELS[d]}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-slate-700">من</label>
+                <input
+                  type="time" required value={draft.starts_at}
+                  onChange={(e) => setDraft({ ...draft, starts_at: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-slate-700">إلى</label>
+                <input
+                  type="time" required value={draft.ends_at}
+                  onChange={(e) => setDraft({ ...draft, ends_at: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-slate-700">النوع</label>
+              <div className="grid grid-cols-2 gap-2">
+                {(["academy", "external", "leave", "personal"] as const).map((k) => (
+                  <button
+                    key={k} type="button"
+                    onClick={() => setDraft({ ...draft, kind: k })}
+                    className={`rounded-lg px-3 py-2 text-sm transition ${
+                      draft.kind === k
+                        ? `${KIND_TONE[k]} ring-2`
+                        : "bg-slate-50 text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"
+                    }`}
+                  >
+                    {SCHEDULE_KIND_LABEL[k]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-slate-700">العنوان (اختياري)</label>
+              <input
+                value={draft.title}
+                onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+                placeholder={draft.kind === "external" ? "مثال: أكاديمية النور" : "مثال: حصة تحفيظ"}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-slate-500 focus:ring-2 focus:ring-slate-200"
+              />
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // تبويب: مالي (قراءة فقط)
 // ============================================================
 
@@ -747,12 +1056,13 @@ function TeacherFormModal({
 // ملف المعلم (Drawer)
 // ============================================================
 
-type TabKey = "overview" | "students" | "lessons" | "finance";
+type TabKey = "overview" | "students" | "lessons" | "schedule" | "finance";
 
 const TABS: { key: TabKey; label: string; icon: string }[] = [
   { key: "overview", label: "نظرة عامة", icon: "👤" },
   { key: "students", label: "الطلاب", icon: "🎓" },
   { key: "lessons", label: "الحصص", icon: "📅" },
+  { key: "schedule", label: "جدوله", icon: "🕐" },
   { key: "finance", label: "مالي", icon: "💰" },
 ];
 
@@ -831,6 +1141,7 @@ function TeacherDrawer({ teacher, onClose, onEdit, onRefresh }: {
           {tab === "overview" && <OverviewTab teacherId={teacher.id} />}
           {tab === "students" && <StudentsTab teacherId={teacher.id} />}
           {tab === "lessons" && <LessonsTab teacherId={teacher.id} />}
+          {tab === "schedule" && <ScheduleTab teacherId={teacher.id} />}
           {tab === "finance" && <FinanceTab teacherId={teacher.id} />}
         </div>
 

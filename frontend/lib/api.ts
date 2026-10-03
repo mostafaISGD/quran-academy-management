@@ -257,6 +257,178 @@ export type SubscriptionPlan = {
   description: string | null;
 };
 
+/* ============================================================
+   جدول commitments المعلّم (أكاديمية + شغل خارجي)
+   ========================================================== */
+
+/** 0 = الأحد … 6 = السبت (نفس dayOfWeek في Carbon) */
+export const WEEKDAY_LABELS: Record<number, string> = {
+  0: "الأحد",
+  1: "الإثنين",
+  2: "الثلاثاء",
+  3: "الأربعاء",
+  4: "الخميس",
+  5: "الجمعة",
+  6: "السبت",
+};
+
+export const WEEKDAY_SHORT: Record<number, string> = {
+  0: "أحد",
+  1: "إثنين",
+  2: "ثلاثاء",
+  3: "أربعاء",
+  4: "خميس",
+  5: "جمعة",
+  6: "سبت",
+};
+
+export type ScheduleKind = "academy" | "external" | "leave" | "personal";
+
+export const SCHEDULE_KIND_LABEL: Record<ScheduleKind, string> = {
+  academy: "أكاديمية",
+  external: "خارجي",
+  leave: "إجازة",
+  personal: "شخصي",
+};
+
+export type TeacherScheduleBlock = {
+  id: number;
+  teacher_id: number;
+  weekday: number;
+  weekday_label: string;
+  starts_at: string;
+  ends_at: string;
+  kind: ScheduleKind;
+  kind_label: string;
+  title: string | null;
+  notes: string | null;
+  is_recurring: boolean;
+  specific_date: string | null;
+  created_at: string;
+};
+
+export type TeacherAvailability = {
+  teacher_id: number;
+  week_start: string;
+  blocks: TeacherScheduleBlock[];
+  total: number;
+};
+
+export type AvailabilityCheck = {
+  teacher_id: number;
+  has_schedule: boolean;
+  blocks_count: number;
+};
+
+/** معلّم في قائمة التوافر — مع سبب عدم التوفر */
+export type AvailableTeacher = {
+  id: number;
+  name: string;
+  available: boolean;
+  reason: string | null;
+  /** مالهوش جدول مسجّل — ظاهر بس مع علامة تحذير */
+  has_schedule: boolean;
+};
+
+export function getTeacherAvailability(teacherId: number, week?: string) {
+  const s = new URLSearchParams();
+  if (week) s.set("week", week);
+  const q = s.toString();
+  return apiFetch<TeacherAvailability>(
+    `/teachers/${teacherId}/availability${q ? `?${q}` : ""}`,
+  );
+}
+
+export function getAllTeacherAvailability(params?: {
+  teacher_id?: number;
+  weekday?: number;
+}) {
+  const s = new URLSearchParams();
+  if (params?.teacher_id) s.set("teacher_id", String(params.teacher_id));
+  if (params?.weekday !== undefined) s.set("weekday", String(params.weekday));
+  const q = s.toString();
+  return apiFetch<{ data: TeacherScheduleBlock[] }>(
+    `/teacher-availability${q ? `?${q}` : ""}`,
+  );
+}
+
+export function getAvailabilityCompleteness(teacherId: number) {
+  return apiFetch<AvailabilityCheck>(
+    `/teachers/${teacherId}/availability/completeness`,
+  );
+}
+
+export function createScheduleBlock(
+  teacherId: number,
+  payload: {
+    weekday: number;
+    starts_at: string;
+    ends_at: string;
+    kind: ScheduleKind;
+    title?: string;
+    notes?: string;
+    is_recurring?: boolean;
+    specific_date?: string;
+  },
+) {
+  return apiFetch<TeacherScheduleBlock>(`/teachers/${teacherId}/availability`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateScheduleBlock(
+  teacherId: number,
+  blockId: number,
+  payload: Partial<{
+    weekday: number;
+    starts_at: string;
+    ends_at: string;
+    kind: ScheduleKind;
+    title: string | null;
+    notes: string | null;
+    is_recurring: boolean;
+    specific_date: string | null;
+  }>,
+) {
+  return apiFetch<TeacherScheduleBlock>(
+    `/teachers/${teacherId}/availability/${blockId}`,
+    { method: "PUT", body: JSON.stringify(payload) },
+  );
+}
+
+export function deleteScheduleBlock(teacherId: number, blockId: number) {
+  return apiFetch<{ message: string }>(
+    `/teachers/${teacherId}/availability/${blockId}`,
+    { method: "DELETE" },
+  );
+}
+
+/** المعلمين المتاحين في مواعيد معيّنة — للـ dropdown */
+export function getAvailableTeachers(params: {
+  weekdays: number[];
+  start_time: string;
+  duration: number;
+  on_date?: string;
+  exclude_lesson_id?: number;
+}) {
+  const s = new URLSearchParams();
+  params.weekdays.forEach((d) => s.append("weekdays[]", String(d)));
+  s.set("start_time", params.start_time);
+  s.set("duration", String(params.duration));
+  if (params.on_date) s.set("on_date", params.on_date);
+  if (params.exclude_lesson_id) {
+    s.set("exclude_lesson_id", String(params.exclude_lesson_id));
+  }
+  return apiFetch<{
+    weekdays: number[];
+    start_time: string;
+    duration: number;
+    teachers: AvailableTeacher[];
+    available_count: number;
+  }>(`/availability/teachers?${s.toString()}`);
+}
+
 export type Lesson = {
   id: number;
   student_id: number;
@@ -756,6 +928,13 @@ export function getTeachers(params?: {
 
 export function getTeacher(id: number) {
   return apiFetch<Teacher>(`/teachers/${id}`);
+}
+
+/** حصص المعلم — لعرض «الحصص القادمة» في صفحة الجدول */
+export function getTeacherLessons(id: number, params?: { per_page?: number }) {
+  const s = new URLSearchParams();
+  s.set("per_page", String(params?.per_page ?? 50));
+  return apiFetch<Paginated<Lesson>>(`/teachers/${id}/schedule?${s.toString()}`);
 }
 
 /** نظرة عامة على المعلم: البيانات الأساسية + إحصائيات + البرامج */

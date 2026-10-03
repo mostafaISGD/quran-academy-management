@@ -159,27 +159,41 @@ class TeacherAvailabilityService
             ->orderBy('display_name')
             ->get();
 
+        if ($teachers->isEmpty()) {
+            return [];
+        }
+
+        $teacherIds = $teachers->pluck('id')->all();
+        $endTime = $this->addMinutes($startTime, $durationMinutes);
+
+        // كل الـ blocks في query واحدة بدل N+1
+        $blocksByTeacher = TeacherSchedule::whereIn('teacher_id', $teacherIds)
+            ->whereIn('weekday', $weekdays)
+            ->get()
+            ->groupBy('teacher_id');
+
+        // عدد الـ blocks الكلي لكل معلم — عشان نعرف مين ما عندوش جدول أصلاً
+        $totalBlocks = TeacherSchedule::whereIn('teacher_id', $teacherIds)
+            ->selectRaw('teacher_id, count(*) as c')
+            ->groupBy('teacher_id')
+            ->pluck('c', 'teacher_id');
+
+        $busyFromLessons = $this->teachersBusyInLessons(
+            $teacherIds, $weekdays, $startTime, $endTime, $onDate, $excludeLessonId ?: null
+        );
+
         $out = [];
 
         foreach ($teachers as $teacher) {
-            $blocks = TeacherSchedule::where('teacher_id', $teacher->id)
-                ->whereIn('weekday', $weekdays)
-                ->get();
-
             $blocking = null;
-            foreach ($blocks as $b) {
-                if ($b->overlaps($startTime, $this->addMinutes($startTime, $durationMinutes))) {
+            foreach ($blocksByTeacher->get($teacher->id, collect()) as $b) {
+                if ($b->overlaps($startTime, $endTime)) {
                     $blocking = $b;
                     break;
                 }
             }
 
-            $lessonsBusy = $this->lessonConflict(
-                $teacher->id, $weekdays, $startTime,
-                $this->addMinutes($startTime, $durationMinutes),
-                $onDate, $excludeLessonId ?: null
-            );
-
+            $lessonsBusy = $busyFromLessons->has($teacher->id);
             $available = !$blocking && !$lessonsBusy;
 
             $reason = null;
@@ -194,10 +208,59 @@ class TeacherAvailabilityService
                 'name' => $teacher->full_name,
                 'available' => $available,
                 'reason' => $reason,
+                // مالهوش جدول مسجّل — ظاهر في الـ dropdown مع علامة تحذير
+                'has_schedule' => (int) ($totalBlocks[$teacher->id] ?? 0) > 0,
             ];
         }
 
         return $out;
+    }
+
+    /**
+     * المعلمين اللي عندهم حصة متداخلة — query واحدة بدل N+1.
+     * بترجّع collection من teacher_id متعارضين.
+     */
+    private function teachersBusyInLessons(
+        array $teacherIds,
+        array $weekdays,
+        string $startTime,
+        string $endTime,
+        ?Carbon $onDate,
+        ?int $excludeLessonId,
+    ): Collection {
+        $base = $onDate ?? Carbon::now();
+        $weekStart = $base->copy()->startOfWeek();
+
+        $query = Lesson::query()
+            ->whereIn('teacher_id', $teacherIds)
+            ->blockingTeacherTime()
+            ->when($excludeLessonId, fn ($q) => $q->where('id', '!=', $excludeLessonId));
+
+        // نافذة أسبوع كامل بيغطي كل الأيام المطلوبة
+        $from = $weekStart->copy()->toDateString() . ' 00:00';
+        $to = $weekStart->copy()->addDays(7)->toDateString() . ' 00:00';
+
+        return $query
+            ->where('scheduled_start_at', '<', $to)
+            ->where('scheduled_end_at', '>', $from)
+            ->get(['teacher_id', 'scheduled_start_at', 'scheduled_end_at'])
+            ->filter(function ($lesson) use ($weekdays, $startTime, $endTime) {
+                $start = Carbon::parse($lesson->scheduled_start_at);
+                $end = Carbon::parse($lesson->scheduled_end_at);
+
+                if (!in_array($start->dayOfWeek, $weekdays, true)) {
+                    return false;
+                }
+
+                // نفس اليوم + تداخل في الوقت
+                $dayStart = $start->copy()->startOfDay()->setTimeFromTimeString($startTime);
+                $dayEnd = $start->copy()->startOfDay()->setTimeFromTimeString($endTime);
+
+                return $start->lt($dayEnd) && $end->gt($dayStart);
+            })
+            ->pluck('teacher_id')
+            ->unique()
+            ->values();
     }
 
     /** يضيف عدد دقائق لصيغة HH:MM */
