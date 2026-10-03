@@ -20,11 +20,17 @@ class AuthController extends Controller
             throw ValidationException::withMessages(['email' => ['بيانات الدخول غير صحيحة.']]);
         }
 
+        if ($user->status !== 'active') {
+            throw ValidationException::withMessages([
+                'email' => ['الحساب غير نشط — كلّم إدارة الأكاديمية.'],
+            ]);
+        }
+
         $user->update(['last_login_at' => now()]);
 
         return response()->json([
             'token' => $user->createToken('api-token')->plainTextToken,
-            'user' => $user->load('roles'),
+            'user' => $this->profile($user),
         ]);
     }
 
@@ -36,7 +42,37 @@ class AuthController extends Controller
 
     public function me(Request $request)
     {
-        return response()->json($request->user()->load(['roles']));
+        return response()->json($this->profile($request->user()));
+    }
+
+    /**
+     * بيانات المستخدم + مربوطه بالمعلم (لو كان معلم).
+     *
+     * الـ frontend بيستخدم `teacher` عشان يوجّه المعلّم لصفحة «جدولي»
+     * بدل لوحة التحكم — كل معلّم بيتحكم بجدوله بنفسه.
+     */
+    private function profile(User $user): array
+    {
+        $user->load(['roles', 'teacher']);
+
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+            'email' => $user->email,
+            'phone' => $user->phone,
+            'job_title' => $user->job_title,
+            'department' => $user->department,
+            'status' => $user->status,
+            'roles' => $user->roles->pluck('name'),
+            'is_teacher' => $user->teacher !== null,
+            'teacher' => $user->teacher ? [
+                'id' => $user->teacher->id,
+                'teacher_code' => $user->teacher->teacher_code,
+                'display_name' => $user->teacher->display_name,
+                'specialization' => $user->teacher->specialization,
+                'avatar_url' => $user->teacher->avatar_url,
+            ] : null,
+        ];
     }
 
     public function forgotPassword(Request $request)

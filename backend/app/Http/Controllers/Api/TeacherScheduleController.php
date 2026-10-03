@@ -12,11 +12,36 @@ class TeacherScheduleController extends Controller
     public function __construct(private TeacherAvailabilityService $availability) {}
 
     /**
+     * كل معلم بيتحكم بجدوله هو — فممنوع يعدّل جدول غيره.
+     * الأدمن (أو أي حد عنده صلاحية إدارة المعلمين) يعدّل أي حد.
+     */
+    private function authorizeOwnership(int $teacherId): void
+    {
+        $user = request()->user();
+
+        if ($user->hasPermissionTo('teachers.edit')) {
+            return;
+        }
+
+        $ownId = $user->teacher?->id;
+
+        if ($ownId === null) {
+            abort(403, 'ممنوع تعدّل جدول معلم تاني');
+        }
+
+        if ((int) $ownId !== $teacherId) {
+            abort(403, 'تقدر تعدّل جدولك بس');
+        }
+    }
+
+    /**
      * جدول معلم معيّن — الـ recurring + التأجيلات في أسبوع محدد.
      * GET /teachers/{teacher}/availability
      */
     public function index(Request $request, $teacherId)
     {
+        $this->authorizeOwnership((int) $teacherId);
+
         $week = $request->filled('week')
             ? \Carbon\Carbon::parse($request->string('week'))->startOfWeek()
             : now()->startOfWeek();
@@ -54,6 +79,8 @@ class TeacherScheduleController extends Controller
      */
     public function store(Request $request, $teacherId)
     {
+        $this->authorizeOwnership((int) $teacherId);
+
         $data = $request->validate([
             'weekday' => 'required|integer|min:0|max:6',
             'starts_at' => 'required|date_format:H:i',
@@ -95,6 +122,7 @@ class TeacherScheduleController extends Controller
      */
     public function update(Request $request, $teacherId, TeacherSchedule $block)
     {
+        $this->authorizeOwnership((int) $teacherId);
         abort_if($block->teacher_id !== (int) $teacherId, 403);
 
         $data = $request->validate([
@@ -125,6 +153,7 @@ class TeacherScheduleController extends Controller
      */
     public function destroy($teacherId, TeacherSchedule $block)
     {
+        $this->authorizeOwnership((int) $teacherId);
         abort_if($block->teacher_id !== (int) $teacherId, 403);
 
         $block->delete();

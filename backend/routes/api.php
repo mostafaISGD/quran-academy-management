@@ -69,13 +69,16 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     // Teacher Availability — جدول commitments المعلم (أكاديمية + شغل خارجي)
     // المسار اسمه availability مش schedule عشان /teachers/{teacher}/schedule
     // موجود أصلاً وبيرجّع حصص المعلم.
+    //
+    // ملاحظة: مفيش permission middleware على مسارات المعلم الشخصية، لأن
+    // authorizeOwnership() جوه الـ controller هو اللي بيمنع يعدّل غير جدوله.
     Route::get('/teacher-availability', [TeacherScheduleController::class, 'indexAll'])->middleware('permission:teachers.view');
     Route::get('/availability/teachers', [TeacherScheduleController::class, 'availableTeachers'])->middleware('permission:students.view');
-    Route::get('/teachers/{teacher}/availability/completeness', [TeacherScheduleController::class, 'completeness'])->middleware('permission:teachers.view');
-    Route::get('/teachers/{teacher}/availability', [TeacherScheduleController::class, 'index'])->middleware('permission:teachers.view');
-    Route::post('/teachers/{teacher}/availability', [TeacherScheduleController::class, 'store'])->middleware('permission:teachers.edit');
-    Route::put('/teachers/{teacher}/availability/{block}', [TeacherScheduleController::class, 'update'])->middleware('permission:teachers.edit');
-    Route::delete('/teachers/{teacher}/availability/{block}', [TeacherScheduleController::class, 'destroy'])->middleware('permission:teachers.edit');
+    Route::get('/teachers/{teacher}/availability/completeness', [TeacherScheduleController::class, 'completeness']);
+    Route::get('/teachers/{teacher}/availability', [TeacherScheduleController::class, 'index']);
+    Route::post('/teachers/{teacher}/availability', [TeacherScheduleController::class, 'store']);
+    Route::put('/teachers/{teacher}/availability/{block}', [TeacherScheduleController::class, 'update']);
+    Route::delete('/teachers/{teacher}/availability/{block}', [TeacherScheduleController::class, 'destroy']);
 
     // Programs
     Route::get('/programs', [ProgramController::class, 'index'])->middleware('permission:settings.manage');

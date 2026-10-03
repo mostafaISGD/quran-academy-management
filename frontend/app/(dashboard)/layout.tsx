@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { useState } from "react";
-import { logout } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { logout, fetchMe, type AuthUser } from "@/lib/api";
 import { UIProvider } from "@/components/ui/UIProvider";
 
 interface NavItem {
@@ -95,6 +95,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     "الأشخاص": true,
     "المالية": true,
   });
+  const [user, setUser] = useState<AuthUser | null>(null);
+
+  // مين داخل؟ المعلّم بياخد واجهة مختصرة بجدوله بس
+  useEffect(() => {
+    fetchMe()
+      .then(setUser)
+      .catch(() => setUser(null));
+  }, []);
+
+  const isTeacherOnly = Boolean(user?.is_teacher && user?.teacher);
+
+  // المعلّم اللي فتح رابط إداري — نرجّعه لجدوله
+  useEffect(() => {
+    if (user && isTeacherOnly && pathname !== "/my-schedule") {
+      router.replace("/my-schedule");
+    }
+  }, [user, isTeacherOnly, pathname, router]);
 
   async function handleLogout() {
     await logout();
@@ -103,6 +120,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   function toggleGroup(label: string) {
     setExpandedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
+  }
+
+  // ===== واجهة المعلّم: صفحة واحدة بس =====
+  if (isTeacherOnly) {
+    return (
+      <UIProvider>
+        <div dir="rtl" className="min-h-screen bg-slate-50">{children}</div>
+      </UIProvider>
+    );
   }
 
   return (

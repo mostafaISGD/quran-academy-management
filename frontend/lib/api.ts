@@ -26,13 +26,42 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   return res.json() as Promise<T>;
 }
 
+/* ============================================================
+   المصادقة
+   ========================================================== */
+
+export type AuthTeacher = {
+  id: number;
+  teacher_code: string;
+  display_name: string;
+  specialization: string | null;
+  avatar_url: string | null;
+};
+
+export type AuthUser = {
+  id: number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  job_title: string | null;
+  department: string | null;
+  status: "active" | "suspended" | "inactive";
+  roles: string[];
+  /** الحساب مربوط بمعلم — كل معلم بيتحكم بجدوله بنفسه */
+  is_teacher: boolean;
+  teacher: AuthTeacher | null;
+};
+
+const AUTH_USER_KEY = "auth_user";
+
 export async function login(email: string, password: string) {
-  const data = await apiFetch<{ token: string; user: unknown }>("/auth/login", {
+  const data = await apiFetch<{ token: string; user: AuthUser }>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
   if (typeof window !== "undefined") {
     localStorage.setItem("auth_token", data.token);
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
   }
   return data;
 }
@@ -43,8 +72,30 @@ export async function logout() {
   } finally {
     if (typeof window !== "undefined") {
       localStorage.removeItem("auth_token");
+      localStorage.removeItem(AUTH_USER_KEY);
     }
   }
+}
+
+/** المستخدم الحالي من localStorage — بدون request */
+export function getStoredUser(): AuthUser | null {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(AUTH_USER_KEY);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
+/** جلب المستخدم الحالي من السيرفر (المصدر真相) */
+export async function fetchMe(): Promise<AuthUser> {
+  const user = await apiFetch<AuthUser>("/auth/me");
+  if (typeof window !== "undefined") {
+    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  }
+  return user;
 }
 
 // ---- Types ----
