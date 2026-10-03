@@ -15,7 +15,7 @@ import {
   type StudentParent,
 } from "@/lib/api";
 import Pagination from "@/components/Pagination";
-import LessonCalendarPreview from "@/components/LessonCalendarPreview";
+import LessonCalendarPreview, { WEEKDAY_NAMES } from "@/components/LessonCalendarPreview";
 import TeacherPicker from "@/components/TeacherPicker";
 import { useUI, IconTrash } from "@/components/ui";
 
@@ -1136,6 +1136,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
             start_time: form.start_time,
             duration: form.lesson_duration_minutes,
             on_date: form.start_date || undefined,
+            period_to: form.end_date || undefined,
           });
           const me = check.teachers.find((t) => String(t.id) === form.teacher_id);
 
@@ -1152,6 +1153,24 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
               tone: "warning",
             });
             if (!proceed) return;
+          }
+
+          // منع التعارض: لو السعة أقل من الحصص المطلوبة، ما بنحفظش
+          // (قرار إداري: ممنوع أكتر من طالب في نفس الموعد مع نفس المعلم)
+          const wanted = Number(form.lessons_included) || 0;
+          if (wanted > 0 && me.capacity < wanted) {
+            const perDay = Object.entries(me.per_day ?? {})
+              .filter(([, v]) => (v as number) > 0)
+              .map(([d, v]) => `${WEEKDAY_NAMES[Number(d)]} ${v}`);
+
+            toast.error(
+              me.capacity === 0
+                ? `المواعيد دي كلها محجوزة مع ${me.name}`
+                : `السعة مش مكفية — ${me.name} عنده ${me.capacity} موعد بس`,
+              `${wanted} حصة مطلوبة${perDay.length ? ` (${perDay.join(" · ")})` : ""}. قلّل الحصص المشمولة أو اختار معلم تاني.`,
+              9000,
+            );
+            return;
           }
         } catch {
           // لو فشل التحقق ما بنمنعش الحفظ — السيرفر هيحمي نفسه
@@ -1966,8 +1985,11 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                   weekdays={form.weekdays}
                   startTime={form.start_time}
                   durationMinutes={form.lesson_duration_minutes}
+                  fromDate={form.start_date}
+                  toDate={form.end_date}
                   value={form.teacher_id}
                   onChange={(id) => setForm({ ...form, teacher_id: id })}
+                  requiredLessons={form.lessons_included}
                 />
 
                 {/* ④ باقي بيانات الاشتراك */}

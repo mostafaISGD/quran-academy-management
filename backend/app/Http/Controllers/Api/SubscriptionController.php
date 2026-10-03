@@ -49,6 +49,8 @@ class SubscriptionController extends Controller
             'lessons_included' => 'nullable|integer',
             'auto_renew' => 'nullable|boolean',
             'notes' => 'nullable|string',
+            // الخطة بتدي السعر والدة الافتراضية — لو اتبعت، بنستخدم قيمها
+            'apply_plan_defaults' => 'nullable|boolean',
 
             // المواعيد الأسبوعية — اختيارية، بس لو بُعتت لازم تتحقق
             'weekdays' => 'nullable|array|min:1|max:7',
@@ -58,23 +60,57 @@ class SubscriptionController extends Controller
 
         $data['organization_id'] = $request->user()->organization_id;
 
-        // لو بعت مواعيد + معلم، نتأكد إن المعلم فاضي فعلاً
+        // لو الخطة اتبعت، بنعبّي الحقول الناقصة من قيمتها
+        unset($data['apply_plan_defaults']);
+        if (!empty($data['plan_id'])) {
+            $plan = \App\Models\SubscriptionPlan::find($data['plan_id']);
+            if ($plan) {
+                $data['price'] ??= $plan->price;
+                $data['currency'] ??= $plan->currency;
+                $data['billing_type'] ??= $plan->billing_type;
+                $data['lesson_duration_minutes'] ??= $plan->lesson_duration_minutes;
+                $data['lessons_included'] ??= $plan->lessons_count;
+            }
+        }
+        $data['currency'] ??= 'EGP';
+
+        // لو بعت مواعيد + معلم، نتأكد إن المعلم فاضي وإن سعته تكفي
         if (!empty($data['weekdays']) && !empty($data['teacher_id'])) {
             $start = $data['start_time'] ?? '16:00';
-            $duration = $data['lesson_duration_minutes'] ?? 30;
+            $duration = (int) ($data['lesson_duration_minutes'] ?? 30);
+            $onDate = \Carbon\Carbon::parse($data['start_date']);
 
             $busy = app(\App\Services\TeacherAvailabilityService::class)
-                ->busyTeacherIds(
-                    array_map('intval', $data['weekdays']),
-                    $start,
-                    (int) $duration,
-                    \Carbon\Carbon::parse($data['start_date']),
-                );
+                ->busyTeacherIds(array_map('intval', $data['weekdays']), $start, $duration, $onDate);
 
             if (in_array((int) $data['teacher_id'], $busy, true)) {
                 return response()->json([
                     'message' => 'المعلم مشغول في المواعيد دي — غيّر المواعيد أو المعلم',
                 ], 422);
+            }
+
+            // ممنوع أكتر من طالب في نفس الموعد مع نفس المعلم — فلازم
+            // السعة تكون أكبر من أو تساوي عدد الحصص المطلوبة
+            $wanted = (int) ($data['lessons_included'] ?? 0);
+            if ($wanted > 0) {
+                $calc = app(\App\Services\TeacherAvailabilityService::class)
+                    ->capacityFor(
+                        (int) $data['teacher_id'],
+                        array_map('intval', $data['weekdays']),
+                        $start,
+                        $duration,
+                        $onDate,
+                        $data['end_date'] ? \Carbon\Carbon::parse($data['end_date']) : null,
+                    );
+
+                if ($calc['capacity'] < $wanted) {
+                    return response()->json([
+                        'message' => 'السعة مش مكفية',
+                        'capacity' => $calc['capacity'],
+                        'requested' => $wanted,
+                        'per_day' => $calc['per_day'],
+                    ], 422);
+                }
             }
         }
 

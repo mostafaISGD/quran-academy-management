@@ -188,10 +188,12 @@ class TeacherScheduleController extends Controller
             'start_time' => 'required|date_format:H:i',
             'duration' => 'required|integer|min:15|max:240',
             'on_date' => 'nullable|date',
+            'period_to' => 'nullable|date',
             'exclude_lesson_id' => 'nullable|integer',
         ]);
 
         $onDate = isset($data['on_date']) ? \Carbon\Carbon::parse($data['on_date']) : null;
+        $periodTo = isset($data['period_to']) ? \Carbon\Carbon::parse($data['period_to']) : null;
 
         $teachers = $this->availability->availableTeachers(
             $data['weekdays'],
@@ -199,6 +201,7 @@ class TeacherScheduleController extends Controller
             $data['duration'],
             $onDate,
             $data['exclude_lesson_id'] ?? 0,
+            $periodTo,
         );
 
         return response()->json([

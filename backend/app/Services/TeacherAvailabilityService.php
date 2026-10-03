@@ -52,7 +52,11 @@ class TeacherAvailabilityService
         ?Carbon $onDate = null,
         ?int $excludeLessonId = null,
     ): bool {
-        $endTime = $this->addMinutes($startTime, (int) $durationMinutes);
+        $weekdays = array_values(array_unique(array_map('intval', $weekdays)));
+        $startTime = substr($startTime, 0, 5);
+        $durationMinutes = (int) $durationMinutes;
+
+        $endTime = $this->addMinutes($startTime, $durationMinutes);
 
         $blockedBySchedule = $this->scheduleConflict(
             $teacherId, $weekdays, $startTime, $endTime, $onDate, $excludeLessonId
@@ -154,13 +158,212 @@ class TeacherAvailabilityService
         string $startTime,
         int $durationMinutes,
         ?Carbon $onDate = null,
+        ?Carbon $periodTo = null,
     ): array {
-        $all = $this->availableTeachers($weekdays, $startTime, $durationMinutes, $onDate);
+        $all = $this->availableTeachers($weekdays, $startTime, $durationMinutes, $onDate, null, $periodTo);
 
         return array_values(array_map(
             fn (array $t) => (int) $t['id'],
             array_filter($all, fn (array $t) => !$t['available'])
         ));
+    }
+
+    /**
+     * سعة المعلم في المواعيد المطلوبة خلال فترة معيّنة.
+     *
+     * السعة = كام **موعد** يقدر ياخده في الفترة دي. كل موعد = تاريخ
+     * داخل [من، إلى] واقع في يوم من الأيام المختارة، ونفس الوقت، ومش
+     * محجوز لحد تاني.
+     *
+     * مثال: الأحد + الخميس من 5 أكتوبر لـ 4 نوفمبر = 4 أحد + 4 خميس = 8.
+     * فلو الاشتراك فيه 8 حصص، السعة مكفية بالظبط.
+     *
+     * @return array{
+     *   capacity: int,
+     *   per_day: array<int, int>,
+     *   booked: int,
+     * }
+     */
+    public function capacityFor(
+        int $teacherId,
+        array $weekdays,
+        string $startTime,
+        int $durationMinutes,
+        ?Carbon $from = null,
+        ?Carbon $to = null,
+        int $excludeLessonId = null,
+    ): array {
+        // الـ query string بيدي الأرقام كنص — نحوّلها int عشان المقارنة
+        // الصارمة (strict) في المقارنات الداخلية تشتغل صح
+        $weekdays = array_values(array_unique(array_map('intval', $weekdays)));
+        $startTime = substr($startTime, 0, 5);
+
+        $from ??= Carbon::today();
+        $to ??= $from->copy()->addMonth();
+
+        $endTime = $this->addMinutes($startTime, $durationMinutes);
+
+        // نوافذ التدريس (kind = academy) في الأيام المطلوبة
+        $teaching = TeacherSchedule::where('teacher_id', $teacherId)
+            ->whereIn('weekday', $weekdays)
+            ->where('kind', 'academy')
+            ->get()
+            ->groupBy('weekday');
+
+        // اللي بيحجز جوه النافذة: شغل خارجي / إجازة / شخصي
+        $reserved = TeacherSchedule::where('teacher_id', $teacherId)
+            ->whereIn('weekday', $weekdays)
+            ->whereIn('kind', ['external', 'leave', 'personal'])
+            ->get()
+            ->groupBy('weekday');
+
+        $hasSchedule = $teaching->isNotEmpty();
+
+        // المواعيد المتاحة: كل تاريخ في الفترة واقع في يوم من المختارة
+        $dates = [];
+        $cursor = $from->copy()->startOfDay();
+        $end = $to->copy()->endOfDay();
+
+        while ($cursor->lte($end)) {
+            if (in_array($cursor->dayOfWeek, $weekdays, true)) {
+                $dates[] = $cursor->copy();
+            }
+            $cursor->addDay();
+        }
+
+        // ناقص اللي محجوز فعلاً بحصص موجودة
+        $bookedDates = $this->bookedDatesFor(
+            $teacherId, $startTime, $endTime, $from, $to, $excludeLessonId
+        );
+
+        $booked = 0;
+        $capacity = 0;
+        $perDay = [];
+
+        foreach ($weekdays as $day) {
+            // كام خانة بتتّسع في نافذة التدريس بعد خصم المحجوز
+            $slotsPerDay = $hasSchedule
+                ? $this->slotsInDay($teaching->get($day, collect()), $reserved->get($day, collect()), $startTime, $durationMinutes)
+                : 0;
+
+            $dayFree = 0;
+            foreach ($dates as $date) {
+                if ($date->dayOfWeek !== $day) continue;
+                if ($slotsPerDay <= 0) continue;
+                $iso = $date->toDateString() . ' ' . substr($startTime, 0, 5);
+                if (isset($bookedDates[$iso])) {
+                    $booked++;
+                    continue;
+                }
+                $dayFree++;
+            }
+
+            $perDay[$day] = $dayFree;
+            $capacity += $dayFree;
+        }
+
+        return [
+            'capacity' => $capacity,
+            'per_day' => $perDay,
+            'booked' => $booked,
+        ];
+    }
+
+    /**
+     * كام حصة بتسع في يوم واحد: نافذة التدريس ناقص الأوقات المحجوزة جواها،
+     * مقسومة على مدة الحصة.
+     *
+     * مثال: تدريس 17:00-19:00، محجوز 18:00-19:00، حصة 30 د
+     *       = نافذة 120 د ناقص 60 د = 60 د → حصة واحدة بس.
+     *
+     * @param  \Illuminate\Support\Collection  $teachingWindows
+     * @param  \Illuminate\Support\Collection  $reservedBlocks
+     */
+    private function slotsInDay($teachingWindows, $reservedBlocks, string $startTime, int $durationMinutes): int
+    {
+        $start = $this->toMinutes($startTime);
+        $total = 0;
+
+        foreach ($teachingWindows as $window) {
+            $wStart = $this->toMinutes($window->starts_at);
+            $wEnd = $this->toMinutes($window->ends_at);
+            if ($wEnd <= $wStart) continue;
+
+            // نموذذج الوقت على المحور 1440
+            $free = [[$wStart, $wEnd]];
+
+            foreach ($reservedBlocks as $block) {
+                $bStart = $this->toMinutes($block->starts_at);
+                $bEnd = $this->toMinutes($block->ends_at);
+                if ($bEnd <= $bStart) continue;
+                $free = $this->subtract($free, $bStart, $bEnd);
+            }
+
+            foreach ($free as [$fStart, $fEnd]) {
+                // الخانة لازم تكون جوه النافذة وتبدأ من وقت الحصة المطلوب
+                $usableStart = max($fStart, $start);
+                $usableEnd = $fEnd;
+                if ($usableEnd - $usableStart < $durationMinutes) continue;
+                $total += intdiv($usableEnd - $usableStart, $durationMinutes);
+            }
+        }
+
+        return $total;
+    }
+
+    /** طرح فترة من قائمة فترات */
+    private function subtract(array $free, int $cutStart, int $cutEnd): array
+    {
+        $out = [];
+
+        foreach ($free as [$s, $e]) {
+            if ($cutEnd <= $s || $cutStart >= $e) {
+                $out[] = [$s, $e];
+                continue;
+            }
+            if ($cutStart > $s) $out[] = [$s, min($cutStart, $e)];
+            if ($cutEnd < $e) $out[] = [max($cutEnd, $s), $e];
+        }
+
+        return $out;
+    }
+
+    /**
+     * التواريخ+الأوقات اللي محجوزة فعلاً للمعلم (مفتاح = "Y-m-d H:i").
+     *
+     * @return array<string, true>
+     */
+    private function bookedDatesFor(
+        int $teacherId,
+        string $startTime,
+        string $endTime,
+        Carbon $from,
+        Carbon $to,
+        ?int $excludeLessonId,
+    ): array {
+        $out = [];
+
+        $lessons = Lesson::query()
+            ->where('teacher_id', $teacherId)
+            ->blockingTeacherTime()
+            ->when($excludeLessonId, fn ($q) => $q->where('id', '!=', $excludeLessonId))
+            ->where('scheduled_start_at', '<', $to->copy()->endOfDay())
+            ->where('scheduled_end_at', '>', $from->copy()->startOfDay())
+            ->get(['scheduled_start_at', 'scheduled_end_at']);
+
+        foreach ($lessons as $lesson) {
+            $start = Carbon::parse($lesson->scheduled_start_at);
+            $end = Carbon::parse($lesson->scheduled_end_at);
+
+            $dayStart = $start->copy()->startOfDay()->setTimeFromTimeString($startTime);
+            $dayEnd = $start->copy()->startOfDay()->setTimeFromTimeString($endTime);
+
+            if ($start->lt($dayEnd) && $end->gt($dayStart)) {
+                $out[$start->toDateString() . ' ' . $startTime] = true;
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -175,7 +378,12 @@ class TeacherAvailabilityService
         int $durationMinutes,
         ?Carbon $onDate = null,
         int $excludeLessonId = null,
+        ?Carbon $periodTo = null,
     ): array {
+        $weekdays = array_values(array_unique(array_map('intval', $weekdays)));
+        $startTime = substr($startTime, 0, 5);
+        $durationMinutes = (int) $durationMinutes;
+
         $teachers = \App\Models\Teacher::query()
             ->where('status', 'active')
             ->orderBy('display_name')
@@ -207,8 +415,11 @@ class TeacherAvailabilityService
         $out = [];
 
         foreach ($teachers as $teacher) {
+            // كتلة «أكاديمية» = نافذة تدريس المعلم، يعني وقت متاح للحجز.
+            // اللي بيحجز فعلاً هو: شغل خارجي، إجازة، أو التزام شخصي.
             $blocking = null;
             foreach ($blocksByTeacher->get($teacher->id, collect()) as $b) {
+                if ($b->kind === 'academy') continue;
                 if ($b->overlaps($startTime, $endTime)) {
                     $blocking = $b;
                     break;
@@ -225,6 +436,26 @@ class TeacherAvailabilityService
                 $reason = 'عنده حصة في نفس الوقت';
             }
 
+            // السعة: كام موعد يقدر ياخده خلال الفترة
+            $capacity = 0;
+            $bookedCount = 0;
+            $perDay = [];
+
+            if ($available) {
+                $calc = $this->capacityFor(
+                    $teacher->id,
+                    $weekdays,
+                    $startTime,
+                    $durationMinutes,
+                    $onDate,
+                    $periodTo,
+                    $excludeLessonId ?: null,
+                );
+                $capacity = $calc['capacity'];
+                $bookedCount = $calc['booked'];
+                $perDay = $calc['per_day'];
+            }
+
             $out[] = [
                 'id' => $teacher->id,
                 'name' => $teacher->full_name,
@@ -232,6 +463,10 @@ class TeacherAvailabilityService
                 'reason' => $reason,
                 // مالهوش جدول مسجّل — ظاهر في الـ dropdown مع علامة تحذير
                 'has_schedule' => (int) ($totalBlocks[$teacher->id] ?? 0) > 0,
+                // السعة: كام حصة لسه فاضية في المواعيد دي (0 لو مشغول)
+                'capacity' => $capacity,
+                'booked' => $bookedCount,
+                'per_day' => $perDay,
             ];
         }
 
@@ -283,6 +518,13 @@ class TeacherAvailabilityService
             ->pluck('teacher_id')
             ->unique()
             ->values();
+    }
+
+    /** دقائق من منتصف الليل */
+    private function toMinutes(string $time): int
+    {
+        [$h, $m] = array_map('intval', explode(':', $time));
+        return ($h * 60) + $m;
     }
 
     /** يضيف عدد دقائق لصيغة HH:MM */

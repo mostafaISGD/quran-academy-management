@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   getAvailableTeachers,
-  WEEKDAY_LABELS,
   type AvailableTeacher,
 } from "@/lib/api";
+import { WEEKDAY_NAMES } from "@/components/LessonCalendarPreview";
 import { IconAlert } from "@/components/ui";
 
 type Props = {
@@ -15,10 +15,16 @@ type Props = {
   startTime: string;
   /** مدة الحصة بالدقائق */
   durationMinutes: number;
+  /** بداية المدة — عشان نحسب السعة على الفترة */
+  fromDate?: string;
+  /** نهاية المدة */
+  toDate?: string;
   /** المعلم المختار */
   value: string;
   onChange: (teacherId: string) => void;
   disabled?: boolean;
+  /** عدد الحصص المطلوبة — لو السعة أقل، بنعرض تحذير */
+  requiredLessons?: number;
 };
 
 /**
@@ -31,9 +37,12 @@ export default function TeacherPicker({
   weekdays,
   startTime,
   durationMinutes,
+  fromDate,
+  toDate,
   value,
   onChange,
   disabled,
+  requiredLessons = 0,
 }: Props) {
   const [teachers, setTeachers] = useState<AvailableTeacher[]>([]);
   const [loading, setLoading] = useState(false);
@@ -53,7 +62,13 @@ export default function TeacherPicker({
     setError(null);
 
     const timer = window.setTimeout(() => {
-      getAvailableTeachers({ weekdays, start_time: startTime, duration: durationMinutes })
+      getAvailableTeachers({
+        weekdays,
+        start_time: startTime,
+        duration: durationMinutes,
+        on_date: fromDate || undefined,
+        period_to: toDate || undefined,
+      })
         .then((r) => {
           if (!cancelled) setTeachers(r.teachers);
         })
@@ -72,7 +87,7 @@ export default function TeacherPicker({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [hasSlot, weekdays.join(","), startTime, durationMinutes]);
+  }, [hasSlot, weekdays.join(","), startTime, durationMinutes, fromDate, toDate]);
 
   const available = useMemo(() => teachers.filter((t) => t.available), [teachers]);
   const busy = useMemo(() => teachers.filter((t) => !t.available), [teachers]);
@@ -93,6 +108,18 @@ export default function TeacherPicker({
 
   const selected = teachers.find((t) => String(t.id) === value);
   const selectedHasNoSchedule = selected && !selected.has_schedule;
+  // السعة أقل من المطلوب → الحفظ هيتوقف
+  const capacityShort =
+    Boolean(selected) &&
+    selected!.available &&
+    requiredLessons > 0 &&
+    selected!.capacity < requiredLessons;
+  const capacityZero = Boolean(selected) && selected!.available && selected!.capacity === 0;
+  const slots = (t: AvailableTeacher) =>
+    [...Object.entries(t.per_day ?? {})]
+      .filter(([, v]) => (v as number) > 0)
+      .map(([d, v]) => `${WEEKDAY_NAMES[Number(d)] ?? d} ${v}`)
+      .join(" · ");
 
   return (
     <div>
@@ -146,6 +173,21 @@ export default function TeacherPicker({
                       />
                       <span className="flex-1 truncate font-medium">{t.name}</span>
 
+                      {/* السعة: كام موعد يقدر ياخده في المدة دي */}
+                      {t.available && (
+                        <span
+                          className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums ${
+                            active
+                              ? "bg-white/20 text-white"
+                              : t.capacity > 0
+                                ? "bg-emerald-50 text-emerald-700"
+                                : "bg-red-50 text-red-600"
+                          }`}
+                        >
+                          {t.capacity > 0 ? `${t.capacity} موعد` : "ممتلئ"}
+                        </span>
+                      )}
+
                       {/* معلم من غير جدول — علامة تحذير */}
                       {!t.has_schedule && (
                         <span
@@ -193,6 +235,28 @@ export default function TeacherPicker({
             </p>
           )}
         </div>
+      )}
+
+      {/* السعة أقل من المطلوب */}
+      {(capacityShort || capacityZero) && (
+        <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-red-50 px-3 py-2 text-xs leading-relaxed text-red-800">
+          <IconAlert size={13} className="mt-0.5 shrink-0" />
+          <span>
+            {capacityZero ? (
+              <>
+                <strong>{selected!.name}</strong> — المواعيد دي كلها محجوزة
+                بالفعل في المدة دي. اختار معلم تاني أو مواعيد تانية.
+              </>
+            ) : (
+              <>
+                <strong>{selected!.name}</strong> — في المواعيد دي {slots(selected!)} بس
+                ({selected!.capacity} موعد)، وأنت طلبت {requiredLessons} حصة.
+                <br />
+                ممنوع طالبين في نفس الموعد — قلّل الحصص المشمولة أو اختار معلم تاني.
+              </>
+            )}
+          </span>
+        </p>
       )}
 
       {/* تحذير المعلم اللي مالوش جدول */}

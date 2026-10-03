@@ -371,7 +371,7 @@ export type AvailabilityCheck = {
   blocks_count: number;
 };
 
-/** معلّم في قائمة التوافر — مع سبب عدم التوفر */
+/** معلّم في قائمة التوافر — مع سبب عدم التوفر وسعته */
 export type AvailableTeacher = {
   id: number;
   name: string;
@@ -379,6 +379,12 @@ export type AvailableTeacher = {
   reason: string | null;
   /** مالهوش جدول مسجّل — ظاهر بس مع علامة تحذير */
   has_schedule: boolean;
+  /** كام حصة لسه فاضية في المواعيد دي (٠ لو مشغول) */
+  capacity: number;
+  /** كام حصة محجوزة بالفعل */
+  booked: number;
+  /** السعة لكل يوم مختر (مفتاح = رقم اليوم ٠=الأحد) */
+  per_day: Record<string, number>;
 };
 
 export function getTeacherAvailability(teacherId: number, week?: string) {
@@ -461,6 +467,8 @@ export function getAvailableTeachers(params: {
   start_time: string;
   duration: number;
   on_date?: string;
+  /** نهاية المدة — عشان نحسب السعة على الفترة كلها */
+  period_to?: string;
   exclude_lesson_id?: number;
 }) {
   const s = new URLSearchParams();
@@ -468,6 +476,7 @@ export function getAvailableTeachers(params: {
   s.set("start_time", params.start_time);
   s.set("duration", String(params.duration));
   if (params.on_date) s.set("on_date", params.on_date);
+  if (params.period_to) s.set("period_to", params.period_to);
   if (params.exclude_lesson_id) {
     s.set("exclude_lesson_id", String(params.exclude_lesson_id));
   }
