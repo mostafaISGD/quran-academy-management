@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\StudentController;
 use App\Http\Controllers\Api\StudentPhoneController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\TeacherController;
+use App\Http\Controllers\Api\TeacherScheduleController;
 use App\Http\Controllers\Api\TeacherEarningController;
 use App\Http\Controllers\Api\TeacherPaymentController;
 use Illuminate\Support\Facades\Route;
@@ -64,6 +65,17 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/teachers/{teacher}/rates', [TeacherController::class, 'rates'])->middleware('permission:teachers.view');
     Route::get('/teachers/{teacher}/ratings', [TeacherController::class, 'ratings'])->middleware('permission:teachers.view');
     Route::post('/teachers/{teacher}/ratings', [TeacherController::class, 'storeRating'])->middleware('permission:students.view');
+
+    // Teacher Availability — جدول commitments المعلم (أكاديمية + شغل خارجي)
+    // المسار اسمه availability مش schedule عشان /teachers/{teacher}/schedule
+    // موجود أصلاً وبيرجّع حصص المعلم.
+    Route::get('/teacher-availability', [TeacherScheduleController::class, 'indexAll'])->middleware('permission:teachers.view');
+    Route::get('/availability/teachers', [TeacherScheduleController::class, 'availableTeachers'])->middleware('permission:students.view');
+    Route::get('/teachers/{teacher}/availability/completeness', [TeacherScheduleController::class, 'completeness'])->middleware('permission:teachers.view');
+    Route::get('/teachers/{teacher}/availability', [TeacherScheduleController::class, 'index'])->middleware('permission:teachers.view');
+    Route::post('/teachers/{teacher}/availability', [TeacherScheduleController::class, 'store'])->middleware('permission:teachers.edit');
+    Route::put('/teachers/{teacher}/availability/{block}', [TeacherScheduleController::class, 'update'])->middleware('permission:teachers.edit');
+    Route::delete('/teachers/{teacher}/availability/{block}', [TeacherScheduleController::class, 'destroy'])->middleware('permission:teachers.edit');
 
     // Programs
     Route::get('/programs', [ProgramController::class, 'index'])->middleware('permission:settings.manage');

@@ -48,6 +48,9 @@ class RealisticDataSeeder extends Seeder
         (new SeedTeachers())->setContainer(app())->setCommand($this->command)->run();
         $this->command?->info('✅ المعلمين');
 
+        (new SeedTeacherSchedules())->setContainer(app())->setCommand($this->command)->run();
+        $this->command?->info('✅ جداول commitments المعلمين (أكاديمية + شغل خارجي)');
+
         (new SeedStudents())->setContainer(app())->setCommand($this->command)->run();
         $this->command?->info('✅ الطلاب وأولياء الأمور');
 
@@ -81,6 +84,7 @@ class RealisticDataSeeder extends Seeder
     private function wipe(): void
     {
         $tables = [
+            'teacher_schedules',
             'lesson_credit_transactions', 'lesson_credit_accounts', 'lesson_reschedules',
             'memorization_records', 'progress_records', 'lesson_attendance',
             'teacher_ledger_entries', 'teacher_payments', 'teacher_earnings',
