@@ -143,6 +143,17 @@ class StudentController extends Controller
             }
         }
 
+        app(\App\Services\AuditLogService::class)->logCreate(
+            'student',
+            $student->id,
+            [
+                'first_name' => $student->first_name,
+                'last_name' => $student->last_name,
+                'status' => $student->status,
+            ],
+            $request,
+        );
+
         return response()->json($student->load('phones'), 201);
     }
 
@@ -167,13 +178,29 @@ class StudentController extends Controller
             'notes' => 'nullable|string',
         ]);
 
+        $old = $student->only(array_keys($data));
+
         $student->update($data);
+
+        app(\App\Services\AuditLogService::class)->logUpdate(
+            'student',
+            $student->id,
+            $old,
+            $student->only(array_keys($data)),
+            $request,
+        );
+
         return response()->json($student->fresh());
     }
 
-    public function destroy(Student $student)
+    public function destroy(Request $request, Student $student)
     {
+        $old = $student->only(['first_name', 'last_name', 'student_code', 'status']);
+
         $student->delete();
+
+        app(\App\Services\AuditLogService::class)->logDelete('student', $student->id, $old, $request);
+
         return response()->json(['message' => 'تم حذف الطالب']);
     }
 

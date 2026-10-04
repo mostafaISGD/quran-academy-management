@@ -88,6 +88,17 @@ class InvoiceController extends Controller
             'created_at' => now(),
         ]);
 
+        app(\App\Services\AuditLogService::class)->logCreate(
+            'invoice',
+            $invoice->id,
+            [
+                'invoice_number' => $invoice->invoice_number,
+                'student_id' => $invoice->student_id,
+                'total' => $invoice->total,
+            ],
+            $request,
+        );
+
         return response()->json($invoice->load('items'), 201);
     }
 
@@ -102,16 +113,34 @@ class InvoiceController extends Controller
             return response()->json(['message' => 'لا يمكن تعديل فاتورة مدفوعة'], 422);
         }
         $data = $request->validate(['due_date' => 'nullable|date', 'status' => 'sometimes|in:draft,issued,partially_paid,paid,overdue,void', 'notes' => 'nullable|string']);
+
+        $old = $invoice->only(array_keys($data));
+
         $invoice->update($data);
+
+        app(\App\Services\AuditLogService::class)->logUpdate(
+            'invoice',
+            $invoice->id,
+            $old,
+            $invoice->only(array_keys($data)),
+            $request,
+        );
+
         return response()->json($invoice->fresh());
     }
 
-    public function destroy(Invoice $invoice)
+    public function destroy(Request $request, Invoice $invoice)
     {
         if ($invoice->status === 'paid') {
             return response()->json(['message' => 'لا يمكن حذف فاتورة مدفوعة'], 422);
         }
+
+        $old = $invoice->only(['invoice_number', 'student_id', 'total', 'status']);
+
         $invoice->delete();
+
+        app(\App\Services\AuditLogService::class)->logDelete('invoice', $invoice->id, $old, $request);
+
         return response()->json(['message' => 'تم حذف الفاتورة']);
     }
 }

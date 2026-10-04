@@ -75,6 +75,18 @@ class PaymentController extends Controller
             ]);
         }
 
+        app(\App\Services\AuditLogService::class)->logCreate(
+            'payment',
+            $payment->id,
+            [
+                'amount' => $payment->amount,
+                'student_id' => $payment->student_id,
+                'invoice_id' => $payment->invoice_id,
+                'method' => $payment->method,
+            ],
+            $request,
+        );
+
         return response()->json($payment, 201);
     }
 
@@ -107,6 +119,19 @@ class PaymentController extends Controller
         if ($payment->isFullyRefunded()) {
             $payment->update(['status' => 'voided']);
         }
+
+        app(\App\Services\AuditLogService::class)->log(
+            'refund',
+            'payment',
+            $payment->id,
+            null,
+            [
+                'amount' => $data['amount'],
+                'reason' => $data['reason'],
+                'fully_refunded' => $payment->isFullyRefunded(),
+            ],
+            $request,
+        );
 
         return response()->json($refund, 201);
     }

@@ -171,8 +171,12 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::delete('/settings/{key}', [SettingController::class, 'destroy'])->middleware('permission:settings.manage');
 
     // Employees
-    Route::get('/employees', [EmployeeController::class, 'index']);
-    Route::post('/employees', [EmployeeController::class, 'store']);
+    Route::get('/employees', [EmployeeController::class, 'index'])->middleware('permission:students.view');
+    Route::post('/employees', [EmployeeController::class, 'store'])->middleware('permission:students.edit');
+    Route::get('/employees/{employee}', [EmployeeController::class, 'show'])->middleware('permission:students.view');
+    Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->middleware('permission:students.edit');
+    Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->middleware('permission:students.edit');
+    Route::get('/employees/{employee}/activity', [EmployeeController::class, 'activity'])->middleware('permission:students.view');
 
     // Expenses
     Route::get('/expenses', [ExpenseController::class, 'index']);

@@ -53,6 +53,8 @@ class RealisticDataSeeder extends Seeder
         (new SeedTeachers())->setContainer(app())->setCommand($this->command)->run();
         $this->command?->info('✅ المعلمين');
 
+        (new SeedEmployees())->setContainer(app())->setCommand($this->command)->run();
+
         (new SeedTeacherSchedules())->setContainer(app())->setCommand($this->command)->run();
         $this->command?->info('✅ جداول commitments المعلمين (أكاديمية + شغل خارجي)');
 
@@ -107,6 +109,7 @@ class RealisticDataSeeder extends Seeder
             'role_has_permissions', 'roles', 'permissions',
             'student_goals', 'student_phones', 'student_parents',
             'teacher_ratings', 'teacher_rates', 'teacher_contracts', 'teachers',
+            'employees',
             'students', 'parents', 'subscription_plans', 'levels', 'programs', 'quran_surahs',
             'personal_access_tokens', 'users', 'branches',
         ];

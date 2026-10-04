@@ -28,6 +28,12 @@ class AuthController extends Controller
 
         $user->update(['last_login_at' => now()]);
 
+        // تسجيل الدخول في سجل النشاط — لازم نمرر الـ user_id صراحةً
+        // لأن المستخدم لسه مش متحقّق (audit_logs.user_id NOT NULL)
+        app(\App\Services\AuditLogService::class)->log(
+            'login', 'user', $user->id, null, null, $request, $user->id,
+        );
+
         return response()->json([
             'token' => $user->createToken('api-token')->plainTextToken,
             'user' => $this->profile($user),

@@ -145,6 +145,18 @@ class TeacherController extends Controller
         $data['user_id'] = $request->user()->id;
 
         $teacher = Teacher::create($data);
+
+        app(\App\Services\AuditLogService::class)->logCreate(
+            'teacher',
+            $teacher->id,
+            [
+                'display_name' => $teacher->display_name,
+                'teacher_code' => $teacher->teacher_code,
+                'specialization' => $teacher->specialization,
+            ],
+            $request,
+        );
+
         return response()->json($teacher, 201);
     }
 
@@ -202,13 +214,29 @@ class TeacherController extends Controller
             'notes' => 'nullable|string',
         ]);
 
+        $old = $teacher->only(array_keys($data));
+
         $teacher->update($data);
+
+        app(\App\Services\AuditLogService::class)->logUpdate(
+            'teacher',
+            $teacher->id,
+            $old,
+            $teacher->only(array_keys($data)),
+            $request,
+        );
+
         return response()->json($teacher->fresh());
     }
 
-    public function destroy(Teacher $teacher)
+    public function destroy(Request $request, Teacher $teacher)
     {
+        $old = $teacher->only(['display_name', 'teacher_code', 'specialization', 'status']);
+
         $teacher->delete();
+
+        app(\App\Services\AuditLogService::class)->logDelete('teacher', $teacher->id, $old, $request);
+
         return response()->json(['message' => 'تم حذف المعلم']);
     }
 
