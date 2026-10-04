@@ -1,0 +1,68 @@
+# ===== الجذر =====
+# المشروع لفيه أكتر من package (backend + frontend)، وكل واحد عنده
+# .gitignore بتاعه. الملف ده بيغطي اللي في الجذر أو في أي مكان تاني.
+
+# ملفات جلسات opencode / claude — دي ملفات مؤقتة عملاء الـ AI
+# وبتكون بالميجابايت وبيتجرحوا جوه الكود
+ses_*.json
+*.opencode.json
+.claude/
+.cursor/
+
+# ===== نظام التشغيل =====
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.lnk
+
+# ===== المحررات =====
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ===== أسرار — لازم تكون متنسخش أبداً =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!backend/storage/*.key
+auth.json
+credentials.json
+
+# ===== قواعد البيانات =====
+*.sqlite
+*.sqlite-journal
+*.sqlite3
+*.db
+
+# ===== لوجوهات وكاش =====
+# بنستثني * جوّه المجلد مش المجلد نفسه — لو استثنينا المجلد،
+# git مش بيدخل يبحث عن الـ ! جواه فيشتغلش الـ negation
+*.log
+npm-debug.log*
+yarn-error.log*
+/backend/storage/logs/*
+/backend/storage/framework/cache/*
+/backend/storage/framework/sessions/*
+/backend/storage/framework/views/*
+
+# Laravel بيحط .gitignore فاضي جوه مجلدات الـ storage عمداً — دي
+# ملفات متعمدة بتتخزّن في git (convention بتاع Laravel)، فبنرجّعها
+!/backend/storage/logs/.gitignore
+!/backend/storage/framework/cache/.gitignore
+!/backend/storage/framework/cache/data/
+!/backend/storage/framework/sessions/.gitignore
+!/backend/storage/framework/views/.gitignore
+
+# ===== اتنشا من الـ build =====
+/frontend/.next/
+/frontend/out/
+/frontend/coverage/
+/backend/public/build/
+/backend/public/hot
+/backend/public/storage
+/backend/.phpunit.cache/
+.phpunit.result.cache
