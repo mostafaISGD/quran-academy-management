@@ -877,6 +877,237 @@ export type Paginated<T> = {
 };
 
 // ============================================================
+// الموظفون
+// ============================================================
+
+export type EmployeeStatus = "active" | "inactive" | "on_leave";
+export type EmploymentType = "full_time" | "part_time" | "contract" | "volunteer";
+
+export type Employee = {
+  id: number;
+  user_id: number | null;
+  name: string;
+  full_name: string;
+  phone: string | null;
+  country_code: string | null;
+  email: string | null;
+  gender: string | null;
+  date_of_birth: string | null;
+  nationality: string | null;
+  address: string | null;
+  photo_url: string | null;
+  job_title: string | null;
+  department: string | null;
+  employment_type: EmploymentType;
+  manager_id: number | null;
+  joined_at: string | null;
+  status: EmployeeStatus;
+  notes: string | null;
+  // خصائص محسوبة من الـ backend
+  role: string | null;
+  role_label: string;
+  has_account: boolean;
+  account_status: string | null;
+  last_login_at: string | null;
+  manager?: Pick<Employee, "id" | "name" | "job_title"> | null;
+  user?: { id: number; email: string; status: string } | null;
+};
+
+export type EmployeeListResponse = Paginated<Employee> & {
+  counts: { active: number; inactive: number; on_leave: number };
+  filters: { departments: string[]; job_titles: string[] };
+};
+
+export type EmployeePayload = {
+  name: string;
+  phone?: string | null;
+  country_code?: string | null;
+  email?: string | null;
+  gender?: string | null;
+  date_of_birth?: string | null;
+  nationality?: string | null;
+  address?: string | null;
+  job_title?: string | null;
+  department?: string | null;
+  employment_type?: EmploymentType;
+  manager_id?: number | null;
+  joined_at?: string | null;
+  status?: EmployeeStatus;
+  notes?: string | null;
+  create_account?: boolean;
+  role_id?: number | null;
+};
+
+export function getEmployees(params?: {
+  status?: string;
+  department?: string;
+  job_title?: string;
+  employment_type?: string;
+  search?: string;
+  page?: number;
+  per_page?: number;
+}) {
+  const s = new URLSearchParams();
+  if (params?.status) s.set("status", params.status);
+  if (params?.department) s.set("department", params.department);
+  if (params?.job_title) s.set("job_title", params.job_title);
+  if (params?.employment_type) s.set("employment_type", params.employment_type);
+  if (params?.search) s.set("search", params.search);
+  if (params?.page) s.set("page", String(params.page));
+  s.set("per_page", String(params?.per_page ?? 100));
+  return apiFetch<EmployeeListResponse>(`/employees?${s.toString()}`);
+}
+
+/** الأدوار المتاحة — لتعيين دور الموظف */
+export type RoleOption = {
+  id: number;
+  name: string;
+  slug: string;
+  is_system: boolean;
+  permissions?: { name: string }[];
+};
+
+export function getRoles() {
+  return apiFetch<{ data: RoleOption[] }>("/roles");
+}
+
+export function getEmployee(id: number) {
+  return apiFetch<{
+    employee: Employee & { subordinates?: Pick<Employee, "id" | "name" | "job_title">[] };
+    role: string | null;
+    role_label: string;
+    /** الصلاحيات مجمّعة حسب الوحدة مع علامة لكل إجراء */
+    granted: Record<string, { name: string; granted: boolean }[]>;
+    all_units: Record<string, string[]>;
+  }>(`/employees/${id}`);
+}
+
+export function createEmployee(payload: EmployeePayload) {
+  return apiFetch<Employee & { warning?: string }>("/employees", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateEmployee(id: number, payload: Partial<EmployeePayload>) {
+  return apiFetch<Employee>(`/employees/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteEmployee(id: number) {
+  return apiFetch<{ message: string }>(`/employees/${id}`, { method: "DELETE" });
+}
+
+export type EmployeeActivity = {
+  id: number;
+  action: string;
+  entity_type: string;
+  entity_id: number;
+  old_value: Record<string, unknown> | null;
+  new_value: Record<string, unknown> | null;
+  created_at: string;
+};
+
+/** سجل نشاط موظف — بيتقرا من user_id بتاعه */
+export function getEmployeeActivity(id: number, page = 1) {
+  return apiFetch<Paginated<EmployeeActivity>>(`/employees/${id}/activity?page=${page}&per_page=20`);
+}
+
+// ============================================================
+// الحضور والانصراف
+// ============================================================
+
+export type AttendanceStatus = "present" | "absent" | "late" | "on_leave" | "half_day";
+
+export type AttendanceDayRow = {
+  employee: {
+    id: number;
+    name: string;
+    job_title: string | null;
+    department: string | null;
+    employment_type: EmploymentType;
+  };
+  record: {
+    id: number;
+    status: AttendanceStatus;
+    check_in: string | null;
+    check_out: string | null;
+    late_minutes: number;
+    worked_hours: number;
+    notes: string | null;
+  } | null;
+};
+
+export type AttendanceDay = {
+  date: string;
+  weekday: string;
+  is_friday: boolean;
+  summary: {
+    total: number;
+    marked: number;
+    unmarked: number;
+    by_status: Record<string, number>;
+  };
+  rows: AttendanceDayRow[];
+};
+
+export function getAttendanceDay(date?: string) {
+  const s = new URLSearchParams();
+  if (date) s.set("date", date);
+  return apiFetch<AttendanceDay>(`/attendance/day?${s.toString()}`);
+}
+
+export function saveAttendance(
+  date: string,
+  records: {
+    employee_id: number;
+    status: AttendanceStatus;
+    check_in?: string | null;
+    check_out?: string | null;
+    notes?: string | null;
+  }[],
+) {
+  return apiFetch<{ message: string; date: string; saved: number }>("/attendance", {
+    method: "POST",
+    body: JSON.stringify({ date, records }),
+  });
+}
+
+export type AttendanceMonth = {
+  employee: { id: number; name: string; job_title: string | null };
+  month: string;
+  days: {
+    date: string;
+    day: number;
+    weekday: number;
+    is_friday: boolean;
+    future: boolean;
+    record: {
+      status: AttendanceStatus;
+      check_in: string | null;
+      check_out: string | null;
+      worked_hours: number;
+    } | null;
+  }[];
+  stats: {
+    by_status: Record<string, number>;
+    present: number;
+    absent: number;
+    on_leave: number;
+    worked_hours: number;
+    attendance_rate: number | null;
+  };
+};
+
+export function getEmployeeAttendanceMonth(id: number, month?: string) {
+  const s = new URLSearchParams();
+  if (month) s.set("month", month);
+  return apiFetch<AttendanceMonth>(`/employees/${id}/attendance-month?${s.toString()}`);
+}
+
+// ============================================================
 // واجهة ولي الأمر
 // ============================================================
 
