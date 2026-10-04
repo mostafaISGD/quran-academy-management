@@ -71,23 +71,30 @@ class Program extends Model
     }
 
     /**
-     * طلاب البرنامج — اشتراك نشيط أو موقوف.
+     * طلاب البرنامج — اشتراك نشط أو موقوف.
      *
      * مهم: التعريف ده لازم يكون واحد في كل شاشات البرنامج (كارت +
      * ملف + قائمة)، وإلا المستخدم هيشوف رقمين مختلفين لنفس الحاجة.
      * المنتهي والملغي مش طالب في البرنامج.
+     *
+     * ⚠️ ده partitioning مش جمع: لو جمعنا `count(distinct)` لكل حالة
+     * على حدة، الطالب اللي عنده اشتراك **نشط** وآخر **موقوف**
+     * هيتحسب مرتين (٢ بدل ١). فبنقسم الطلاب على حالات، كل طالب في
+     * حالة واحدة بس — النشطة تسبق الموقوفة — عشان
+     * `active + paused === total` دايمًا.
      */
     public function studentStatusBreakdown(): array
     {
         $rows = \Illuminate\Support\Facades\DB::table('subscriptions')
             ->where('program_id', $this->id)
             ->whereIn('status', ['active', 'paused'])
-            ->selectRaw('status, count(distinct student_id) as c')
-            ->groupBy('status')
-            ->pluck('c', 'status');
+            // طالب واحد = صف واحد، و«النشطة» تسبق «الموقوفة»
+            ->selectRaw('student_id, max(case when status = ? then 1 else 0 end) as is_active', ['active'])
+            ->groupBy('student_id')
+            ->get(['is_active']);
 
-        $active = (int) ($rows['active'] ?? 0);
-        $paused = (int) ($rows['paused'] ?? 0);
+        $active = $rows->filter(fn ($r) => (int) $r->is_active === 1)->count();
+        $paused = $rows->count() - $active;
 
         return ['active' => $active, 'paused' => $paused, 'total' => $active + $paused];
     }
