@@ -50,6 +50,17 @@ export type AuthUser = {
   /** الحساب مربوط بمعلم — كل معلم بيتحكم بجدوله بنفسه */
   is_teacher: boolean;
   teacher: AuthTeacher | null;
+  /** الحساب ولي أمر — بيشوف أبناؤه بس مش بيانات الأكاديمية */
+  is_parent: boolean;
+  parent: AuthParent | null;
+};
+
+export type AuthParent = {
+  id: number;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  children_count: number;
 };
 
 const AUTH_USER_KEY = "auth_user";
@@ -865,6 +876,61 @@ export type Paginated<T> = {
   sums?: Record<string, number>;
 };
 
+// ============================================================
+// واجهة ولي الأمر
+// ============================================================
+
+/** صورة مختصرة عن ابن — اللي ولي الأمر مسموح يشوفه */
+export type ParentChildView = {
+  student: {
+    id: number;
+    full_name: string;
+    student_code: string;
+    status: string;
+    photo_url: string | null;
+  };
+  relationship: string | null;
+  subscription: {
+    id: number;
+    program_name: string;
+    teacher_name: string | null;
+    status: string;
+    billing_type: string;
+    start_date: string;
+    end_date: string | null;
+    days_left: number | null;
+    /** ٠..١ — كام من الحصص اتConsumers */
+    progress: number;
+    weekday_names: string;
+    start_time: string | null;
+  } | null;
+  lesson_credit: {
+    balance: number;
+    included: number;
+    status: string;
+    expires_at: string | null;
+  } | null;
+  upcoming_lessons: {
+    id: number;
+    scheduled_start_at: string;
+    teacher_name: string | null;
+    status: string;
+  }[];
+  outstanding: {
+    invoices: number;
+    total: number;
+    currency: string;
+  };
+};
+
+/** كل بيانات ولي الأمر في نداء واحد — كل ابن مع اشتراكه وحصصه وفواتيره */
+export function getMyChildren() {
+  return apiFetch<{
+    parent: { id: number; name: string; phone: string | null; email: string | null };
+    children: ParentChildView[];
+  }>("/parent/children");
+}
+
 export function getStudents(params?: {
   status?: string;
   search?: string;
@@ -1161,6 +1227,48 @@ export function updateSubscription(id: number, payload: SubscriptionPayload) {
   return apiFetch<SubscriptionActivationResult>(`/subscriptions/${id}`, {
     method: "PUT",
     body: JSON.stringify(payload),
+  });
+}
+
+/** نتيجة معالجة يوم — نفس اللي بيحصل بالأمر التلقائي كل ٠١:١٥ */
+export type ProcessDayResult = {
+  date: string;
+  renewed: {
+    subscription_id: number;
+    student: string | null;
+    teacher: string | null;
+    old_end_date: string;
+    new_end_date: string;
+    invoice_id: number | null;
+    lessons_created: number;
+    lessons_skipped: number;
+  }[];
+  expiring_notified: {
+    subscription_id: number;
+    student: string | null;
+    end_date: string;
+    days_left: number;
+    recipients: number;
+  }[];
+  expired: {
+    subscription_id: number;
+    student: string | null;
+    end_date: string;
+    lessons_cancelled: number;
+    recipients: number;
+  }[];
+  invoices_created: number;
+  lessons_created: number;
+  lessons_skipped: number;
+  skipped_reasons: Record<string, number>;
+  notifications_created: number;
+};
+
+/** تشغيل المعالجة اليومية يدوياً — آمنة للتكرار */
+export function processSubscriptionDay(date?: string) {
+  return apiFetch<ProcessDayResult>("/subscriptions/process-day", {
+    method: "POST",
+    body: JSON.stringify(date ? { date } : {}),
   });
 }
 

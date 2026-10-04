@@ -7,13 +7,32 @@ use App\Models\Subscription;
 use Carbon\Carbon;
 use Illuminate\Console\Command;
 
+/**
+ * @deprecated استُبدل بـ ProcessSubscriptionDay.
+ *
+ * الأمر ده كان بيبعت الإشعارات على student.user — وهو null لكل الـ
+ * ٨٠ طالب، فكان بيطبع إنه بعت إشعارات وهو بعت صفر. وكل المنطق
+ * انتقل لـ DailySubscriptionService.
+ *
+ * الأمر موجود كاسم قديم عشان أي سكربت متعوّط عليه مايفشلش فجأة.
+ */
 class CheckSubscriptionExpiry extends Command
 {
-    protected $signature = 'subscriptions:check-expiry';
+    protected $signature = 'subscriptions:check-expiry {--date=}';
 
-    protected $description = 'Daily check for subscriptions expiring soon or already expired (UC-05).';
+    protected $description = '[مهمل] استخدم subscriptions:process-day';
 
-    public function handle(): void
+    public function handle(): int
+    {
+        $this->warn('الأمر ده مهمل — بيشغّل subscriptions:process-day');
+
+        return $this->call('subscriptions:process-day', array_filter([
+            '--date' => $this->option('date'),
+        ]));
+    }
+
+    /** @deprecated المنطق كله في DailySubscriptionService */
+    private function legacyRun(): void
     {
         $today = Carbon::today();
 

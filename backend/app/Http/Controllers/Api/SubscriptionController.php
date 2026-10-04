@@ -219,4 +219,25 @@ class SubscriptionController extends Controller
         $subscription->delete();
         return response()->json(['message' => 'تم حذف الاشتراك']);
     }
+
+    /**
+     * تشغيل المعالجة اليومية يدوياً.
+     *
+     * نفس أمر `subscriptions:process-day` بالظبط، وبنفس ضمانات عدم
+     * التكرار — فالأدمن يقدر يضغط الزر بأمان أكتر من مرة.
+     */
+    public function processDay(Request $request)
+    {
+        $data = $request->validate([
+            'date' => 'nullable|date',
+        ]);
+
+        $date = isset($data['date'])
+            ? \Carbon\Carbon::parse($data['date'])->startOfDay()
+            : \Carbon\Carbon::today();
+
+        $result = app(\App\Services\DailySubscriptionService::class)->run($date);
+
+        return response()->json($result);
+    }
 }

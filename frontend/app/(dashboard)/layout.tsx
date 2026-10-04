@@ -97,7 +97,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   });
   const [user, setUser] = useState<AuthUser | null>(null);
 
-  // مين داخل؟ المعلّم بياخد واجهة مختصرة بجدوله بس
+  // مين داخل؟ المعلّم بياخد واجهة مختصرة بجدوله، وولي الأمر بصفحة أبناؤه
   useEffect(() => {
     fetchMe()
       .then(setUser)
@@ -105,13 +105,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, []);
 
   const isTeacherOnly = Boolean(user?.is_teacher && user?.teacher);
+  const isParentOnly = Boolean(user?.is_parent && user?.parent);
 
-  // المعلّم اللي فتح رابط إداري — نرجّعه لجدوله
+  // صفحة ولي الأمر — مختلفة عن صفحة المعلّم
+  const homeFor = isParentOnly ? "/my-children" : "/my-schedule";
+
+  // اللي فتح رابط مش ليه — نرجّعه لصفحته
   useEffect(() => {
-    if (user && isTeacherOnly && pathname !== "/my-schedule") {
-      router.replace("/my-schedule");
-    }
-  }, [user, isTeacherOnly, pathname, router]);
+    if (!user) return;
+    if (isTeacherOnly && pathname !== homeFor) router.replace(homeFor);
+    if (isParentOnly && pathname !== homeFor) router.replace(homeFor);
+  }, [user, isTeacherOnly, isParentOnly, pathname, router, homeFor]);
 
   async function handleLogout() {
     await logout();
@@ -122,8 +126,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     setExpandedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
   }
 
-  // ===== واجهة المعلّم: صفحة واحدة بس =====
-  if (isTeacherOnly) {
+  // ===== واجهة المعلّم وولي الأمر: صفحة واحدة بس =====
+  // من غير الـ sidebar — ما فيش أي رابط إداري يوصله
+  if (isTeacherOnly || isParentOnly) {
     return (
       <UIProvider>
         <div dir="rtl" className="min-h-screen bg-slate-50">{children}</div>

@@ -898,6 +898,8 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
     });
     setStudents(r.data);
     setMeta({ total: r.total, last_page: r.last_page });
+    // StudentsController بيبني counts مسطّحة بنفسه (مش عن طريق
+    // paginatedWithCounts زي باقي الصفحات) — فمفيش تداخل هنا
     setCounts((r.counts ?? {}) as Record<string, number>);
   }, [apiFilters]);
 

@@ -70,8 +70,19 @@ class SeedLessons extends Seeder
         // (schedule_start_time) — فلازم اللي بنولّده يطابقه، وإلا
         // فورم تعديل الطالب هيبان عليه مواعيد مش موجودة أصلاً.
         //
-        // الأيام ٠(الأحد)..٤(الخميس) — الجمعة(٥) والسبت(٦) راحة
-        $days = [0, 1, 2, 3, 4];
+        // الأيام اللي كل معلم بيحكي فيها فعلاً، من جدوله (kind=academy).
+        // قبل كده كنا بنختار من [0..4] أي يوم — فطلعوا كلهم يوم
+        // الأحد (أول يوم في القائمة) وده يوم مفيش معلم بيحكي فيه،
+        // فالتجديد بعد كده ملقاش خانة فاضية.
+        $teachingDays = DB::table('teacher_schedules')
+            ->where('kind', 'academy')
+            ->where('is_recurring', true)
+            ->orderBy('teacher_id')
+            ->orderBy('weekday')
+            ->get(['teacher_id', 'weekday'])
+            ->groupBy('teacher_id')
+            ->map(fn ($rows) => $rows->pluck('weekday')->map(fn ($d) => (int) $d)->unique()->values()->all())
+            ->all();
 
         // المواعيد اللي كل اشتراك اتولّد عليها فعلاً — بنكتبها
         // على جدول subscriptions بعد التوليد
@@ -88,9 +99,16 @@ class SeedLessons extends Seeder
             $levelList = $levels[$sub->program_id] ?? collect();
             $levelId = $levelList->isNotEmpty() ? $levelList->random()->id : null;
 
-            // كل اشتراك نشط: عدد حصص أقل عشان نغطي طلاب أكثر
-            $perWeek = [1, 2, 2][mt_rand(0, 2)];
-            $hour = mt_rand(16, 20);
+            // مفيش أيام تدريس مسجّلة للمعلم — الاشتراك ده مش هياخد
+            // حصص أصلاً، فبنعدّيه بدل ما نخمّن
+            $days = $teachingDays[$sub->teacher_id] ?? [];
+            if (empty($days)) {
+                continue;
+            }
+
+            // كل اشتراك: ١ أو ٢ يوم في الأسبوع، ووقت واحد ثابت
+            $perWeek = min([1, 2, 2][mt_rand(0, 2)], count($days));
+            $hour = $this->hourInsideTeacherWindow($sub->teacher_id, $days);
 
             // المعلم الواحد بياخد أكتر من اشتراك، فبنفضّل الأيام
             // اللي لسه فاضية عنده. من غير كده بنضيع نص الحصص في
@@ -120,7 +138,7 @@ class SeedLessons extends Seeder
 
             // الأسبوع بيبدأ بالأحد عشان يطابق ترقيم الأيام في الجدول
             // (٠=الأحد)..٤(الخميس). startOfWeek() الافتراضي بيبدأ
-            // بالاثنين فكان 날ص تاريخ كل حصة بيوم غلط.
+            // بالاثنين فكان تاريخ كل حصة بيوم غلط.
             $weekStart = $now->copy()->startOfWeek(Carbon::SUNDAY);
 
             // الأيام اللي اتعملت فيها حصص فعلاً — ممكن تقل عن
@@ -357,5 +375,35 @@ class SeedLessons extends Seeder
         if ($reschedules) {
             $this->command?->info('   → ' . count($reschedules) . ' إعادة جدولة');
         }
+    }
+
+    /**
+     * ساعة بداية جوه نافذة تدريس المعلم فعلاً.
+     *
+     * كنا بنختار وقت عشوائي من ١٦..٢٠، فلو نافذة المعلم ١٧..١٩
+     * والحصة ٣٠ د والوقت ٢٠:٠٠ بتقع بره النافذة — يعني حصة في وقت
+     * المعلم مشغول فيه أصلاً، وكمان بره أي نافذة متاحة للحجز.
+     * دلوقتي بنرجع لأول نافذة تدريس مسجّلة للمعلم.
+     *
+     * النوافذ في البيانات ٢ ساعة والحصة ٣٠ د، فبداية النافذة دايماً
+     * تسع حصة كاملة.
+     *
+     * @param  int[]  $days
+     */
+    private function hourInsideTeacherWindow(int $teacherId, array $days): int
+    {
+        $startsAt = DB::table('teacher_schedules')
+            ->where('teacher_id', $teacherId)
+            ->where('kind', 'academy')
+            ->where('is_recurring', true)
+            ->whereIn('weekday', $days)
+            ->orderBy('starts_at')
+            ->value('starts_at');
+
+        if (!$startsAt) {
+            return 16;
+        }
+
+        return (int) explode(':', $startsAt)[0];
     }
 }

@@ -46,7 +46,10 @@ export default function LeadsPage() {
       });
       setLeads(r.data);
       setMeta({ total: r.total, last_page: r.last_page });
-      setCounts((r.counts ?? {}) as Record<string, number>);
+      // counts متداخلة تحت اسم العمود — راجع صفحة الاشتراكات
+      const c = r.counts as Record<string, unknown> | undefined;
+      const st = c?.status;
+      setCounts((st && typeof st === "object" ? st : {}) as Record<string, number>);
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
     } finally {

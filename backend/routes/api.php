@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\LessonController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ParentController;
+use App\Http\Controllers\Api\ParentPortalController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ProgramController;
 use App\Http\Controllers\Api\ReportController;
@@ -99,6 +100,17 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/subscriptions/{subscription}', [SubscriptionController::class, 'show'])->middleware('permission:students.view');
     Route::put('/subscriptions/{subscription}', [SubscriptionController::class, 'update'])->middleware('permission:students.edit');
     Route::delete('/subscriptions/{subscription}', [SubscriptionController::class, 'destroy'])->middleware('permission:students.edit');
+
+    // المعالجة اليومية — نفس اللي بيحصل بالأمر التلقائي، عشان
+    // الأدمن يشغّلها بإيده لما يفضّل
+    Route::post('/subscriptions/process-day', [SubscriptionController::class, 'processDay'])
+        ->middleware('permission:students.edit');
+
+    // ===== واجهة ولي الأمر =====
+    // البراوت يضمن إن الحساب ده ولي أمر فعلاً. وكمان الـ controller
+    // بيتأكد من إن كل ابن مرتبط بيه — عشوائياً لا يكفي.
+    Route::get('/parent/children', [ParentPortalController::class, 'children'])
+        ->middleware('parent.only');
 
     // Schedule / Lessons
     Route::get('/schedule', [LessonController::class, 'schedule'])->middleware('permission:lessons.view');

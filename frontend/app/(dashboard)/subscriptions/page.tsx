@@ -4,10 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import {
   getSubscriptions,
   deleteSubscription,
+  processSubscriptionDay,
   type Subscription,
+  type ProcessDayResult,
 } from "@/lib/api";
 import Pagination from "@/components/Pagination";
-import { useUI } from "@/components/ui";
+import { useUI, IconRefresh } from "@/components/ui";
 
 const STATUS_LABEL: Record<Subscription["status"], string> = {
   active: "نشط", expired: "منتهي", paused: "متوقف", cancelled: "ملغي",
@@ -43,6 +45,9 @@ export default function SubscriptionsPage() {
 
   const [statusFilter, setStatusFilter] = useState("");
 
+  const [processing, setProcessing] = useState(false);
+  const [lastRun, setLastRun] = useState<ProcessDayResult | null>(null);
+
   const { toast, confirm } = useUI();
 
   const load = useCallback(async (targetPage = 1, status = "") => {
@@ -56,7 +61,11 @@ export default function SubscriptionsPage() {
       });
       setSubscriptions(r.data);
       setMeta({ total: r.total, last_page: r.last_page });
-      setCounts((r.counts ?? {}) as Record<string, number>);
+      // counts متداخلة تحت اسم العمود: { status: {...}, billing_type: {...} }
+      // قراءة r.counts كأنها مسطّحة بتدي أصفار صامتة
+      const c = r.counts as Record<string, unknown> | undefined;
+      const st = c?.status;
+      setCounts((st && typeof st === "object" ? st : {}) as Record<string, number>);
       setSums(r.sums ?? {});
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
@@ -94,21 +103,88 @@ export default function SubscriptionsPage() {
     }
   }
 
+  /**
+   * تشغيل المعالجة اليومية بإيدنا.
+   *
+   * نفس الأمر اللي بيشتغل وحده كل ٠١:١٥ — يعني ضغطة الزرار مالهاش
+   * أي أثر جانبي زيادة. بس بناخد confirmation الأول عشان العملية
+   * بتعمل فواتير وبيقفل اشتراكات.
+   */
+  async function handleProcessDay() {
+    const ok = await confirm({
+      title: "معالجة يوم",
+      message:
+        "هيتعمل الآتي:\n" +
+        "• تجديد الاشتراكات اللي عليها تجديد تلقاعي ووصلت لنهايتها\n" +
+        "• إشعار بالأشتركات اللي هتنتهي خلال ٣ أيام\n" +
+        "• إقفال الاشتراكات اللي انتهت فعلاً (وحصصها المجدولة بتتغيّ)\n\n" +
+        "تقدر تضغط الزرار أكتر من مرة — مش هيكرّر حاجة.",
+      confirmLabel: "ابدأ المعالجة",
+    });
+    if (!ok) return;
+
+    setProcessing(true);
+    try {
+      const r = await processSubscriptionDay();
+      setLastRun(r);
+      load(page, statusFilter);
+
+      const parts = [
+        `${r.renewed.length} تجديد`,
+        `${r.expiring_notified.length} إشعار`,
+        `${r.expired.length} إقفال`,
+      ];
+
+      // كل حاجة خلصت من أول — يبقى مفيش لازم نعمل حاجة
+      if (r.renewed.length === 0 && r.expiring_notified.length === 0 && r.expired.length === 0) {
+        toast.info("مفيش حاجة تحتاج معالجة", "كل الاشتراكات مظبوطة النهاردة.");
+      } else {
+        toast.success(
+          `معالجة ${r.date} خلصت`,
+          `${parts.join(" · ")} · ${r.lessons_created} حصة اتجدولت · ${r.notifications_created} إشعار`,
+        );
+      }
+    } catch (err) {
+      toast.error("فشلت المعالجة", err instanceof Error ? err.message : undefined);
+      setError(err instanceof Error ? err.message : "فشلت المعالجة");
+    } finally {
+      setProcessing(false);
+    }
+  }
+
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-lg font-semibold text-slate-800">الاشتراكات</h1>
-        <select
-          value={statusFilter}
-          onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-500"
-        >
-          <option value="">كل الحالات</option>
-          {Object.entries(STATUS_LABEL).map(([k, v]) => (
-            <option key={k} value={k}>{v} ({counts[k] ?? 0})</option>
-          ))}
-        </select>
+        <div>
+          <h1 className="text-lg font-semibold text-slate-800">الاشتراكات</h1>
+          <p className="text-xs text-slate-500">
+            المعالجة اليومية بتشتغل لوحدها كل يوم ٠١:١٥
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-500"
+          >
+            <option value="">كل الحالات</option>
+            {Object.entries(STATUS_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>{v} ({counts[k] ?? 0})</option>
+            ))}
+          </select>
+          <button
+            onClick={handleProcessDay}
+            disabled={processing}
+            className="flex items-center gap-1.5 rounded-lg bg-slate-800 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <IconRefresh size={14} className={processing ? "animate-spin" : ""} />
+            {processing ? "جاري المعالجة…" : "معالجة يوم"}
+          </button>
+        </div>
       </div>
+
+      {/* نتيجة آخر معالجة — فوق الإحصائيات عشان تبان */}
+      {lastRun && <ProcessDaySummary result={lastRun} />}
 
       {/* إحصائيات — محسوبة من الداتابيز على كل الاشتراكات */}
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -213,6 +289,165 @@ export default function SubscriptionsPage() {
         loading={loading}
         itemLabel="اشتراك"
       />
+    </div>
+  );
+}
+
+/**
+ * ملخّص نتيجة آخر «معالجة يوم».
+ *
+ * بيقول كل حاجة حصلتها العملية في صفحة واحدة، لأن الأرقام لوحدها
+ * مش بتوضح حاجة — «٢١ تجديد» يعني إيه لو مش عارف مين اتجدّد.
+ */
+function ProcessDaySummary({ result }: { result: ProcessDayResult }) {
+  const nothing =
+    result.renewed.length === 0 &&
+    result.expiring_notified.length === 0 &&
+    result.expired.length === 0;
+
+  if (nothing) {
+    return (
+      <div className="mb-5 rounded-xl bg-emerald-50 p-4 ring-1 ring-emerald-200">
+        <p className="text-sm font-medium text-emerald-900">
+          معالجة {result.date} — كل الاشتراكات مظبوطة
+        </p>
+        <p className="mt-0.5 text-xs text-emerald-700">
+          مفيش تجديدات مستحقة، ومفيش اشتراكات هتنتهي خلال ٣ أيام،
+          ومفيش اشتراكات اتقفلت.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-5 space-y-3 rounded-xl bg-white p-4 shadow-sm ring-1 ring-slate-200">
+      <div className="flex flex-wrap items-center gap-4 text-sm">
+        <span className="font-medium text-slate-700">معالجة {result.date}</span>
+        <Chip tone="emerald" n={result.renewed.length} label="تجديد" />
+        <Chip tone="amber" n={result.expiring_notified.length} label="إشعار" />
+        <Chip tone="red" n={result.expired.length} label="إقفال" />
+        <span className="text-xs text-slate-500">
+          {result.invoices_created} فاتورة · {result.lessons_created} حصة اتجدولت
+          {result.lessons_skipped > 0 ? ` · ${result.lessons_skipped} اتخطّت` : ""}
+          {" · "}
+          {result.notifications_created} إشعار
+        </span>
+      </div>
+
+      {/* المواعيد اللي اتخطّت — دي اللي الأدمن لازم يعرفها */}
+      {Object.keys(result.skipped_reasons).length > 0 && (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          مواعيد اتخطّت:{" "}
+          {Object.entries(result.skipped_reasons)
+            .map(([reason, count]) => `${count}× ${reason}`)
+            .join(" · ")}
+        </p>
+      )}
+
+      <div className="grid gap-3 md:grid-cols-3">
+        <ListBlock
+          title="اتجدّد"
+          tone="emerald"
+          empty="مفيش"
+          rows={result.renewed.map((r) => ({
+            key: r.subscription_id,
+            main: r.student ?? `اشتراك #${r.subscription_id}`,
+            sub: `${r.old_end_date} ← ${r.new_end_date}${
+              r.invoice_id ? ` · فاتورة #${r.invoice_id}` : ""
+            }`,
+            note: r.lessons_created > 0 ? `${r.lessons_created} حصة` : undefined,
+          }))}
+        />
+
+        <ListBlock
+          title="هنتهي قريب"
+          tone="amber"
+          empty="مفيش"
+          rows={result.expiring_notified.map((r) => ({
+            key: r.subscription_id,
+            main: r.student ?? `اشتراك #${r.subscription_id}`,
+            sub: `فاضل ${r.days_left} يوم (${r.end_date})`,
+            note: `${r.recipients} مستلم`,
+          }))}
+        />
+
+        <ListBlock
+          title="اتقفل"
+          tone="red"
+          empty="مفيش"
+          rows={result.expired.map((r) => ({
+            key: r.subscription_id,
+            main: r.student ?? `اشتراك #${r.subscription_id}`,
+            sub: `انتهى ${r.end_date}`,
+            note: r.lessons_cancelled > 0 ? `اتلغت ${r.lessons_cancelled} حصة` : undefined,
+          }))}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Chip({
+  n,
+  label,
+  tone,
+}: {
+  n: number;
+  label: string;
+  tone: "emerald" | "amber" | "red";
+}) {
+  if (n === 0) return null;
+  const tones = {
+    emerald: "bg-emerald-100 text-emerald-700",
+    amber: "bg-amber-100 text-amber-700",
+    red: "bg-red-100 text-red-700",
+  };
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${tones[tone]}`}>
+      {n} {label}
+    </span>
+  );
+}
+
+function ListBlock({
+  title,
+  tone,
+  rows,
+  empty,
+}: {
+  title: string;
+  tone: "emerald" | "amber" | "red";
+  rows: { key: number; main: string; sub: string; note?: string }[];
+  empty: string;
+}) {
+  const heads = {
+    emerald: "text-emerald-700",
+    amber: "text-amber-700",
+    red: "text-red-700",
+  };
+
+  return (
+    <div className="rounded-lg bg-slate-50 p-3">
+      <p className={`mb-1.5 text-xs font-medium ${heads[tone]}`}>
+        {title} ({rows.length})
+      </p>
+      {rows.length === 0 ? (
+        <p className="text-xs text-slate-400">{empty}</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {rows.map((r) => (
+            <li key={r.key} className="text-xs">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="truncate font-medium text-slate-700">{r.main}</span>
+                {r.note && (
+                  <span className="shrink-0 text-slate-400">{r.note}</span>
+                )}
+              </div>
+              <span className="text-slate-500">{r.sub}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

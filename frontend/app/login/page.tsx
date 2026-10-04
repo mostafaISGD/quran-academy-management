@@ -18,7 +18,16 @@ export default function LoginPage() {
     try {
       const { user } = await login(email, password);
       // المعلّم بيتحكم بجدوله بنفسه — يوصل لصفحة «جدولي» على طول
-      router.push(user.is_teacher ? "/my-schedule" : "/dashboard");
+      // المعلّم لصفحته، ولي الأمر لصفحة أبناؤه، والأدمن للوحة التحكم.
+      // الترتيب مهم: لازم ولي الأمر يتشيك قبل المعلّم، حساب ممكن
+      // يكون مرتبط بالاثنين.
+      router.push(
+        user.is_parent && user.parent
+          ? "/my-children"
+          : user.is_teacher
+            ? "/my-schedule"
+            : "/dashboard",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "حدث خطأ غير متوقع");
     } finally {

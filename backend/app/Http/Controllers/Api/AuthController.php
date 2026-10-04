@@ -46,14 +46,20 @@ class AuthController extends Controller
     }
 
     /**
-     * بيانات المستخدم + مربوطه بالمعلم (لو كان معلم).
+     * بيانات المستخدم + مربوطه بالمعلم أو ولي الأمر (لو كان واحد منهم).
      *
      * الـ frontend بيستخدم `teacher` عشان يوجّه المعلّم لصفحة «جدولي»
      * بدل لوحة التحكم — كل معلّم بيتحكم بجدوله بنفسه.
+     *
+     * و `is_parent` + `parent` نفس الفكرة: ولي الأمر بيشوف أبناؤه بس،
+     * مش بيانات الأكاديمية كلها. من غير العمود ده أي حساب جديد
+     * هيتعامل معاه على إنه أدمن.
      */
     private function profile(User $user): array
     {
-        $user->load(['roles', 'teacher']);
+        $user->load(['roles', 'teacher', 'parentProfile']);
+
+        $parentProfile = $user->parentProfile;
 
         return [
             'id' => $user->id,
@@ -71,6 +77,14 @@ class AuthController extends Controller
                 'display_name' => $user->teacher->display_name,
                 'specialization' => $user->teacher->specialization,
                 'avatar_url' => $user->teacher->avatar_url,
+            ] : null,
+            'is_parent' => (bool) $user->is_parent || $parentProfile !== null,
+            'parent' => $parentProfile ? [
+                'id' => $parentProfile->id,
+                'name' => $parentProfile->name,
+                'phone' => $parentProfile->phone,
+                'email' => $parentProfile->email,
+                'children_count' => $parentProfile->students()->count(),
             ] : null,
         ];
     }

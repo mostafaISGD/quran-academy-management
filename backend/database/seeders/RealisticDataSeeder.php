@@ -42,6 +42,11 @@ class RealisticDataSeeder extends Seeder
         $this->seedCore();
         $this->command?->info('✅ البيانات الأساسية (منشأة، فرع، مستخدم)');
 
+        // لازم قبل أي حاجة تانية: من غير صلاحيات كل endpoint عليه
+        // permission: بيرجّع 403 والتطبيق مش بيفتح
+        (new SeedRolesPermissions())->setContainer(app())->setCommand($this->command)->run();
+        $this->command?->info('✅ الأدوار والصلاحيات');
+
         $this->seedPrograms();
         $this->command?->info('✅ البرامج والمستويات وخطط الاشتراك');
 
@@ -74,6 +79,8 @@ class RealisticDataSeeder extends Seeder
         (new BackfillParentPhones())->setContainer(app())->setCommand($this->command)->run();
         $this->command?->info('✅ ربط أولياء الأمور بأرقام الهاتف');
 
+        (new SeedParentAccounts())->setContainer(app())->setCommand($this->command)->run();
+
         $this->command?->info('🎉 اكتمل توليد البيانات الأساسية!');
     }
 
@@ -93,6 +100,11 @@ class RealisticDataSeeder extends Seeder
             'subscription_pauses', 'subscriptions', 'lessons',
             'assessments', 'leads',
             'notifications', 'audit_logs', 'settings',
+            // الأدوار والصلاحيات بتتربط بالمستخدمين، فلازم نمسحها
+            // قبل ما نمسح المستخدمين — غير كده بتفضل مرتبطة بصفوف
+            // مش موجودة
+            'model_has_roles', 'model_has_permissions',
+            'role_has_permissions', 'roles', 'permissions',
             'student_goals', 'student_phones', 'student_parents',
             'teacher_ratings', 'teacher_rates', 'teacher_contracts', 'teachers',
             'students', 'parents', 'subscription_plans', 'levels', 'programs', 'quran_surahs',

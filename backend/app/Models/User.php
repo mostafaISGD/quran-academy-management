@@ -15,7 +15,7 @@ class User extends Authenticatable
 
     protected $fillable = [
         'organization_id', 'name', 'email', 'phone', 'password',
-        'timezone', 'locale', 'status', 'email_verified_at', 'last_login_at',
+        'timezone', 'locale', 'status', 'is_parent', 'email_verified_at', 'last_login_at',
     ];
 
     protected $hidden = [
@@ -40,6 +40,7 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'last_login_at' => 'datetime',
             'password' => 'hashed',
+            'is_parent' => 'boolean',
         ];
     }
 
