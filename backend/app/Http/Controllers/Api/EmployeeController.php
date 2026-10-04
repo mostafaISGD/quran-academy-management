@@ -117,6 +117,19 @@ class EmployeeController extends Controller
             'role_id' => 'nullable|exists:roles,id',
         ]);
 
+        // القاعدة: لو حد له دور، لازم يكون عنده حساب — من غيره الـ role
+        // هيفضل معلّق على حد مش موجود، وهو أصلاً مالوش فايدة.
+        // (دور صفر صلاحيات = صفحة 403 في كل حاجة)
+        if (!empty($data['role_id']) && !($data['create_account'] ?? false)) {
+            $data['create_account'] = true;
+        }
+
+        // لو طلب حساب من غير دور — بنسمح، بس بنحذّر عشان الواجهة تقول
+        // الموظف ده مش هيقدر يفتح حاجة
+        if (($data['create_account'] ?? false) && empty($data['role_id'])) {
+            $warning = 'الموظف ده هيكون ليه حساب دخول بدون صلاحيات — مش هيقدر يفتح أي صفحة.';
+        }
+
         $data['organization_id'] = $request->user()->organization_id;
         // بنحطها صراحةً — من غير كده الـ attribute مش بتبقى موجودة
         // على الـ model والرد بيرجع من غير user_id خالص
@@ -155,7 +168,7 @@ class EmployeeController extends Controller
                 }
             }
 
-            return $employee;
+            return $employee->fresh(['user.roles', 'manager']);
         });
 
         // تسجيل النشاط
@@ -166,7 +179,7 @@ class EmployeeController extends Controller
             $request,
         );
 
-        return response()->json($employee->load(['user', 'manager']), 201);
+        return response()->json($employee + ($warning ? ['warning' => $warning] : []), 201);
     }
 
     // ============================================================
@@ -278,6 +291,29 @@ class EmployeeController extends Controller
             $roleId = $data['role_id'] ?? null;
             unset($data['role_id']);
 
+            // عينت دور بس الموظف مالوش حساب → نعمله واحد.
+            // دور بلا حساب = صلاحية معلّقة على حد مش موجود.
+            if ($roleId && !$employee->user_id) {
+                if (empty($employee->email)) {
+                    return ['error' => 'الموظف مالوش حساب دخول ومفيش إيميل — املا الإيميل الأول'];
+                }
+
+                $user = User::create([
+                    'organization_id' => $employee->organization_id,
+                    'name' => $employee->name,
+                    'email' => $employee->email,
+                    'phone' => $employee->phone,
+                    'password' => Hash::make('password'),
+                    'timezone' => 'Africa/Cairo',
+                    'locale' => 'ar',
+                    'job_title' => $employee->job_title,
+                    'department' => $employee->department,
+                    'status' => 'active',
+                ]);
+
+                $employee->update(['user_id' => $user->id]);
+            }
+
             $employee->update($data);
 
             // تعيين الدور على حساب الدخول
@@ -289,8 +325,12 @@ class EmployeeController extends Controller
                 }
             }
 
-            return $employee;
+            return $employee->fresh(['user.roles', 'manager']);
         });
+
+        if (isset($employee['error'])) {
+            return response()->json(['message' => $employee['error']], 422);
+        }
 
         // تسجيل النشاط
         app(\App\Services\AuditLogService::class)->logUpdate(

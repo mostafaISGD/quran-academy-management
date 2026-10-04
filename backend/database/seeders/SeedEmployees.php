@@ -61,17 +61,38 @@ class SeedEmployees extends Seeder
             $roleIds[$roleName] = $role->id;
         }
 
-        // أول 6 موظفين عندهم حساب دخول + دور
-        $rolesForEmployees = ['accountant', 'supervisor', 'receptionist', 'receptionist', 'supervisor', 'accountant'];
+        // كل موظف ليه دور → الحساب إجباري (القاعدة: دور بلا حساب = بلا فايدة)
+        //
+        // الدور بيتحسب من الوظيفة مش من رقم الموظف، عشان كل موظف
+        // بنفس الطبيعة ياخد نفس الدور — ومحدش يبقى بحساب وبلا
+        // صلاحيات بالصدفة.
+        $roleByTitle = [
+            'محاسب' => 'accountant',
+            'محاسبة' => 'accountant',
+            'مشرفة أكاديمية' => 'supervisor',
+            'مسؤول متابعة' => 'supervisor',
+            'مسؤولة جودة' => 'supervisor',
+            'موظف استقبال' => 'receptionist',
+            'خدمة عملاء' => 'receptionist',
+            'مبيعات' => 'receptionist',
+            'مسوق' => 'receptionist',
+            'مسؤول تقنية' => 'receptionist',
+            'مصممة' => 'receptionist',
+        ];
+
+        // متطوع = مش موظف بدوام، فمالوش حساب دخول.
+        //
+        // لو الأكاديمية عايزة المتطوعين يتسجلوا دخول، شيل السطر ده
+        // وهما هيتعاملوا زي الباقي.
+        $noAccount = ['volunteer'];
 
         foreach (self::ROWS as $i => [$name, $jobTitle, $department, $employmentType, $status, $managerNo]) {
             $gender = in_array(explode(' ', $name)[0], self::FEMALE, true) ? 'female' : 'male';
             $phone = '01' . str_pad((string) mt_rand(0, 99999999), 8, '0', STR_PAD_LEFT);
             $email = 'employee' . ($i + 1) . '@quran-academy.com';
 
-            // أول ٦ موظفين عندهم حساب دخول
             $userId = null;
-            if ($i < 6) {
+            if (!in_array($employmentType, $noAccount, true)) {
                 $userId = DB::table('users')->insertGetId([
                     'organization_id' => 1,
                     'name' => $name,
@@ -82,23 +103,20 @@ class SeedEmployees extends Seeder
                     'locale' => 'ar',
                     'job_title' => $jobTitle,
                     'department' => $department,
-                    'status' => 'active',
+                    // الموظف غير النشط مالوش حساب دخول فعّال
+                    'status' => $status === 'inactive' ? 'inactive' : 'active',
                     'email_verified_at' => $now,
-                    'last_login_at' => $now,
+                    // نصهم دخلوا النهاردة، نصهم امبارح
+                    'last_login_at' => $i % 2 === 0 ? $now : $now->copy()->subDays(mt_rand(1, 5)),
                     'created_at' => $now,
                     'updated_at' => $now,
                 ]);
 
-                // دور الموظف — كل واحد دور مختلف عشان تتعرض
-                // الصلاحيات المختلفة في ملفه
-                $roleName = $rolesForEmployees[$i] ?? null;
-                if ($roleName) {
-                    DB::table('model_has_roles')->insert([
-                        'role_id' => $roleIds[$roleName],
-                        'model_type' => 'App\\Models\\User',
-                        'model_id' => $userId,
-                    ]);
-                }
+                DB::table('model_has_roles')->insert([
+                    'role_id' => $roleIds[$roleByTitle[$jobTitle] ?? 'receptionist'],
+                    'model_type' => 'App\\Models\\User',
+                    'model_id' => $userId,
+                ]);
             }
 
             $joinedYear = 2023 + ($i % 4);
@@ -136,6 +154,11 @@ class SeedEmployees extends Seeder
                 ->update(['manager_id' => $ids[$managerNo - 1]]);
         }
 
-        $this->command?->info('✅ ' . count(self::ROWS) . ' موظف — 6 بحساب دخول و' . count($roleIds) . ' أدوار');
+        $withAccount = DB::table('employees')->whereNotNull('user_id')->count();
+
+        $this->command?->info(
+            "✅ " . count(self::ROWS) . " موظف — {$withAccount} بحساب دخول و"
+            . (count(self::ROWS) - $withAccount) . ' بدون (متطوعين)'
+        );
     }
 }

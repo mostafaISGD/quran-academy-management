@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AssessmentController;
+use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\EmployeeController;
@@ -177,6 +178,11 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->middleware('permission:students.edit');
     Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->middleware('permission:students.edit');
     Route::get('/employees/{employee}/activity', [EmployeeController::class, 'activity'])->middleware('permission:students.view');
+
+    // ===== الحضور والانصراف — كله على الأدمن =====
+    Route::get('/attendance/day', [AttendanceController::class, 'day'])->middleware('permission:students.view');
+    Route::post('/attendance', [AttendanceController::class, 'store'])->middleware('permission:students.edit');
+    Route::get('/employees/{employee}/attendance-month', [AttendanceController::class, 'month'])->middleware('permission:students.view');
 
     // Expenses
     Route::get('/expenses', [ExpenseController::class, 'index']);
