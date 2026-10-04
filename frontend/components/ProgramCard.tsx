@@ -61,7 +61,22 @@ export default function ProgramCard({
           )}
         </div>
 
-        <Pill tone={active ? "green" : "red"}>{active ? "نشط" : "غير نشط"}</Pill>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <Pill tone={active ? "green" : "red"}>{active ? "نشط" : "غير نشط"}</Pill>
+          {/* ربط المعلمين مختلف عن الواقع — تحذير قبل ما يفتح الملف */}
+          {program.mismatches && program.mismatches.total > 0 && (
+            <span
+              className="inline-flex items-center gap-0.5 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+              title={
+                program.mismatches.unlinked > 0
+                  ? `${program.mismatches.unlinked} معلم عندهم حصص ومش مسجّلين`
+                  : ""
+              }
+            >
+              ⚠ {program.mismatches.total} عدم تطابق
+            </span>
+          )}
+        </div>
       </div>
 
       {/* ===== التصنيفات ===== */}

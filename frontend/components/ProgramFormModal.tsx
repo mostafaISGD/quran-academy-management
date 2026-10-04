@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   createProgram,
+  previewProgramSlug,
   updateProgram,
   type Program,
   type ProgramCategory,
   type ProgramCategoryFilter,
+  type SlugPreview,
 } from "@/lib/api";
 import { useUI } from "@/components/ui";
 
@@ -51,6 +53,28 @@ export default function ProgramFormModal({
   const [selected, setSelected] = useState<number[]>(program?.categories?.map((c) => c.id) ?? []);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // معاينة الـ slug — السيرفر هو اللي بيحوّل العربي لـ latin، فبناديه
+  // هو مش نعمل نسخة في الـ frontend (اختلاف مضمون بعدين).
+  const [slugPreview, setSlugPreview] = useState<SlugPreview | null>(
+    program ? { name: program.name, suggested: program.slug, slug: program.slug, is_custom: true, is_fallback: false } : null,
+  );
+
+  useEffect(() => {
+    if (!name.trim()) return;
+    let active = true;
+    // debounce عشان كل حرف متعملش request
+    const t = setTimeout(() => {
+      previewProgramSlug({
+        name: name.trim(),
+        slug: slug.trim() || null,
+        ignoreId: program?.id,
+      })
+        .then((p) => { if (active) setSlugPreview(p); })
+        .catch(() => { if (active) setSlugPreview(null); });
+    }, 250);
+    return () => { active = false; clearTimeout(t); };
+  }, [name, slug, program?.id]);
 
   function toggleCategory(id: number) {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -133,20 +157,45 @@ export default function ProgramFormModal({
             </label>
 
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-600">
-                المعرّف (slug)
-                <span className="mr-1 font-normal text-slate-400">— سيبه فاضي وهيتولّد تلقائياً</span>
-              </span>
+              <span className="mb-1 block text-xs font-medium text-slate-600">المعرّف (slug)</span>
               <input
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
                 maxLength={150}
-                placeholder="quran-memorization"
+                placeholder="مثال: tahfeeq"
                 dir="ltr"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
           </div>
+
+          {/* معاينة الـ slug — عشان المستخدم يشوف هيتبعت إيه ويقدر
+              يغيّره بدل ما يفاجأ بعد الحفظ. التحويل عربي→latin بيحصل
+              على السيرفر عشان يفضل في مكان واحد. */}
+          {name.trim() && slugPreview && (
+            <div
+              className={`flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border px-3 py-2 text-xs ${
+                slugPreview.is_fallback
+                  ? "border-amber-200 bg-amber-50 text-amber-800"
+                  : "border-slate-200 bg-slate-50 text-slate-600"
+              }`}
+            >
+              <span className="text-slate-500">
+                {slugPreview.is_custom ? "هيتحفظ باسم:" : "بيتولّد تلقائياً من الاسم:"}
+              </span>
+              <code className="rounded bg-white px-1.5 py-0.5 font-mono" dir="ltr">
+                {slugPreview.slug || "—"}
+              </code>
+              {slugPreview.is_fallback && (
+                <span>الاسم مفيهوش حروف إنجليزية — اكتب معرّف بنفسك.</span>
+              )}
+              {!slugPreview.is_custom && slugPreview.suggested !== slugPreview.slug && (
+                <span className="text-slate-400">
+                  (مقترح: <code dir="ltr">{slugPreview.suggested}</code>)
+                </span>
+              )}
+            </div>
+          )}
 
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-600">وصف البرنامج</span>

@@ -92,6 +92,7 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     // المعلم lessons.view هيفتحله حصص الأكاديمية كلها (تسريب).
     // الكتابة لإدارة النظام بس.
     Route::get('/programs', [ProgramController::class, 'index'])->middleware('permission:programs.view');
+    Route::get('/programs/slug-preview', [ProgramController::class, 'slugPreview'])->middleware('permission:programs.view');
     Route::get('/programs/{program}', [ProgramController::class, 'show'])->middleware('permission:programs.view');
     Route::post('/programs', [ProgramController::class, 'store'])->middleware('permission:settings.manage');
     Route::put('/programs/{program}', [ProgramController::class, 'update'])->middleware('permission:settings.manage');
@@ -108,6 +109,9 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/programs/{program}/teachers', [ProgramController::class, 'teachers'])->middleware('permission:programs.view');
     Route::post('/programs/{program}/teachers', [ProgramController::class, 'linkTeacher'])->middleware('permission:lessons.edit');
     Route::delete('/programs/{program}/teachers/{teacherId}', [ProgramController::class, 'unlinkTeacher'])->middleware('permission:lessons.edit');
+    // إصلاح جماعي — لسه محتاج تأكيد من الواجهة
+    Route::post('/programs/{program}/teachers/link-missing', [ProgramController::class, 'linkAllMissingTeachers'])->middleware('permission:lessons.edit');
+    Route::post('/programs/{program}/teachers/unlink-idle', [ProgramController::class, 'unlinkIdleTeachers'])->middleware('permission:lessons.edit');
 
     // طلاب البرنامج (ملخص عن طريق الاشتراكات — مش إدارة اشتراك)
     Route::get('/programs/{program}/students', [ProgramController::class, 'students'])->middleware('permission:programs.view');

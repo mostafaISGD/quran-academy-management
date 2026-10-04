@@ -37,18 +37,23 @@ export default function ProgramsPage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<number | null>(null);
+  const [onlyMismatched, setOnlyMismatched] = useState(false);
   const [view, setView] = useState<View>("cards");
 
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState({ total: 0, last_page: 1 });
   const [counts, setCounts] = useState({ active: 0, inactive: 0 });
+  const [mismatchPrograms, setMismatchPrograms] = useState(0);
 
   const [openId, setOpenId] = useState<number | null>(null);
   const [editing, setEditing] = useState<Program | null | undefined>(undefined);
   const [showCats, setShowCats] = useState(false);
 
   const load = useCallback(
-    async (targetPage = 1, filters: { status?: string; category_id?: number; search?: string }) => {
+    async (
+      targetPage = 1,
+      filters: { status?: string; category_id?: number; search?: string; has_mismatches?: boolean },
+    ) => {
       setLoading(true);
       setError(null);
       try {
@@ -57,6 +62,7 @@ export default function ProgramsPage() {
         setCategories(r.filters?.categories ?? []);
         setMeta({ total: r.total, last_page: r.last_page });
         setCounts({ active: r.counts?.active ?? 0, inactive: r.counts?.inactive ?? 0 });
+        setMismatchPrograms(r.mismatch_programs ?? 0);
       } catch (e) {
         setError(e instanceof Error ? e.message : "تعذر تحميل البيانات");
       } finally {
@@ -66,24 +72,35 @@ export default function ProgramsPage() {
     [],
   );
 
+  // ندز الفلتر الحالي مرة واحدة في كل حقل — نتفادى تكرار ternary
+  // في ٣ أماكن اللي كل واحد طوّل.
+  const currentFilters = useCallback(
+    () => ({
+      status: statusFilter || undefined,
+      category_id: categoryFilter ?? undefined,
+      search: search.trim() || undefined,
+      has_mismatches: onlyMismatched || undefined,
+    }),
+    [statusFilter, categoryFilter, search, onlyMismatched],
+  );
+
   // debounce للبحث — عشان كل حرف متعملش request
   useEffect(() => {
     const t = setTimeout(
-      () => load(1, { status: statusFilter || undefined, category_id: categoryFilter ?? undefined, search: search.trim() || undefined }),
+      () => load(1, currentFilters()),
       search ? 300 : 0,
     );
     return () => clearTimeout(t);
-  }, [load, statusFilter, categoryFilter, search]);
+  }, [load, currentFilters, search]);
 
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    load(target, { status: statusFilter || undefined, category_id: categoryFilter ?? undefined, search: search.trim() || undefined });
+    load(target, currentFilters());
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  const refresh = () =>
-    load(page, { status: statusFilter || undefined, category_id: categoryFilter ?? undefined, search: search.trim() || undefined });
+  const refresh = () => load(page, currentFilters());
 
   async function handleDelete(p: Program) {
     const ok = await confirm({
@@ -157,11 +174,12 @@ export default function ProgramsPage() {
       </div>
 
       {/* ============ المؤشرات ============ */}
-      <div className="mb-4 grid grid-cols-3 gap-3">
+      <div className="mb-4 grid grid-cols-4 gap-3">
         {[
           { label: "إجمالي البرامج", value: counts.active + counts.inactive, tone: "bg-slate-800 text-white", sub: "text-slate-300" },
           { label: "البرامج النشطة", value: counts.active, tone: "bg-emerald-50 text-emerald-800", sub: "text-emerald-600" },
           { label: "البرامج غير النشطة", value: counts.inactive, tone: "bg-slate-100 text-slate-600", sub: "text-slate-400" },
+          { label: "فيها عدم تطابق", value: mismatchPrograms, tone: "bg-amber-50 text-amber-800", sub: "text-amber-600" },
         ].map((s) => (
           <div key={s.label} className={`rounded-xl p-4 text-center ${s.tone}`}>
             <p className={`text-xs ${s.sub}`}>{s.label}</p>
@@ -202,15 +220,35 @@ export default function ProgramsPage() {
           ))}
         </select>
 
-        {(statusFilter || categoryFilter || search) && (
+        {(statusFilter || categoryFilter || search || onlyMismatched) && (
           <button
-            onClick={() => { setStatusFilter(""); setCategoryFilter(null); setSearch(""); setPage(1); }}
+            onClick={() => {
+              setStatusFilter(""); setCategoryFilter(null); setSearch(""); setOnlyMismatched(false); setPage(1);
+            }}
             className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600 hover:bg-slate-200"
           >
             مسح الفلاتر
           </button>
         )}
       </div>
+
+      {/* ============ فلتر عدم التطابق ============ */}
+      {mismatchPrograms > 0 && (
+        <label className="mb-4 flex cursor-pointer items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+          <input
+            type="checkbox"
+            checked={onlyMismatched}
+            onChange={(e) => { setOnlyMismatched(e.target.checked); setPage(1); }}
+            className="mt-0.5 h-4 w-4 rounded border-amber-300 text-amber-600"
+          />
+          <span className="text-sm text-amber-800">
+            <b>{mismatchPrograms}</b> برنامج ربط معلميه مختلف عن حصصهم الفعلية.
+            <span className="block text-xs text-amber-700">
+              افتح البرنامج لتثبيت الوضع — أو استخدم الأزرار الجماعية جوّه الملف.
+            </span>
+          </span>
+        </label>
+      )}
 
       {/* ============ المحتوى ============ */}
       {loading ? (
@@ -220,7 +258,7 @@ export default function ProgramsPage() {
       ) : programs.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 py-12 text-center">
           <p className="text-sm text-slate-400">
-            {search || statusFilter || categoryFilter
+            {search || statusFilter || categoryFilter || onlyMismatched
               ? "مفيش نتائج للفلاتر دي"
               : "لسه مفيش برامج — اضغط «إضافة برنامج»"}
           </p>
@@ -285,9 +323,19 @@ export default function ProgramsPage() {
                     <td className="px-3 py-2 font-medium text-slate-700">{p.plans_count ?? 0}</td>
                     <td className="px-3 py-2 font-medium text-slate-700">{p.levels_count ?? 0}</td>
                     <td className="px-3 py-2">
-                      <Pill tone={p.status === "active" ? "green" : "red"}>
-                        {p.status === "active" ? "نشط" : "غير نشط"}
-                      </Pill>
+                      <div className="flex items-center gap-1.5">
+                        <Pill tone={p.status === "active" ? "green" : "red"}>
+                          {p.status === "active" ? "نشط" : "غير نشط"}
+                        </Pill>
+                        {p.mismatches && p.mismatches.total > 0 && (
+                          <span
+                            className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                            title={`${p.mismatches.unlinked} غير مسجّل · ${p.mismatches.idle} بلا حصص`}
+                          >
+                            ⚠ {p.mismatches.total}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-2">
                       <div className="flex gap-1">

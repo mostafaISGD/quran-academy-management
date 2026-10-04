@@ -102,6 +102,49 @@ class Program extends Model
         return $this->subscriptionPlans()->where('status', 'active')->count();
     }
 
+    /**
+     * فحص تطابق ربط المعلمين بالواقع.
+     *
+     * البرنامج بيقول «المعلم ده يدرّس البرنامج ده» — بس الحقيقة في
+     * جدول `lessons`. فلو，两者 مختلفين يبقى الـ pivot بيكدب، والكارت
+     * بيعرض معلّمين مش بيلقوا حصة في البرنامج.
+     *
+     * نوعين من عدم التطابق:
+     *  - `unlinked`  معلم عنده حصص في البرنامج ومش مسجّل عليه
+     *  - `idle`      معلم مسجّل عليه ومفيش له أي حصة في البرنامج
+     *
+     * الاتنين مش أخطاء — ممكن يكون تعلّمه لسه بدأ، أو خلّص. لكن
+     * لازم الأدمن يشوفها ويقرّر.
+     */
+    public function teacherLinkHealth(): array
+    {
+        // المعلمون اللي عندهم حصص فعلاً في البرنامج ده
+        $withLessons = \Illuminate\Support\Facades\DB::table('lessons')
+            ->where('program_id', $this->id)
+            ->whereNotNull('teacher_id')
+            ->selectRaw('teacher_id, count(*) as lessons_count')
+            ->groupBy('teacher_id')
+            ->get()
+            ->keyBy(fn ($r) => (int) $r->teacher_id);
+
+        $linked = $this->teachers()->get();
+
+        $unlinkedIds = $withLessons->keys()
+            ->reject(fn ($id) => $linked->contains('id', $id))
+            ->values();
+
+        $idleIds = $linked
+            ->reject(fn ($t) => $withLessons->has((int) $t->id))
+            ->pluck('id')
+            ->values();
+
+        return [
+            'unlinked' => $unlinkedIds,
+            'idle' => $idleIds,
+            'total' => $unlinkedIds->count() + $idleIds->count(),
+        ];
+    }
+
     /** ملخص الحفظ — عشان ملف البرنامج يعرض «فيه تقدم» ولا لأ */
     public function memorizationSummary(): array
     {

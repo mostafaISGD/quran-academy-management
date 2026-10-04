@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Level;
 use App\Models\Program;
 use App\Models\ProgramCategory;
+use App\Support\Slug;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -22,8 +23,72 @@ class ProgramController extends Controller
     // القائمة
     // ============================================================
 
+    /**
+     * عدم تطابق ربط المعلمين، لكل البرامج مرة واحدة.
+     *
+     * بنحسبه بـ set-based queries (٢ query) مش حلقة per-program،
+     * عشان القائمة فيها صفحات بكل الأرقام. الفكرة: ناخد أزواج
+     * (program, teacher) من lesson ومن pivot، ونقارن في PHP.
+     *
+     * @return \Illuminate\Support\Collection<int, array{unlinked:int, idle:int, total:int}>
+     */
+    private function teacherMismatches(array $programIds)
+    {
+        $empty = fn () => collect($programIds)->mapWithKeys(fn ($id) => [$id => ['unlinked' => 0, 'idle' => 0, 'total' => 0]]);
+
+        if (empty($programIds)) {
+            return $empty();
+        }
+
+        // (program, teacher) عندهم حصص
+        $fromLessons = DB::table('lessons')
+            ->whereIn('program_id', $programIds)
+            ->whereNotNull('teacher_id')
+            ->distinct()
+            ->get(['program_id', 'teacher_id'])
+            ->map(fn ($r) => $r->program_id . ':' . $r->teacher_id);
+
+        // (program, teacher) مسجّلين في الـ pivot
+        $fromPivot = DB::table('program_teacher')
+            ->whereIn('program_id', $programIds)
+            ->get(['program_id', 'teacher_id'])
+            ->map(fn ($r) => $r->program_id . ':' . $r->teacher_id);
+
+        // في，两者 = سليم
+        $both = $fromLessons->intersect($fromPivot);
+
+        // فيLessons بس = لسه مش مسجّل
+        $unlinked = $fromLessons->diff($fromPivot);
+        // في pivot بس = مسجّل ومفيش حصص
+        $idle = $fromPivot->diff($fromLessons);
+
+        $result = [];
+        foreach ($programIds as $id) {
+            $result[$id] = ['unlinked' => 0, 'idle' => 0, 'total' => 0];
+        }
+        foreach ($unlinked as $key) {
+            $pid = (int) explode(':', $key)[0];
+            if (isset($result[$pid])) {
+                $result[$pid]['unlinked']++;
+                $result[$pid]['total']++;
+            }
+        }
+        foreach ($idle as $key) {
+            $pid = (int) explode(':', $key)[0];
+            if (isset($pid) && isset($result[$pid])) {
+                $result[$pid]['idle']++;
+                $result[$pid]['total']++;
+            }
+        }
+
+        return collect($result);
+    }
+
     public function index(Request $request)
     {
+        // فلتر «فيه عدم تطابق» — بيتعامل معاه بعد الحساب
+        $onlyMismatched = $request->boolean('has_mismatches');
+
         $query = Program::query()
             // التصنيفات بتظهر على الكارت — لازم تتحمّل مع الصفحة
             ->with('categories')
@@ -46,7 +111,7 @@ class ProgramController extends Controller
 
         $paginator = $query->paginate($request->integer('per_page') ?: 50);
 
-        $ids = $paginator->getCollection()->pluck('id');
+        $ids = $paginator->getCollection()->pluck('id')->all();
 
         // أرقام الطلاب من الداتابيز مباشرة — مش من الصفحة الحالية.
         // لازم نفس تعريف Program::getStudentsCountAttribute() عشان
@@ -61,11 +126,21 @@ class ProgramController extends Controller
             ->selectRaw('program_id, count(*) as c')
             ->groupBy('program_id')->pluck('c', 'program_id');
 
-        $paginator->getCollection()->transform(function ($program) use ($studentsByProgram, $activePlans) {
+        $mismatches = $this->teacherMismatches($ids);
+
+        $paginator->getCollection()->transform(function ($program) use ($studentsByProgram, $activePlans, $mismatches) {
             $program->students_count = (int) ($studentsByProgram[$program->id] ?? 0);
             $program->plans_count = (int) ($activePlans[$program->id] ?? 0);
+            $program->mismatches = $mismatches[$program->id] ?? ['unlinked' => 0, 'idle' => 0, 'total' => 0];
             return $program;
         });
+
+        // فلتر عدم التطابق: بيحصل بعد الجلب، فمحتاجين نعيد ترتيب
+        // الصفحة لو هو شغال
+        if ($onlyMismatched) {
+            $filtered = $paginator->getCollection()->filter(fn ($p) => $p->mismatches['total'] > 0)->values();
+            $paginator->setCollection($filtered);
+        }
 
         $response = $paginator->toArray();
 
@@ -82,6 +157,16 @@ class ProgramController extends Controller
             'active' => (int) ($statusCounts['active'] ?? 0),
             'inactive' => (int) ($statusCounts['inactive'] ?? 0),
         ];
+
+        // كام برنامج فيه عدم تطابق في ربط المعلمين — عشان الفلتر
+        // والـ stat card في الواجهة
+        $response['mismatch_programs'] = $this->teacherMismatches(
+            Program::query()
+                ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
+                ->when($request->filled('category_id'), fn ($q) =>
+                    $q->whereHas('categories', fn ($c) => $c->where('program_categories.id', $request->integer('category_id'))))
+                ->pluck('id')->all()
+        )->filter(fn ($m) => $m['total'] > 0)->count();
 
         // التصنيفات المتاحة للفلترة
         $response['filters'] = [
@@ -115,10 +200,8 @@ class ProgramController extends Controller
         ]);
 
         // الـ validate() بيشيل المفاتيح اللي العميل مبعتهاش، فالمفتاح نفسه
-        // مش موجود أصلاً — لازم ?? مش ?: عشان ما نطلعش undefined
-        // array key
-        $slug = $data['slug'] ?? null;
-        $data['slug'] = $this->uniqueSlug($slug ?: Str::slug($data['name']));
+        // مش موجود أصلاً — لازم ?? مش ?: عشان ما نطلعش undefined array key
+        $data['slug'] = $this->makeProgramSlug($data['slug'] ?? null, $data['name']);
         $data['organization_id'] = $request->user()->organization_id;
 
         $categoryIds = $data['category_ids'] ?? [];
@@ -326,23 +409,51 @@ class ProgramController extends Controller
     // ============================================================
 
     /**
-     * المعلمين المسجّلين على البرنامج + غير المسجّلين اللي عندهم حصص
-     * فعلاً (اقتراحات — عشان الداتابيز ما تبقاش متعارضة مع الواقع).
+     * معلمي البرنامج في ٣ مجموعات.
+     *
+     *  - `linked`    مسجّلين (الوضع الطبيعي)
+     *  - `suggested` عندهم حصص في البرنامج ومش مسجّلين → لازم يتبعتوا
+     *  - `idle`      مسجّلين بس مفيش لهم حصة → لازم الأدمن يقرر
+     *
+     * الاتنين التانيين مش أخطاء، لكن لو سايبين كده الـ pivot بيكدب
+     * على الكارت («٨ معلمين») وفي الحقيقة ٥ بيشتغلوا.
      */
     public function teachers(Request $request, Program $program)
     {
-        $linked = $program->teachers()->get()->map(fn ($t) => [
-            'linked' => true,
+        $linkedRows = $program->teachers()->get();
+
+        // عدد حصص كل معلم في البرنامج ده — مرة واحدة مش query لكل معلم.
+        // ⚠️ pluck على عمود integer في SQLite بيرجّع المفاتيح كنص، فلازم
+        // نحوّلها int قبل ما نعمل lookup بـ $t->id.
+        $lessonCounts = DB::table('lessons')
+            ->where('program_id', $program->id)
+            ->whereNotNull('teacher_id')
+            ->selectRaw('teacher_id, count(*) as c')
+            ->groupBy('teacher_id')
+            ->pluck('c', 'teacher_id')
+            ->mapWithKeys(fn ($c, $id) => [(int) $id => (int) $c]);
+
+        $shape = fn ($t, bool $isLinked) => [
+            'linked' => $isLinked,
             'id' => $t->id,
             'display_name' => $t->display_name,
             'specialization' => $t->specialization,
             'status' => $t->status,
+            'lessons_count' => (int) ($lessonCounts[(int) $t->id] ?? 0),
+        ];
+
+        // نفس الـ shape للمعلم في المجموعات التلاتة
+        $mapped = fn ($t) => $shape($t, true) + [
             'is_primary' => (bool) $t->pivot->is_primary,
             'rate_multiplier' => (float) $t->pivot->rate_multiplier,
-            'lessons_count' => (clone $program->lessons())->where('teacher_id', $t->id)->count(),
-        ]);
+        ];
 
-        // اللي عندهم حصص في البرنامج بس مش مسجّلين
+        // مسجّلين + ليهم حصص = سليم
+        $ok = $linkedRows->filter(fn ($t) => ($lessonCounts[(int) $t->id] ?? 0) > 0)->map($mapped)->values();
+        // مسجّلين + مفيش حصص = محتاج مراجعة
+        $idle = $linkedRows->reject(fn ($t) => ($lessonCounts[(int) $t->id] ?? 0) > 0)->map($mapped)->values();
+
+        // عندهم حصص بس مش مسجّلين
         $suggested = DB::table('teachers')
             ->join('lessons', 'lessons.teacher_id', '=', 'teachers.id')
             ->where('lessons.program_id', $program->id)
@@ -352,20 +463,85 @@ class ProgramController extends Controller
             ->groupBy('teachers.id', 'teachers.display_name', 'teachers.specialization', 'teachers.status')
             ->orderByDesc('lessons_count')
             ->get()
-            ->map(fn ($t) => [
-                'linked' => false,
-                'id' => $t->id,
-                'display_name' => $t->display_name,
-                'specialization' => $t->specialization,
-                'status' => $t->status,
+            ->map(fn ($t) => $shape($t, false) + [
                 'is_primary' => false,
                 'rate_multiplier' => 1.0,
-                'lessons_count' => (int) $t->lessons_count,
-            ]);
+            ])->values();
 
         return response()->json([
-            'linked' => $linked,
+            'linked' => $ok,
+            'idle' => $idle,
             'suggested' => $suggested,
+            'health' => [
+                'unlinked' => $suggested->count(),
+                'idle' => $idle->count(),
+                'total' => $suggested->count() + $idle->count(),
+            ],
+        ]);
+    }
+
+    /**
+     * إصلاح جماعي: يربط كل معلم عنده حصص في البرنامج ومش مسجّل.
+     *
+     * عملية واحدة بدل ضغطة على كل معلم على حدة. لسه محتاجة
+     * تأكيد من الواجهة — إحنا بنطبّع الواقع على الـ pivot، مش
+     * العكس.
+     */
+    public function linkAllMissingTeachers(Request $request, Program $program)
+    {
+        $teacherIds = DB::table('lessons')
+            ->where('program_id', $program->id)
+            ->whereNotNull('teacher_id')
+            ->distinct()
+            ->pluck('teacher_id');
+
+        $missing = $teacherIds->diff($program->teachers()->pluck('teachers.id'))->values();
+
+        if ($missing->isEmpty()) {
+            return response()->json(['linked' => [], 'message' => 'مفيش معلمين ناقصين']);
+        }
+
+        $program->teachers()->syncWithoutDetaching(
+            $missing->mapWithKeys(fn ($id) => [
+                $id => ['is_primary' => false, 'rate_multiplier' => 1.0],
+            ])->all()
+        );
+
+        app(\App\Services\AuditLogService::class)->log(
+            'update', 'program', $program->id,
+            ['linked_teachers_count' => $missing->count()],
+            null,
+            $request,
+        );
+
+        return response()->json([
+            'linked' => $missing->all(),
+            'message' => "تم ربط {$missing->count()} معلم بالبرنامج",
+        ]);
+    }
+
+    /** فكّ كل المعلمين المسجّلين اللي مالهمش حصص في البرنامج */
+    public function unlinkIdleTeachers(Request $request, Program $program)
+    {
+        $health = $program->teacherLinkHealth();
+        $idleIds = $health['idle'];
+
+        if ($idleIds->isEmpty()) {
+            return response()->json(['unlinked' => [], 'message' => 'مفيش معلمين بلا حصص']);
+        }
+
+        $program->teachers()->detach($idleIds->all());
+
+        app(\App\Services\AuditLogService::class)->log(
+            'update', 'program', $program->id,
+            ['unlinked_idle_count' => $idleIds->count()],
+            null,
+            $request,
+        );
+
+        return response()->json([
+            'unlinked' => $idleIds->all(),
+            'message' => "تم فكّ {$idleIds->count()} معلم من البرنامج",
         ]);
     }
 
@@ -448,6 +624,43 @@ class ProgramController extends Controller
     // التصنيفات
     // ============================================================
 
+    /**
+     * معاينة الـ slug قبل الحفظ.
+     *
+     * ليش endpoint منفصل بدل ما نعملها في المتصفح؟ لأن تحويل العربي
+     * لـ latin بيحصل في `voku/portable-ascii` على السيرفر. لو عملنا
+     * نسخة في الـ frontend هنبقى عندنا منطق مكتوب مرتين، وأول ما
+     * المكتبة تتحدّث هنخلّـق في الاختلاف.
+     *
+     * الاستخدام: الـ form بيبعت الاسم وهو بيكتب، فيشوف الـ slug
+     * اللي هيتبعت فعلاً (في uniqueness كمان) ويقدر يغيّره لو عايز.
+     */
+    public function slugPreview(Request $request)
+    {
+        $name = trim((string) $request->query('name', ''));
+        $preferred = $request->query('slug');
+        $ignoreId = $request->integer('ignore_id') ?: null;
+
+        // لو بنعدّل برنامج، ما نحسبش هو نفسه كأنه متكرر
+        $exists = fn (string $slug) => Program::withTrashed()
+            ->when($ignoreId, fn ($q) => $q->where('id', '!=', $ignoreId))
+            ->where('slug', $slug)
+            ->exists();
+
+        $auto = Slug::make($preferred, $name);
+        $final = Slug::unique($auto, $exists, 'program');
+
+        return response()->json([
+            'name' => $name,
+            'suggested' => $auto,
+            'slug' => $final,
+            // اليوزر كتب مُدخل يدوي فبنعتبره اختياره مش تلقيل
+            'is_custom' => $preferred !== null && trim((string) $preferred) !== '',
+            // مفيش حروف صالحة في الاسم — رجعنا للـ fallback
+            'is_fallback' => $auto === '' || $auto === 'program',
+        ]);
+    }
+
     public function categories()
     {
         return response()->json(
@@ -468,7 +681,7 @@ class ProgramController extends Controller
         ]);
 
         $catSlug = $data['slug'] ?? null;
-        $data['slug'] = $this->uniqueCategorySlug($catSlug ?: Str::slug($data['name']));
+        $data['slug'] = $this->makeCategorySlug($catSlug, $data['name']);
         $data['organization_id'] = $request->user()->organization_id;
 
         return response()->json(ProgramCategory::create($data), 201);
@@ -510,32 +723,22 @@ class ProgramController extends Controller
      * query عادي، هنقول الـ slug متاح ونلاقي نفسينا أمام
      * UniqueConstraintViolationException.
      */
-    private function uniqueSlug(string $slug): string
+    private function makeProgramSlug(?string $preferred, string $name): string
     {
-        $slug = $slug ?: 'program';
-        $base = $slug;
-        $i = 2;
-
-        while (Program::withTrashed()->where('slug', $slug)->exists()) {
-            $slug = "{$base}-{$i}";
-            $i++;
-        }
-
-        return $slug;
+        return Slug::unique(
+            Slug::make($preferred, $name),
+            fn (string $slug) => Program::withTrashed()->where('slug', $slug)->exists(),
+            'program',
+        );
     }
 
     /** نفس المنطق للتصنيفات — الـ unique عليها (organization_id, slug) */
-    private function uniqueCategorySlug(string $slug): string
+    private function makeCategorySlug(?string $preferred, string $name): string
     {
-        $slug = $slug ?: 'category';
-        $base = $slug;
-        $i = 2;
-
-        while (ProgramCategory::where('slug', $slug)->exists()) {
-            $slug = "{$base}-{$i}";
-            $i++;
-        }
-
-        return $slug;
+        return Slug::unique(
+            Slug::make($preferred, $name),
+            fn (string $slug) => ProgramCategory::where('slug', $slug)->exists(),
+            'category',
+        );
     }
 }

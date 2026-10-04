@@ -7,7 +7,9 @@ import {
   getProgram,
   getProgramStudents,
   getProgramTeachers,
+  linkAllMissingTeachers,
   linkProgramTeacher,
+  unlinkIdleTeachers,
   unlinkProgramTeacher,
   updateProgram,
   updateProgramLevel,
@@ -57,6 +59,9 @@ export default function ProgramProfile({
   const [detail, setDetail] = useState<ProgramDetail | null>(null);
   const [linked, setLinked] = useState<ProgramTeacherRow[]>([]);
   const [suggested, setSuggested] = useState<ProgramTeacherRow[]>([]);
+  /** مسجّل بس مفيش له حصص — محتاج قرار من الأدمن */
+  const [idle, setIdle] = useState<ProgramTeacherRow[]>([]);
+  const [fixing, setFixing] = useState<"link" | "unlink" | null>(null);
   const [students, setStudents] = useState<ProgramStudentsResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,15 +76,16 @@ export default function ProgramProfile({
     try {
       const [d, t, s] = await Promise.all([
         getProgram(programId),
-        getProgramTeachers(programId).catch(() => ({ linked: [], suggested: [] })),
-        getProgramStudents(programId).catch(() => ({ students: [], total: 0 })),
-      ]);
-      setDetail(d);
-      setLinked(t.linked);
-      setSuggested(t.suggested);
-      setStudents(s);
-      setError(null);
-    } catch (e) {
+        getProgramTeachers(programId).catch(() => ({ linked: [], idle: [], suggested: [], health: { unlinked: 0, idle: 0, total: 0 } })),
+      getProgramStudents(programId).catch(() => ({ students: [], total: 0 })),
+    ]);
+    setDetail(d);
+    setLinked(t.linked);
+    setIdle(t.idle ?? []);
+    setSuggested(t.suggested);
+    setStudents(s);
+    setError(null);
+  } catch (e) {
       setError(e instanceof Error ? e.message : "تعذر تحميل البرنامج");
     }
   }
@@ -91,13 +97,14 @@ export default function ProgramProfile({
 
     Promise.all([
       getProgram(programId),
-      getProgramTeachers(programId).catch(() => ({ linked: [], suggested: [] })),
+      getProgramTeachers(programId).catch(() => ({ linked: [], idle: [], suggested: [], health: { unlinked: 0, idle: 0, total: 0 } })),
       getProgramStudents(programId).catch(() => ({ students: [], total: 0 })),
     ])
       .then(([d, t, s]) => {
         if (!active) return;
         setDetail(d);
         setLinked(t.linked);
+        setIdle(t.idle ?? []);
         setSuggested(t.suggested);
         setStudents(s);
       })
@@ -229,6 +236,57 @@ export default function ProgramProfile({
       onChanged();
     } catch (err) {
       toast.error("فشل التغيير", err instanceof Error ? err.message : undefined);
+    }
+  }
+
+  /**
+   * إصلاح جماعي — بعد تأكيد صريح.
+   *
+   * إحنا بنطبّع الـ pivot على الواقع (مش العكس): لو المعلم عنده حصص
+   * فعلاً في البرنامج، يبقى منطقي إنه يكون مسجّل عليه. والعكس:
+   * مسجّل ومفيش حصص — ممكن يكون خلّص، فالفكّ قرار الأدمن.
+   */
+  async function fixAllUnlinked() {
+    const ok = await confirm({
+      title: "ربط المعلمين الناقصين",
+      message: `فيه ${suggested.length} معلم عندهم حصص في البرنامج ومش مسجّلين عليه.\nهنضيفهم كلهم على البرنامج.`,
+      confirmLabel: "اربطهم كلهم",
+      tone: "primary",
+    });
+    if (!ok) return;
+
+    setFixing("link");
+    try {
+      const res = await linkAllMissingTeachers(programId);
+      toast.success("تم الربط", res.message);
+      await refresh();
+      onChanged();
+    } catch (err) {
+      toast.error("فشل الربط", err instanceof Error ? err.message : undefined);
+    } finally {
+      setFixing(null);
+    }
+  }
+
+  async function fixAllIdle() {
+    const ok = await confirm({
+      title: "فكّ المعلمين بلا حصص",
+      message: `فيه ${idle.length} معلم مسجّل على البرنامج ومفيش لهم أي حصة فيه.\nهنشيلهم من البرنامج.`,
+      confirmLabel: "فكّهم",
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    setFixing("unlink");
+    try {
+      const res = await unlinkIdleTeachers(programId);
+      toast.success("تم الفك", res.message);
+      await refresh();
+      onChanged();
+    } catch (err) {
+      toast.error("فشل الفك", err instanceof Error ? err.message : undefined);
+    } finally {
+      setFixing(null);
     }
   }
 
@@ -468,59 +526,109 @@ export default function ProgramProfile({
 
               {/* ===== المعلمون ===== */}
               <Section
-                title="المعلمون" icon="👨‍🏫" count={linked.length}
-                action={<span className="text-[11px] text-slate-400">اللي مسجّلين يدرّسوا البرنامج</span>}
+                title="المعلمون" icon="👨‍🏫" count={linked.length + idle.length}
+                action={<span className="text-[11px] text-slate-400">اللي بيلقوا البرنامج فعلياً</span>}
               >
-                {!linked.length ? (
+                {!linked.length && !idle.length ? (
                   <Empty text="مفيش معلمين مسجّلين على البرنامج" hint="ممكن تضيف من الاقتراحات تحت" />
                 ) : (
-                  <ul className="space-y-1.5">
-                    {linked.map((t) => (
-                      <li
-                        key={t.id}
-                        className="flex items-center gap-2.5 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="flex items-center gap-1.5 truncate text-sm font-medium text-slate-800">
-                            {t.is_primary && <span className="text-amber-500" title="المعلم الأساسي">★</span>}
-                            {t.display_name}
-                            {t.status !== "active" && <span className="text-xs text-slate-400">(معطّل)</span>}
+                  <>
+                    {/* -- مسجّلين وشغالين -- */}
+                    {linked.length > 0 && (
+                      <ul className="space-y-1.5">
+                        {linked.map((t) => (
+                          <li
+                            key={t.id}
+                            className="flex items-center gap-2.5 rounded-lg border border-slate-100 bg-slate-50/60 px-3 py-2"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="flex items-center gap-1.5 truncate text-sm font-medium text-slate-800">
+                                {t.is_primary && <span className="text-amber-500" title="المعلم الأساسي">★</span>}
+                                {t.display_name}
+                                {t.status !== "active" && <span className="text-xs text-slate-400">(معطّل)</span>}
+                              </p>
+                              <p className="truncate text-xs text-slate-500">
+                                {t.specialization ?? "بدون تخصص محدد"}
+                                <span className="mx-1.5 text-slate-300">·</span>
+                                {t.lessons_count} حصة في البرنامج
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => togglePrimary(t)}
+                              title={t.is_primary ? "إلغاء «أساسي»" : "تعيين كمعلم أساسي"}
+                              className={`shrink-0 rounded px-2 py-1 text-xs ${
+                                t.is_primary
+                                  ? "bg-amber-100 text-amber-700"
+                                  : "bg-slate-100 text-slate-500 hover:bg-amber-100 hover:text-amber-700"
+                              }`}
+                            >
+                              أساسي
+                            </button>
+                            <button
+                              onClick={() => detachTeacher(t)}
+                              className="shrink-0 rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100"
+                            >
+                              فكّ
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {/* -- مسجّلين بس مفيش حصص: محتاج قرار -- */}
+                    {idle.length > 0 && (
+                      <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-xs font-medium text-slate-600">
+                            ⚪ مسجّلين على البرنامج ومفيش لهم حصص ({idle.length})
                           </p>
-                          <p className="truncate text-xs text-slate-500">
-                            {t.specialization ?? "بدون تخصص محدد"}
-                            <span className="mx-1.5 text-slate-300">·</span>
-                            {t.lessons_count} حصة في البرنامج
-                          </p>
+                          <button
+                            onClick={fixAllIdle}
+                            disabled={fixing !== null}
+                            className="rounded bg-slate-100 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-200 disabled:opacity-40"
+                          >
+                            {fixing === "unlink" ? "…" : "فكّهم كلهم"}
+                          </button>
                         </div>
-                        <button
-                          onClick={() => togglePrimary(t)}
-                          title={t.is_primary ? "إلغاء «أساسي»" : "تعيين كمعلم أساسي"}
-                          className={`shrink-0 rounded px-2 py-1 text-xs ${
-                            t.is_primary
-                              ? "bg-amber-100 text-amber-700"
-                              : "bg-slate-100 text-slate-500 hover:bg-amber-100 hover:text-amber-700"
-                          }`}
-                        >
-                          أساسي
-                        </button>
-                        <button
-                          onClick={() => detachTeacher(t)}
-                          className="shrink-0 rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100"
-                        >
-                          فكّ
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                        <ul className="space-y-1.5">
+                          {idle.map((t) => (
+                            <li key={t.id} className="flex items-center gap-2.5">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm text-slate-700">{t.display_name}</p>
+                                <p className="truncate text-xs text-slate-400">
+                                  {t.specialization ?? "بدون تخصص"} · 0 حصة
+                                </p>
+                              </div>
+                              <button
+                                onClick={() => detachTeacher(t)}
+                                className="shrink-0 rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100"
+                              >
+                                فكّ
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {/* اقتراحات: معلمين عندهم حصص في البرنامج بس مش مسجّلين.
                     ده بيخلّي البرنامج متسق مع الواقع بدل ما يفترق. */}
                 {suggested.length > 0 && (
                   <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                    <p className="mb-2 text-xs font-medium text-amber-800">
-                      ⚠️ معلمين عندهم حصص في البرنامج ومش مسجّلين
-                    </p>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-amber-800">
+                        ⚠️ معلمين عندهم حصص في البرنامج ومش مسجّلين ({suggested.length})
+                      </p>
+                      <button
+                        onClick={fixAllUnlinked}
+                        disabled={fixing !== null}
+                        className="shrink-0 rounded bg-amber-600 px-2 py-1 text-[11px] font-medium text-white hover:bg-amber-700 disabled:opacity-40"
+                      >
+                        {fixing === "link" ? "…" : "اربطهم كلهم"}
+                      </button>
+                    </div>
                     <ul className="space-y-1.5">
                       {suggested.map((t) => (
                         <li key={t.id} className="flex items-center gap-2">

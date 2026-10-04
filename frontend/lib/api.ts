@@ -301,6 +301,8 @@ export type Program = {
   teachers_count?: number;
   students_count?: number;
   plans_count?: number;
+  /** تحذير: ربط المعلمين مختلف عن الواقع (حصصهم) */
+  mismatches?: ProgramMismatches;
   created_at?: string;
   updated_at?: string;
 };
@@ -354,7 +356,27 @@ export type ProgramDetail = {
 
 export type ProgramsResponse = Paginated<Program> & {
   counts: { active: number; inactive: number };
+  /** كام برنامج فيه عدم تطابق في ربط المعلمين (عبر كل النتائج) */
+  mismatch_programs: number;
   filters: { categories: ProgramCategoryFilter[] };
+};
+
+/** عدم تطابق ربط المعلمين بالواقع — تحذير للكارت الفلتر */
+export type ProgramMismatches = {
+  /** معلمين عندهم حصص ومش مسجّلين على البرنامج */
+  unlinked: number;
+  /** معلمين مسجّلين ومفيش لهم حصص */
+  idle: number;
+  total: number;
+};
+
+/** نتيجة معاينة الـ slug قبل الحفظ */
+export type SlugPreview = {
+  name: string;
+  suggested: string;
+  slug: string;
+  is_custom: boolean;
+  is_fallback: boolean;
 };
 
 export type Level = {
@@ -1508,6 +1530,8 @@ export function getPrograms(params?: {
   status?: string;
   category_id?: number;
   search?: string;
+  /** فلتر «فيه عدم تطابق في ربط المعلمين» */
+  has_mismatches?: boolean;
   page?: number;
   per_page?: number;
 }) {
@@ -1515,6 +1539,7 @@ export function getPrograms(params?: {
   if (params?.status) s.set("status", params.status);
   if (params?.category_id) s.set("category_id", String(params.category_id));
   if (params?.search) s.set("search", params.search);
+  if (params?.has_mismatches) s.set("has_mismatches", "1");
   if (params?.page) s.set("page", String(params.page));
   s.set("per_page", String(params?.per_page ?? 100));
   return apiFetch<ProgramsResponse>(`/programs?${s.toString()}`);
@@ -1579,9 +1604,49 @@ export function reorderProgramLevels(programId: number, order: { id: number; sor
 
 // ---- مدرسون البرنامج ----
 
+/** فحص تطابق معلمي البرنامج + إصلاح جماعي */
+export type ProgramTeachersHealth = { unlinked: number; idle: number; total: number };
+
+export type ProgramTeachersResponse = {
+  /** مسجّل وفيه حصص — الوضع الطبيعي */
+  linked: ProgramTeacherRow[];
+  /** مسجّل ومفيش حصص → لازم الأدمن يقرر */
+  idle: ProgramTeacherRow[];
+  /** عنده حصص ومش مسجّل → لازم يتبعت للبرنامج */
+  suggested: ProgramTeacherRow[];
+  health: ProgramTeachersHealth;
+};
+
+/** نتيجة معاينة الـ slug — السيرفر هو اللي بيحوّل العربي لـ latin */
+export function previewProgramSlug(params: {
+  name?: string;
+  slug?: string | null;
+  ignoreId?: number;
+}) {
+  const s = new URLSearchParams();
+  if (params.name) s.set("name", params.name);
+  if (params.slug !== undefined && params.slug !== null) s.set("slug", params.slug);
+  if (params.ignoreId) s.set("ignore_id", String(params.ignoreId));
+  return apiFetch<SlugPreview>(`/programs/slug-preview?${s.toString()}`);
+}
+
 export function getProgramTeachers(programId: number) {
-  return apiFetch<{ linked: ProgramTeacherRow[]; suggested: ProgramTeacherRow[] }>(
-    `/programs/${programId}/teachers`,
+  return apiFetch<ProgramTeachersResponse>(`/programs/${programId}/teachers`);
+}
+
+/** يربط كل معلم عنده حصص في البرنامج ومش مسجّل */
+export function linkAllMissingTeachers(programId: number) {
+  return apiFetch<{ linked: number[]; message: string }>(
+    `/programs/${programId}/teachers/link-missing`,
+    { method: "POST" },
+  );
+}
+
+/** يفكّ كل معلم مسجّل ومفيش له حصص في البرنامج */
+export function unlinkIdleTeachers(programId: number) {
+  return apiFetch<{ unlinked: number[]; message: string }>(
+    `/programs/${programId}/teachers/unlink-idle`,
+    { method: "POST" },
   );
 }
 
