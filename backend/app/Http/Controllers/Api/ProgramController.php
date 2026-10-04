@@ -32,12 +32,16 @@ class ProgramController extends Controller
      *
      * @return \Illuminate\Support\Collection<int, array{unlinked:int, idle:int, total:int}>
      */
-    private function teacherMismatches(array $programIds)
+    private function teacherMismatches($scope = null)
     {
-        $empty = fn () => collect($programIds)->mapWithKeys(fn ($id) => [$id => ['unlinked' => 0, 'idle' => 0, 'total' => 0]]);
+        $programIds = ($scope ?? Program::query())
+            ->when($scope === null, fn ($q) => $q->select('programs.id'))
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
 
         if (empty($programIds)) {
-            return $empty();
+            return collect();
         }
 
         // (program, teacher) عندهم حصص
@@ -75,7 +79,7 @@ class ProgramController extends Controller
         }
         foreach ($idle as $key) {
             $pid = (int) explode(':', $key)[0];
-            if (isset($pid) && isset($result[$pid])) {
+            if (isset($result[$pid])) {
                 $result[$pid]['idle']++;
                 $result[$pid]['total']++;
             }
@@ -86,10 +90,34 @@ class ProgramController extends Controller
 
     public function index(Request $request)
     {
-        // فلتر «فيه عدم تطابق» — بيتعامل معاه بعد الحساب
-        $onlyMismatched = $request->boolean('has_mismatches');
+        // الفلاتر الأساسية — بتتكرر في الـ query وفي حساب الأرقام،
+        // فبنعملها مرة واحدة بدل ما ننسخها ٣ مرات.
+        $applyFilters = fn ($q) => $q
+            ->when($request->filled('status'), fn ($x) => $x->where('status', $request->string('status')))
+            ->when($request->filled('category_id'), fn ($x) => $x->whereHas(
+                'categories',
+                fn ($c) => $c->where('program_categories.id', $request->integer('category_id'))
+            ))
+            ->when($request->filled('search'), function ($x) use ($request) {
+                $s = $request->string('search');
+                return $x->where(fn ($sq) => $sq
+                    ->where('name', 'like', "%{$s}%")
+                    ->orWhere('description', 'like', "%{$s}%"));
+            });
 
-        $query = Program::query()
+        // ⚠️ فلتر «فيه عدم تطابق» لازم يتطبّق **قبل** الـ pagination.
+        // لو فلترنا بعد paginate()، الـ total والـ last_page هيبقوا عدد
+        // البرامج كلها بينما المعروض أقل — والـ pagination في الواجهة
+        // هيكسر ويقول «6 برامج» قدام كارت واحد.
+        $mismatchIds = null;
+        if ($request->boolean('has_mismatches')) {
+            $mismatchIds = $this->teacherMismatches($applyFilters(Program::query()))
+                ->filter(fn ($m) => $m['total'] > 0)
+                ->keys()
+                ->all();
+        }
+
+        $query = $applyFilters(Program::query())
             // التصنيفات بتظهر على الكارت — لازم تتحمّل مع الصفحة
             ->with('categories')
             ->withCount([
@@ -97,16 +125,7 @@ class ProgramController extends Controller
                 'teachers',
                 'subscriptionPlans as plans_count_all',
             ])
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->when($request->filled('category_id'), fn ($q) =>
-                $q->whereHas('categories', fn ($c) => $c->where('program_categories.id', $request->integer('category_id')))
-            )
-            ->when($request->filled('search'), function ($q) use ($request) {
-                $s = $request->string('search');
-                $q->where(fn ($sq) => $sq
-                    ->where('name', 'like', "%{$s}%")
-                    ->orWhere('description', 'like', "%{$s}%"));
-            })
+            ->when($mismatchIds !== null, fn ($q) => $q->whereIn('programs.id', $mismatchIds))
             ->orderBy('name');
 
         $paginator = $query->paginate($request->integer('per_page') ?: 50);
@@ -126,7 +145,8 @@ class ProgramController extends Controller
             ->selectRaw('program_id, count(*) as c')
             ->groupBy('program_id')->pluck('c', 'program_id');
 
-        $mismatches = $this->teacherMismatches($ids);
+        // أرقام عدم التطابق للصفحة دي بس
+        $mismatches = $this->teacherMismatches(Program::query()->whereIn('id', $ids));
 
         $paginator->getCollection()->transform(function ($program) use ($studentsByProgram, $activePlans, $mismatches) {
             $program->students_count = (int) ($studentsByProgram[$program->id] ?? 0);
@@ -135,22 +155,11 @@ class ProgramController extends Controller
             return $program;
         });
 
-        // فلتر عدم التطابق: بيحصل بعد الجلب، فمحتاجين نعيد ترتيب
-        // الصفحة لو هو شغال
-        if ($onlyMismatched) {
-            $filtered = $paginator->getCollection()->filter(fn ($p) => $p->mismatches['total'] > 0)->values();
-            $paginator->setCollection($filtered);
-        }
-
         $response = $paginator->toArray();
 
-        // العدادات بتتأثر بنفس الفلاتر (ماعدا البحث النصي للحالة)
-        $countsQuery = Program::query()
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->when($request->filled('category_id'), fn ($q) =>
-                $q->whereHas('categories', fn ($c) => $c->where('program_categories.id', $request->integer('category_id'))));
-
-        $statusCounts = (clone $countsQuery)->selectRaw('status, count(*) as c')
+        // العدادات بتتأثر بنفس الفلاتر (ماعدا البحث النصي والحالة)
+        $statusCounts = $applyFilters(Program::query())
+            ->selectRaw('status, count(*) as c')
             ->groupBy('status')->pluck('c', 'status');
 
         $response['counts'] = [
@@ -158,14 +167,12 @@ class ProgramController extends Controller
             'inactive' => (int) ($statusCounts['inactive'] ?? 0),
         ];
 
-        // كام برنامج فيه عدم تطابق في ربط المعلمين — عشان الفلتر
-        // والـ stat card في الواجهة
+        // كام برنامج فيه عدم تطابق — على كل النتائج لا على الصفحة دي،
+        // عشان الفلتر والإحصائية يفضلوا ثابتين مع pagination.
+        // فلتر عدم التطابق نفسه مش جزء من الحساب ده (عشان يشوف
+        // العدد الكلي مش المعروض).
         $response['mismatch_programs'] = $this->teacherMismatches(
-            Program::query()
-                ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-                ->when($request->filled('category_id'), fn ($q) =>
-                    $q->whereHas('categories', fn ($c) => $c->where('program_categories.id', $request->integer('category_id'))))
-                ->pluck('id')->all()
+            $applyFilters(Program::query())
         )->filter(fn ($m) => $m['total'] > 0)->count();
 
         // التصنيفات المتاحة للفلترة
