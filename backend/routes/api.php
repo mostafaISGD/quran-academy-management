@@ -83,11 +83,40 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::delete('/teachers/{teacher}/availability/{block}', [TeacherScheduleController::class, 'destroy']);
 
     // Programs
-    Route::get('/programs', [ProgramController::class, 'index'])->middleware('permission:settings.manage');
+    //
+    // البرنامج = كتالوج الخدمة التعليمية (ماذا نقدم، لمن، بكام).
+    // ده **معلومة عامة** مش إعداد، والمعلم لازم يشوف بيحضّر إيه
+    // وولي الأمر لازم يشوف المتاح. فالقراءة بـ programs.view.
+    //
+    // مهم: اخترنا programs.viewمش lessons.view عن قصد — لو منحنا
+    // المعلم lessons.view هيفتحله حصص الأكاديمية كلها (تسريب).
+    // الكتابة لإدارة النظام بس.
+    Route::get('/programs', [ProgramController::class, 'index'])->middleware('permission:programs.view');
+    Route::get('/programs/{program}', [ProgramController::class, 'show'])->middleware('permission:programs.view');
     Route::post('/programs', [ProgramController::class, 'store'])->middleware('permission:settings.manage');
-    Route::get('/programs/{program}', [ProgramController::class, 'show'])->middleware('permission:settings.manage');
     Route::put('/programs/{program}', [ProgramController::class, 'update'])->middleware('permission:settings.manage');
     Route::delete('/programs/{program}', [ProgramController::class, 'destroy'])->middleware('permission:settings.manage');
+
+    // مستويات/مراحل البرنامج
+    Route::get('/programs/{program}/levels', [ProgramController::class, 'levels'])->middleware('permission:programs.view');
+    Route::post('/programs/{program}/levels', [ProgramController::class, 'storeLevel'])->middleware('permission:lessons.edit');
+    Route::put('/programs/{program}/levels/{level}', [ProgramController::class, 'updateLevel'])->middleware('permission:lessons.edit');
+    Route::delete('/programs/{program}/levels/{level}', [ProgramController::class, 'destroyLevel'])->middleware('permission:lessons.edit');
+    Route::post('/programs/{program}/levels/reorder', [ProgramController::class, 'reorderLevels'])->middleware('permission:lessons.edit');
+
+    // المعلمون القادرون على تدريس البرنامج
+    Route::get('/programs/{program}/teachers', [ProgramController::class, 'teachers'])->middleware('permission:programs.view');
+    Route::post('/programs/{program}/teachers', [ProgramController::class, 'linkTeacher'])->middleware('permission:lessons.edit');
+    Route::delete('/programs/{program}/teachers/{teacherId}', [ProgramController::class, 'unlinkTeacher'])->middleware('permission:lessons.edit');
+
+    // طلاب البرنامج (ملخص عن طريق الاشتراكات — مش إدارة اشتراك)
+    Route::get('/programs/{program}/students', [ProgramController::class, 'students'])->middleware('permission:programs.view');
+
+    // تصنيفات البرامج — قابلة للإدارة من النظام مش مثبتة في الكود
+    Route::get('/program-categories', [ProgramController::class, 'categories'])->middleware('permission:programs.view');
+    Route::post('/program-categories', [ProgramController::class, 'storeCategory'])->middleware('permission:settings.manage');
+    Route::put('/program-categories/{category}', [ProgramController::class, 'updateCategory'])->middleware('permission:settings.manage');
+    Route::delete('/program-categories/{category}', [ProgramController::class, 'destroyCategory'])->middleware('permission:settings.manage');
 
     // Roles & Permissions
     Route::get('/roles', [RoleController::class, 'index'])->middleware('permission:settings.manage');

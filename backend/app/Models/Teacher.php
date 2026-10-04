@@ -38,4 +38,12 @@ class Teacher extends Model
     public function ratings() { return $this->hasMany(TeacherRating::class); }
     public function averageRating() { return $this->ratings()->avg('rating'); }
     public function ratingsCount() { return $this->ratings()->count(); }
+
+    /** البرامج اللي المعلم مسجّل إنه يدرّسها */
+    public function programs()
+    {
+        return $this->belongsToMany(Program::class, 'program_teacher')
+            ->withPivot(['is_primary', 'rate_multiplier', 'notes'])
+            ->withTimestamps();
+    }
 }

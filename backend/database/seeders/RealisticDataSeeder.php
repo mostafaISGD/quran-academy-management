@@ -69,6 +69,11 @@ class RealisticDataSeeder extends Seeder
         (new SeedLessons())->setContainer(app())->setCommand($this->command)->run();
         $this->command?->info('✅ الحصص والحضور والتقدم');
 
+        // لازم هنا بالذات: ربط المعلمين بالبرامج بيتقري من الحصص،
+        // فمحتاجين الحصص تكون موجودة
+        (new SeedProgramRelations())->setContainer(app())->setCommand($this->command)->run();
+        $this->command?->info('✅ تصنيفات البرامج وربط المعلمين بها');
+
         (new SeedFinance())->setContainer(app())->setCommand($this->command)->run();
         $this->command?->info('✅ الفواتير والمدفوعات');
 
@@ -112,6 +117,8 @@ class RealisticDataSeeder extends Seeder
             'student_goals', 'student_phones', 'student_parents',
             'attendance_records',
             'teacher_ratings', 'teacher_rates', 'teacher_contracts', 'teachers',
+            // ربط البرامج — قبل البرامج والمعلمين عشان الـ FK
+            'program_teacher', 'program_category', 'program_categories',
             'employees',
             'students', 'parents', 'subscription_plans', 'levels', 'programs', 'quran_surahs',
             'personal_access_tokens', 'users', 'branches',

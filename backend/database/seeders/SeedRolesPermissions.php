@@ -42,6 +42,7 @@ class SeedRolesPermissions extends Seeder
         ['name' => 'leads.create', 'module' => 'leads'],
         ['name' => 'leads.edit', 'module' => 'leads'],
         ['name' => 'reports.view', 'module' => 'reports'],
+        ['name' => 'programs.view', 'module' => 'programs'],
         ['name' => 'settings.manage', 'module' => 'settings'],
     ];
 
@@ -73,9 +74,59 @@ class SeedRolesPermissions extends Seeder
             $admin->assignRole($adminRole);
         }
 
+        $this->grantTeacherAndParentRoles();
+
         $this->command?->info(
             '   → ' . count(self::PERMISSIONS) . ' صلاحية · دور admin · '
             . $admins->count() . ' حساب إداري'
+        );
+    }
+
+    /**
+     * أدوار المعلم وولي الأمر.
+     *
+     * ليش دي هنا مش فيSeeder تاني؟ لأن المعلمين وأولياء الأمور مالهمش
+     * ملف «موظف» يتربط بيه دور — فلازم يتولّد الدور من الـ user نفسه.
+     *
+     * ⚠️ ليه `programs.view` بس؟ المعلم لازم يعرف بيحضّر إيه، بس
+     * `lessons.view` كانت هتفتحله حصص الأكاديمية كلها — وده تسريب.
+     * فالبرنامج (= كتالوج الخدمة + الأسعار) مفتوح، والحصص مقفولة.
+     */
+    private function grantTeacherAndParentRoles(): void
+    {
+        $teacherRole = Role::firstOrCreate(
+            ['name' => 'teacher', 'guard_name' => 'web'],
+            ['slug' => 'teacher', 'guard_name' => 'web', 'is_system' => false],
+        );
+        $teacherRole->syncPermissions(
+            Permission::whereIn('name', ['programs.view'])->get()
+        );
+
+        // ولي الأمر: بيشوف المتاح للتسجيل + ابنه في البوابة
+        $parentRole = Role::firstOrCreate(
+            ['name' => 'parent', 'guard_name' => 'web'],
+            ['slug' => 'parent', 'guard_name' => 'web', 'is_system' => false],
+        );
+        $parentRole->syncPermissions(
+            Permission::whereIn('name', ['programs.view'])->get()
+        );
+
+        $teachers = User::whereHas('teacher')->get();
+        foreach ($teachers as $t) {
+            if ($t->roles->isEmpty()) {
+                $t->assignRole($teacherRole);
+            }
+        }
+
+        $parents = User::where('is_parent', true)->get();
+        foreach ($parents as $p) {
+            if ($p->roles->isEmpty()) {
+                $p->assignRole($parentRole);
+            }
+        }
+
+        $this->command?->info(
+            "   → دور teacher ({$teachers->count()} حساب) · دور parent ({$parents->count()} حساب)"
         );
     }
 }

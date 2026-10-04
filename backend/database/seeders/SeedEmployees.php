@@ -45,10 +45,13 @@ class SeedEmployees extends Seeder
         // أدوار الموظفين — كل دور بصلاحيات مختلفة.
         // ليش بنعملها هنا؟ عشان قسم «الدور والصلاحيات» في ملف الموظف
         // يبقى فيه حاجة تتعرض، مش «بدون دور» لكل الـ 12.
+        //
+        // `programs.view` في كل الأدوار: الموظف محتاج يعرف الأكاديمية
+        // بتقدم إيه وبكام عشان يرد على أولياء الأمور.
         $rolePermissions = [
-            'accountant' => ['students.view', 'payments.view', 'payments.create', 'payments.edit', 'reports.view'],
-            'receptionist' => ['students.view', 'students.create', 'students.edit', 'leads.view', 'leads.create', 'leads.edit'],
-            'supervisor' => ['students.view', 'students.edit', 'teachers.view', 'lessons.view', 'lessons.edit', 'reports.view'],
+            'accountant' => ['students.view', 'payments.view', 'payments.create', 'payments.edit', 'reports.view', 'programs.view'],
+            'receptionist' => ['students.view', 'students.create', 'students.edit', 'leads.view', 'leads.create', 'leads.edit', 'programs.view'],
+            'supervisor' => ['students.view', 'students.edit', 'teachers.view', 'lessons.view', 'lessons.edit', 'reports.view', 'programs.view'],
         ];
 
         $roleIds = [];

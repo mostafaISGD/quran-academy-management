@@ -262,13 +262,99 @@ export type TeacherRating = {
   parent?: { id: number; name: string };
 };
 
+export type ProgramCategory = {
+  id: number;
+  name: string;
+  slug: string;
+  icon: string | null;
+  sort_order: number;
+  description: string | null;
+  programs_count?: number;
+};
+
+/** تصنيف متاح للفلترة — بيجي مع قائمة البرامج */
+export type ProgramCategoryFilter = {
+  id: number;
+  name: string;
+  slug: string;
+  icon: string | null;
+  programs_count: number;
+};
+
 export type Program = {
   id: number;
   name: string;
   slug: string;
   description: string | null;
   status: "active" | "inactive";
+  image_url?: string | null;
+  color?: string | null;
   levels?: Level[];
+  categories?: ProgramCategory[];
+  /**
+   * الباقات. ملاحظة: Eloquent بيعمل snake_case لمفاتيح العلاقات في JSON،
+   * فالاسم هنا `subscription_plans` مش `subscriptionPlans`.
+   */
+  subscription_plans?: SubscriptionPlan[];
+  /** العدادات — من الداتابيز كلها مش الصفحة الحالية */
+  levels_count?: number;
+  teachers_count?: number;
+  students_count?: number;
+  plans_count?: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+/** مدرس البرنامج — مربوط رسمياً، أو عنده حصص بس مش مسجّل */
+export type ProgramTeacherRow = {
+  linked: boolean;
+  id: number;
+  display_name: string;
+  specialization: string | null;
+  status: "active" | "inactive";
+  is_primary: boolean;
+  rate_multiplier: number;
+  lessons_count: number;
+};
+
+export type ProgramStudentsResponse = {
+  students: {
+    id: number;
+    full_name: string;
+    student_code: string;
+    status: string;
+    subscription_status: "active" | "paused" | "expired" | "cancelled";
+    teacher_name: string | null;
+    start_date: string;
+    end_date: string | null;
+    lessons_included: number | null;
+  }[];
+  total: number;
+};
+
+export type ProgramDetail = {
+  program: Program;
+  stats: {
+    students_count: number;
+    students: { active: number; paused: number; total: number };
+    teachers_count: number;
+    levels_count: number;
+    plans_count: number;
+    lessons_count: number;
+    lessons_upcoming: number;
+    memorization: {
+      records: number;
+      ayahs: number;
+      pages: number;
+      students: number;
+      surahs: number;
+    };
+  };
+};
+
+export type ProgramsResponse = Paginated<Program> & {
+  counts: { active: number; inactive: number };
+  filters: { categories: ProgramCategoryFilter[] };
 };
 
 export type Level = {
@@ -1404,24 +1490,159 @@ export function rateTeacher(teacherId: number, payload: {
   }>(`/teachers/${teacherId}/ratings`, { method: "POST", body: JSON.stringify(payload) });
 }
 
-export function getPrograms(params?: { status?: string; page?: number; per_page?: number }) {
+// ============================================================
+// البرامج
+// ============================================================
+
+export type ProgramPayload = {
+  name?: string;
+  slug?: string;
+  description?: string | null;
+  image_url?: string | null;
+  color?: string | null;
+  status?: "active" | "inactive";
+  category_ids?: number[];
+};
+
+export function getPrograms(params?: {
+  status?: string;
+  category_id?: number;
+  search?: string;
+  page?: number;
+  per_page?: number;
+}) {
   const s = new URLSearchParams();
   if (params?.status) s.set("status", params.status);
+  if (params?.category_id) s.set("category_id", String(params.category_id));
+  if (params?.search) s.set("search", params.search);
   if (params?.page) s.set("page", String(params.page));
   s.set("per_page", String(params?.per_page ?? 100));
-  return apiFetch<Paginated<Program>>(`/programs?${s.toString()}`);
+  return apiFetch<ProgramsResponse>(`/programs?${s.toString()}`);
 }
 
-export function createProgram(payload: { name: string; slug: string; description?: string; status?: string }) {
+export function getProgram(id: number) {
+  return apiFetch<ProgramDetail>(`/programs/${id}`);
+}
+
+export function createProgram(payload: ProgramPayload) {
   return apiFetch<Program>("/programs", { method: "POST", body: JSON.stringify(payload) });
 }
 
-export function updateProgram(id: number, payload: Partial<Program>) {
+export function updateProgram(id: number, payload: ProgramPayload) {
   return apiFetch<Program>(`/programs/${id}`, { method: "PUT", body: JSON.stringify(payload) });
 }
 
 export function deleteProgram(id: number) {
   return apiFetch<{ message: string }>(`/programs/${id}`, { method: "DELETE" });
+}
+
+// ---- المستويات / المراحل ----
+
+export function getProgramLevels(programId: number) {
+  return apiFetch<Level[]>(`/programs/${programId}/levels`);
+}
+
+export function createProgramLevel(
+  programId: number,
+  payload: { name: string; code?: string | null; sort_order?: number; description?: string | null; status?: string },
+) {
+  return apiFetch<Level>(`/programs/${programId}/levels`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateProgramLevel(
+  programId: number,
+  levelId: number,
+  payload: { name?: string; description?: string | null; status?: string; sort_order?: number },
+) {
+  return apiFetch<Level>(`/programs/${programId}/levels/${levelId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteProgramLevel(programId: number, levelId: number) {
+  return apiFetch<{ message: string; orphaned_lessons: number; affected_students: number }>(
+    `/programs/${programId}/levels/${levelId}`,
+    { method: "DELETE" },
+  );
+}
+
+export function reorderProgramLevels(programId: number, order: { id: number; sort_order: number }[]) {
+  return apiFetch<Level[]>(`/programs/${programId}/levels/reorder`, {
+    method: "POST",
+    body: JSON.stringify({ order }),
+  });
+}
+
+// ---- مدرسون البرنامج ----
+
+export function getProgramTeachers(programId: number) {
+  return apiFetch<{ linked: ProgramTeacherRow[]; suggested: ProgramTeacherRow[] }>(
+    `/programs/${programId}/teachers`,
+  );
+}
+
+export function linkProgramTeacher(
+  programId: number,
+  payload: { teacher_id: number; is_primary?: boolean; rate_multiplier?: number; notes?: string | null },
+) {
+  return apiFetch<{ id: number }[]>(`/programs/${programId}/teachers`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function unlinkProgramTeacher(programId: number, teacherId: number) {
+  return apiFetch<{ id: number }[]>(`/programs/${programId}/teachers/${teacherId}`, {
+    method: "DELETE",
+  });
+}
+
+// ---- طلاب البرنامج (ملخص) ----
+
+export function getProgramStudents(programId: number, params?: { search?: string }) {
+  const s = new URLSearchParams();
+  if (params?.search) s.set("search", params.search);
+  const qs = s.toString();
+  return apiFetch<ProgramStudentsResponse>(`/programs/${programId}/students${qs ? `?${qs}` : ""}`);
+}
+
+// ---- التصنيفات ----
+
+export function getProgramCategories() {
+  return apiFetch<ProgramCategory[]>("/program-categories");
+}
+
+export function createProgramCategory(payload: {
+  name: string;
+  slug?: string;
+  icon?: string | null;
+  sort_order?: number;
+  description?: string | null;
+}) {
+  return apiFetch<ProgramCategory>("/program-categories", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateProgramCategory(
+  id: number,
+  payload: { name?: string; icon?: string | null; sort_order?: number; description?: string | null },
+) {
+  return apiFetch<ProgramCategory>(`/program-categories/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteProgramCategory(id: number) {
+  return apiFetch<{ message: string; detached_from_programs: number }>(`/program-categories/${id}`, {
+    method: "DELETE",
+  });
 }
 
 export function getSubscriptions(params?: {
