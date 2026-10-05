@@ -229,6 +229,10 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/payroll/periods/{period}/report', [EmployeePayrollController::class, 'report'])->middleware('permission:payroll.manage');
     Route::post('/payroll/periods/{period}/generate', [EmployeePayrollController::class, 'generate'])->middleware('permission:payroll.manage');
     Route::post('/payroll/periods/{period}/approve', [EmployeePayrollController::class, 'approve'])->middleware('permission:payroll.manage');
+    // إقفال / إعادة فتح الفترة. الإقفال بيقفل الأرقام بس —
+    // المدفوعات بتكمّل بعده (قرار «مرحلتين»).
+    Route::post('/payroll/periods/{period}/close', [EmployeePayrollController::class, 'close'])->middleware('permission:payroll.manage');
+    Route::post('/payroll/periods/{period}/reopen', [EmployeePayrollController::class, 'reopen'])->middleware('permission:payroll.manage');
     Route::put('/payroll/lines/{line}', [EmployeePayrollController::class, 'updateLine'])->middleware('permission:payroll.manage');
     Route::post('/payroll/lines/{line}/pay', [EmployeePayrollController::class, 'pay'])->middleware('permission:payroll.manage');
 

@@ -58,6 +58,9 @@ class EmployeePayrollController extends Controller
                 'lines_count' => $p->employee_lines_count,
                 'total_amount' => round((float) ($t->total ?? 0), 2),
                 'total_hours' => round((float) ($t->hours ?? 0), 2),
+                // ⭐ بتّحطّ في الشاشة عشان زر الإقفال يقول
+                // «في ٣ أسطر لسه مدفوعش» قبل ما يدوس.
+                'payable' => $this->payableCount($p->id),
             ];
         });
 
@@ -178,6 +181,7 @@ class EmployeePayrollController extends Controller
                 'start_date' => $period->start_date,
                 'end_date' => $period->end_date,
                 'status' => $period->status,
+                'finalized_at' => $period->finalized_at,
             ],
             'lines' => $lines,
             'missing' => $missing,
@@ -295,12 +299,22 @@ class EmployeePayrollController extends Controller
         ]);
     }
 
-    /** تعديل سطر — المسودّات بس */
+    /** تعديل سطر — المسودّات بس، والفترة لازم تكون مفتوحة */
     public function updateLine(Request $request, EmployeePayrollLine $line)
     {
         if (! $line->isEditable()) {
             return response()->json([
                 'message' => 'السطر ده اتعتمد بالفعل — مش قابل للتعديل',
+            ], 422);
+        }
+
+        // السطر لسه مسودّة بس الفترة اتقفلت. المسودّات المفروض
+        // مايفضلش منها حاجة وقت الإقفال (شرط الإقفال بيمنع ده)،
+        // فده حالة inconsistent — نمنعها برضه بدل ما نعمل تعديل
+        // في فترة «مقفولة».
+        if ($line->period && ! $line->period->isOpen()) {
+            return response()->json([
+                'message' => 'الفترة دي مقفولة — افتحها الأول',
             ], 422);
         }
 
@@ -373,10 +387,127 @@ class EmployeePayrollController extends Controller
     }
 
     /**
+     * ⭐ إقفال الفترة: `open` → `finalized`.
+     *
+     * الإقفال معناه: **الأرقام اتقفلت**. مستحيل يتحسب تاني ولا
+     * يتعدّل سطر معتمد بعد كده.
+     *
+     * ⚠️ المدفوعات **بتكمّل** بعد الإقفال — ده اختيار مقصود
+     * (مرحلتين). السبب واقعي: مستحيل نصرف فلوس ١٢ موظف في نفس
+     * اللحظة. فلو الإقفال كان يمنع الدفع، محتاجين نحل نقود
+     * أو نفتح الفترة كل ما نخلص دفعة — وده أسوأ.
+     *
+     * فالقاعدة بعد الإقفال:
+     *   | مسودّة  → تعديل ❌ | اعتماد ❌ | دفع ❌ (لسه مش معتمد)
+     *   | معتمد  → تعديل ❌ |            | دفع ✅
+     *   | مدفوع  → تعديل ❌ |            | دفع ❌ (اتدفع)
+     *
+     * ⚠️ شرط الإقفال: مفيش مسودّات. سطر لسه ما اتراجعش ماينفعش
+     * يتحط جوه فترة «مقفولة» — بعد كده مفيش способ نعدّله.
+     */
+    public function close(Request $request, PayrollPeriod $period)
+    {
+        if ($period->status === 'finalized') {
+            return response()->json(['message' => 'الفترة دي مقفولة خلاص'], 422);
+        }
+        if ($period->status === 'paid') {
+            return response()->json([
+                'message' => 'الفترة دي اتقفلت خلاص — افتحها الأول',
+            ], 422);
+        }
+
+        // ⭐ بس المسودّات ليها **مبلغ**. السطر صفري ما بيتقرمش
+        // (approve بيخطّيه)، فلو حسبناه هنا كانت الفترة مش
+        // هتتقفل أبداً — موظف غايب كل الشهر = مسودّة صفدية بتقفل
+        // الإقفال على طول. وده تعارض حقيقي بين قاعدتين.
+        //
+        // السطر الصفري مالوش رقم يتراجع، فمفيش حاجة بتتقفل.
+        $drafts = EmployeePayrollLine::where('payroll_period_id', $period->id)
+            ->where('status', 'draft')
+            ->where('amount', '>', 0)
+            ->count();
+
+        if ($drafts > 0) {
+            return response()->json([
+                'message' => "في {$drafts} سطر لسه مسودّة — اعتمدهم الأول",
+                'drafts' => $drafts,
+            ], 422);
+        }
+
+        $approved = EmployeePayrollLine::where('payroll_period_id', $period->id)
+            ->where('status', 'approved')
+            ->where('amount', '>', 0)
+            ->count();
+
+        $period->update([
+            'status' => 'finalized',
+            'finalized_at' => now(),
+            'finalized_by' => $request->user()->id,
+        ]);
+
+        app(\App\Services\AuditLogService::class)->log(
+            'update', 'payroll_period', $period->id,
+            ['status' => 'open'],
+            ['status' => 'finalized', 'unpaid_lines' => $approved],
+            $request,
+        );
+
+        return response()->json([
+            'message' => $approved > 0
+                ? "الفترة اتقفلت. {$approved} سطر لسه مدفوعش — اتصرف من غير ما تفتح."
+                : 'الفترة اتقفلت وكل المستحقات اتصرفت.',
+            'period' => $period->fresh(),
+            'unpaid' => $approved,
+        ]);
+    }
+
+    /**
+     * ⭐ إعادة فتح فترة مقفولة.
+     *
+     * مسموح، بس **بيتسجّل** — فتح فترة اتقفلت قرار محاسبي، ولازم
+     * يبقى فيه أثر مين عمله إمتى. الـ audit log بياخد `user_id`
+     * من الـ request، فالسجل بيقول مين فتح.
+     *
+     * الفايدة العملية: لو اتقفلت الفترة بالغلط أو اتحسب خطأ،
+     * مش محتاجين نعدل الداتابيز بإيدينا.
+     */
+    public function reopen(Request $request, PayrollPeriod $period)
+    {
+        if ($period->status === 'open') {
+            return response()->json(['message' => 'الفترة دي مفتوحة أصلاً'], 422);
+        }
+
+        $paid = EmployeePayrollLine::where('payroll_period_id', $period->id)
+            ->where('status', 'paid')
+            ->count();
+
+        $was = $period->status;
+
+        $period->update([
+            'status' => 'open',
+            'finalized_at' => null,
+            'finalized_by' => null,
+        ]);
+
+        app(\App\Services\AuditLogService::class)->log(
+            'update', 'payroll_period', $period->id,
+            ['status' => $was],
+            ['status' => 'open', 'paid_lines' => $paid],
+            $request,
+        );
+
+        return response()->json([
+            'message' => 'الفترة اتفتحت' . ($paid > 0 ? " — {$paid} سطر مدفوع (المدفوع مش بيرجع)" : ''),
+            'period' => $period->fresh(),
+            'paid_lines' => $paid,
+        ]);
+    }
+
+    /**
      * تسجيل دفع سطر واحد.
      *
-     * `markPaid` بيحوّل الاعتماد والدفع لعملية واحدة — عشان ما
-     * يحصلش «دفع من غير اعتماد».
+     * ⭐ مسموح **بعد إقفال الفترة** — المقصود إن الصرف يتم بعد
+     * ما الأرقام تتقفل. بس السطر لازم يكون معتمد.
      */
     public function pay(Request $request, EmployeePayrollLine $line)
     {
@@ -391,11 +522,23 @@ class EmployeePayrollController extends Controller
             ], 422);
         }
 
+        // ⭐ لازم معتمد — «دفع من غير اعتماد» غلط. وده بيفرض
+        // مرحلة الاعتماد حتى لو الفترة اتفتحت تاني.
+        if ($line->status !== 'approved') {
+            return response()->json([
+                'message' => 'السطر ده لسه مسودّة — اعتمده الأول',
+            ], 422);
+        }
+
         if ((float) $line->amount <= 0) {
             return response()->json([
                 'message' => 'مش ممكن تدفع سطر راتبه صفر — اعمل احتساب الأول',
             ], 422);
         }
+
+        $paidBefore = EmployeePayrollLine::where('payroll_period_id', $line->payroll_period_id)
+            ->where('status', 'paid')
+            ->count();
 
         $line->update([
             'status' => 'paid',
@@ -405,6 +548,15 @@ class EmployeePayrollController extends Controller
             'processed_by' => $request->user()->id,
         ]);
 
+        // ⭐ آخر سطر مدفوع → الفترة نفسها بتتحوّل `paid`.
+        //
+        // ده بيفيد evita يدوي: الأدمن يدفع آخر واحد فتلاقي الفترة
+        // «مدفوعة» لوحدها من غير ما يدوس زرار تاني.
+        $period = PayrollPeriod::find($line->payroll_period_id);
+        if ($period && $period->status !== 'paid' && $paidBefore + 1 >= $this->payableCount($period->id)) {
+            $period->update(['status' => 'paid']);
+        }
+
         app(\App\Services\AuditLogService::class)->logUpdate(
             'employee_payroll', $line->id,
             ['status' => $line->status],
@@ -413,6 +565,25 @@ class EmployeePayrollController extends Controller
         );
 
         return response()->json($line->fresh());
+    }
+
+    /**
+     * ⭐ عدد السطور **القابلة للدفع** في الفترة.
+     *
+     * دي محسوبة على «المستحق»: سطر راتبه صفر مش داخل في العدّ —
+     * ماينفعش يتدفع، فلو دخل في الحساب كانت الفترة مش هتعمل
+     * «مدفوعة» أبداً.
+     *
+     * والدالة دي **تعريف واحد** للرقم — مستخدمة في `pay` (عشان
+     * نعرف امتى نقفل الفترة) وفي `close`. لو حسبناها في المكانين
+     * بطرق مختلفة، الحد هيتاخد مرتين أو ينقص.
+     */
+    private function payableCount(int $periodId): int
+    {
+        return EmployeePayrollLine::where('payroll_period_id', $periodId)
+            ->where('status', '!=', 'draft')
+            ->where('amount', '>', 0)
+            ->count();
     }
 
     /** كل المدفوعات في فترة — للتقرير */

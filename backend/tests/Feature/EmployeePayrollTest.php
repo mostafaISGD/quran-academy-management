@@ -449,6 +449,248 @@ class EmployeePayrollTest extends TestCase
         $this->assertSame('draft', EmployeePayrollLine::first()->status);
     }
 
+    // ============================================================
+    // ⭐ الإقفال — «مرحلتين»: الأرقام بتتقفل، الدفع بيكمل
+    // ============================================================
+
+    /**
+     * الإقفال مرفوض لو فيه مسودّات لسه ما اتراجعش.
+     *
+     * سطر ما اتراجعش ماينفعش يدخل فترة «مقفولة» — بعد كده مفيش
+     * طريقة نعدّله. فالقاعدة: اعتمد الأول، بعدين اقفل.
+     */
+    public function test_closing_is_rejected_while_drafts_exist(): void
+    {
+        $acc = $this->accountant();
+        $period = $this->period();
+        $this->hourlyEmployee(['2026-03-02' => 4]);
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/generate", [], $acc)->assertOk();
+
+        $r = $this->postJsonAs("/api/payroll/periods/{$period->id}/close", [], $acc);
+
+        $r->assertStatus(422);
+        $this->assertSame(1, $r->json('drafts'));
+        $this->assertSame('open', $period->fresh()->status);
+    }
+
+    public function test_close_requires_no_drafts_and_stores_who_and_when(): void
+    {
+        $acc = $this->accountant();
+        $period = $this->period();
+        $this->hourlyEmployee(['2026-03-02' => 4]);
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/generate", [], $acc)->assertOk();
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/approve", [], $acc)->assertOk();
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/close", [], $acc)->assertOk();
+
+        $fresh = $period->fresh();
+        $this->assertSame('finalized', $fresh->status);
+        $this->assertNotNull($fresh->finalized_at, 'وقت الإقفال لازم يتسجّل');
+        $this->assertSame($acc->id, $fresh->finalized_by, 'مين قفل لازم يتسجّل');
+    }
+
+    /**
+     * ⭐ المدفوعات بتكمّل بعد الإقفال — ده معنى «مرحلتين».
+     *
+     * السبب واقعي: مش بندفع ١٢ موظف في نفس اللحظة. لو الإقفال
+     * كان يمنع الدفع، محتاجين نفتح الفترة كل ما نخلص دفعة — وده
+     * أسوأ من إنه يفضل مقفولة وسطرين لسه مدفوعين.
+     */
+    public function test_payment_continues_after_the_period_is_closed(): void
+    {
+        $acc = $this->accountant();
+        $period = $this->period();
+        $this->hourlyEmployee(['2026-03-02' => 6]);
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/generate", [], $acc)->assertOk();
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/approve", [], $acc)->assertOk();
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/close", [], $acc)->assertOk();
+
+        $line = EmployeePayrollLine::first();
+        $this->postJsonAs("/api/payroll/lines/{$line->id}/pay", [], $acc)->assertOk();
+
+        $this->assertSame('paid', $line->fresh()->status);
+    }
+
+    /** بعد الإقفال: مفيش احتساب ولا تعديل ولا اعتماد — بس دفع */
+    public function test_a_closed_period_freezes_the_numbers_but_allows_paying(): void
+    {
+        $acc = $this->accountant();
+        $period = $this->period();
+        $e = $this->hourlyEmployee(['2026-03-02' => 6]);
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/generate", [], $acc)->assertOk();
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/approve", [], $acc)->assertOk();
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/close", [], $acc)->assertOk();
+
+        $line = EmployeePayrollLine::first();
+
+        // احتساب جديد مرفوض
+        $this->makeAttendance($e, '2026-03-05', ['worked_hours' => 8]);
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/generate", [], $acc)
+            ->assertStatus(422);
+
+        // تعديل مرفوض
+        $this->putJsonAs("/api/payroll/lines/{$line->id}", ['hours' => 99], $acc)
+            ->assertStatus(422);
+
+        // الأرقام ماتغيّرتش
+        $this->assertEquals(6.0, (float) $line->fresh()->hours);
+        $this->assertEquals(600.0, (float) $line->fresh()->amount);
+
+        // بس الدفع شغال
+        $this->postJsonAs("/api/payroll/lines/{$line->id}/pay", [], $acc)->assertOk();
+    }
+
+    /**
+     * ⭐ آخر سطر مدفوع بيقفل الفترة لوحدها → `paid`.
+     *
+     * عشان الأدمن ما يدوسش زرار تاني في الآخر. والشرط إن كل
+     * **المستحق** اتصرف — السطر اللي راتبه صفر ماينفعش يتدفع،
+     * فلو دخل في العدّ كانت الفترة مش هتعمل مدفوعة أبداً.
+     */
+    public function test_paying_the_last_line_marks_the_period_paid(): void
+    {
+        $acc = $this->accountant();
+        $period = $this->period();
+
+        $this->hourlyEmployee(['2026-03-02' => 6]);        // 600
+        $e0 = $this->makeEmployee(['hourly_rate' => 100]); // كله غايب = 0
+        $this->makeAttendance($e0, '2026-03-03', ['status' => 'absent', 'worked_hours' => 0]);
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/generate", [], $acc)->assertOk();
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/approve", [], $acc)->assertOk();
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/close", [], $acc)->assertOk();
+
+        $this->assertSame('finalized', $period->fresh()->status);
+
+        // السطر المستحق الوحيد
+        $payable = EmployeePayrollLine::where('amount', '>', 0)->first();
+
+        $this->postJsonAs("/api/payroll/lines/{$payable->id}/pay", [], $acc)->assertOk();
+
+        $this->assertSame('paid', $period->fresh()->status,
+            'آخر مستحق اتصرف → الفترة مدفوعة، والسطر صفري ما يمنعش');
+    }
+
+    // ============================================================
+    // إعادة الفتح
+    // ============================================================
+
+    public function test_reopen_works_and_is_recorded(): void
+    {
+        $acc = $this->accountant();
+        $period = $this->period(['status' => 'finalized', 'finalized_at' => now()]);
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/reopen", [], $acc)->assertOk();
+
+        $fresh = $period->fresh();
+        $this->assertSame('open', $fresh->status);
+        $this->assertNull($fresh->finalized_at);
+        $this->assertNull($fresh->finalized_by);
+    }
+
+    /** ⚠️ السطور المدفوعة ما بترجعش — اللي اتصرف مالوش رجعة */
+    public function test_reopen_does_not_undo_payments(): void
+    {
+        $acc = $this->accountant();
+        $period = $this->period();
+        $this->hourlyEmployee(['2026-03-02' => 6]);
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/generate", [], $acc)->assertOk();
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/approve", [], $acc)->assertOk();
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/close", [], $acc)->assertOk();
+        $line = EmployeePayrollLine::first();
+        $this->postJsonAs("/api/payroll/lines/{$line->id}/pay", [], $acc)->assertOk();
+
+        $r = $this->postJsonAs("/api/payroll/periods/{$period->id}/reopen", [], $acc);
+
+        $r->assertOk();
+        $this->assertSame(1, $r->json('paid_lines'));
+        $this->assertSame('paid', $line->fresh()->status, 'المدفوع فضل مدفوع');
+        $this->assertSame('open', $period->fresh()->status);
+    }
+
+    /** إعادة فتح فترة مفتوحة = طلب بلا معنى */
+    public function test_reopening_an_open_period_is_rejected(): void
+    {
+        $acc = $this->accountant();
+        $period = $this->period();
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/reopen", [], $acc)
+            ->assertStatus(422);
+    }
+
+    /**
+     * ⚠️ فتح فترة اتقفلت لازم يبان في سجل العمليات.
+     *
+     * ده قرار محاسبي — لو حد غيّر رقم في شهر فات، لازم نعرف
+     * مين فتح ومتى.
+     */
+    public function test_reopen_is_written_to_the_audit_log(): void
+    {
+        $acc = $this->accountant();
+        $period = $this->period(['status' => 'finalized']);
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/reopen", [], $acc)->assertOk();
+
+        $this->assertDatabaseHas('audit_logs', [
+            'user_id' => $acc->id,
+            'action' => 'update',
+            'entity_type' => 'payroll_period',
+            'entity_id' => $period->id,
+        ]);
+    }
+
+    public function test_close_is_written_to_the_audit_log(): void
+    {
+        $acc = $this->accountant();
+        $period = $this->period();
+        $this->hourlyEmployee(['2026-03-02' => 6]);
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/generate", [], $acc)->assertOk();
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/approve", [], $acc)->assertOk();
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/close", [], $acc)->assertOk();
+
+        $this->assertDatabaseHas('audit_logs', [
+            'user_id' => $acc->id,
+            'action' => 'update',
+            'entity_type' => 'payroll_period',
+            'entity_id' => $period->id,
+        ]);
+    }
+
+    // ============================================================
+    // «دفع من غير اعتماد» مرفوض حتى لو الفترة مفتوحة
+    // ============================================================
+
+    public function test_a_draft_line_cannot_be_paid(): void
+    {
+        $acc = $this->accountant();
+        $period = $this->period();
+        $this->hourlyEmployee(['2026-03-02' => 6]);
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/generate", [], $acc)->assertOk();
+        $line = EmployeePayrollLine::first();
+
+        $r = $this->postJsonAs("/api/payroll/lines/{$line->id}/pay", [], $acc);
+
+        $r->assertStatus(422);
+        $this->assertSame('draft', $line->fresh()->status, 'لسه مسودّة');
+    }
+
+    /** الإقفال والإertura محتاجين صلاحية المرتبات */
+    public function test_closing_requires_the_payroll_permission(): void
+    {
+        $receptionist = $this->makeUserWithRole('receptionist', ['attendance.view']);
+        $period = $this->period(['status' => 'finalized']);
+
+        $this->postJsonAs("/api/payroll/periods/{$period->id}/reopen", [], $receptionist)
+            ->assertStatus(403);
+    }
+
     public function test_overlapping_periods_are_rejected(): void
     {
         $acc = $this->accountant();

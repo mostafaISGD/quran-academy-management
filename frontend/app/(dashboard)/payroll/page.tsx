@@ -3,10 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   approvePayroll,
+  closePayrollPeriod,
   generatePayroll,
   getPayrollLines,
   getPayrollPeriods,
   payPayrollLine,
+  reopenPayrollPeriod,
   updatePayrollLine,
   type PayrollLine,
   type PayrollLineStatus,
@@ -106,6 +108,13 @@ export default function PayrollPage() {
   const period = data?.periods.find((p) => p.id === periodId) ?? null;
   const isOpen = period?.status === "open";
 
+  // سطور مستحقة لسه ما اتصرفتش — بيظهر في تنبيه الفترة المقفولة
+  const remainingPayable = useMemo(
+    () =>
+      (lines?.lines ?? []).filter((l) => l.status === "approved" && l.amount > 0).length,
+    [lines],
+  );
+
   // ============================================================
   // الاحتساب والاعتماد
   // ============================================================
@@ -162,6 +171,76 @@ export default function PayrollPage() {
       await Promise.all([loadLines(period.id), loadPeriods()]);
     } catch (e) {
       toast.error("فشل الاعتماد", e instanceof Error ? e.message : undefined);
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  // ============================================================
+  // الإقفال وإعادة الفتح
+  // ============================================================
+
+  /**
+   * إقفال الفترة.
+   *
+   * «مرحلتين»: بعد الإقفال الأرقام بتتقفل بس الدفع بيكمل. السبب
+   * واقعي — مش بندفع ١٢ موظف في نفس اللحظة، فلو الإقفال كان يمنع
+   * الدفع محتاجين نفتح الفترة كل ما نخلص دفعة، وده أسوأ.
+   */
+  async function handleClose() {
+    if (!period || !lines) return;
+
+    const payable = lines.lines.filter((l) => l.status !== "draft" && l.amount > 0);
+    const unpaid = payable.filter((l) => l.status === "approved");
+    const unpaidSum = unpaid.reduce((a, l) => a + l.amount, 0);
+
+    const ok = await confirm({
+      title: "إقفال الفترة",
+      message:
+        "الأرقام هتتقفل ومش هينفع تتعدّل تاني.\n\n" +
+        (unpaid.length > 0
+          ? `• ${unpaid.length} سطر لسه مدفوعش (${money(unpaidSum)} ج.م) — هتقدر تصرفهم بعد الإقفال.`
+          : "• كل المستحق اتصرف.") +
+        "\n\nلو اتقفلت بالغلط، تقدر تفتحها تاني.",
+      confirmLabel: "اقفل",
+    });
+    if (!ok) return;
+
+    setWorking("close");
+    try {
+      const r = await closePayrollPeriod(period.id);
+      toast.success(r.message);
+      await Promise.all([loadLines(period.id), loadPeriods()]);
+    } catch (e) {
+      toast.error("فشل الإقفال", e instanceof Error ? e.message : undefined);
+    } finally {
+      setWorking(null);
+    }
+  }
+
+  async function handleReopen() {
+    if (!period) return;
+
+    const paidCount = lines?.totals.paid ?? 0;
+
+    const ok = await confirm({
+      title: "إعادة فتح الفترة",
+      message:
+        "هتقدر تحسب وتعدّل تاني.\n\n" +
+        (paidCount > 0
+          ? `⚠️ ${paidCount} سطر مدفوع — السطور المدفوعة هتفضل مدفوعة ومش هترجع.`
+          : "مفيش سطور مدفوعة في الفترة."),
+      confirmLabel: "افتح",
+    });
+    if (!ok) return;
+
+    setWorking("reopen");
+    try {
+      const r = await reopenPayrollPeriod(period.id);
+      toast.success(r.message);
+      await Promise.all([loadLines(period.id), loadPeriods()]);
+    } catch (e) {
+      toast.error("فشل الفتح", e instanceof Error ? e.message : undefined);
     } finally {
       setWorking(null);
     }
@@ -287,27 +366,62 @@ export default function PayrollPage() {
                 </p>
               </div>
 
-              <div className="flex gap-2">
-                <button
-                  onClick={handleGenerate}
-                  disabled={!isOpen || working !== null}
-                  className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {working === "generate" ? "جاري الاحتساب…" : "احسب من الحضور"}
-                </button>
-                <button
-                  onClick={handleApprove}
-                  disabled={!isOpen || working !== null || (lines?.totals.draft ?? 0) === 0}
-                  className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {working === "approve" ? "جاري الاعتماد…" : "اعتمد المسودّات"}
-                </button>
+              <div className="flex flex-wrap gap-2">
+                {isOpen ? (
+                  <>
+                    <button
+                      onClick={handleGenerate}
+                      disabled={working !== null}
+                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {working === "generate" ? "جاري الاحتساب…" : "احسب من الحضور"}
+                    </button>
+                    <button
+                      onClick={handleApprove}
+                      disabled={working !== null || (lines?.totals.draft ?? 0) === 0}
+                      className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {working === "approve" ? "جاري الاعتماد…" : "اعتمد المسودّات"}
+                    </button>
+                    <button
+                      onClick={handleClose}
+                      disabled={working !== null || (lines?.totals.draft ?? 0) > 0}
+                      title={
+                        (lines?.totals.draft ?? 0) > 0
+                          ? "اعتمد المسودّات الأول"
+                          : "اقفل الأرقام — المدفوعات هتكمّل"
+                      }
+                      className="rounded-lg border border-slate-800 px-3 py-1.5 text-xs font-medium text-slate-800 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      {working === "close" ? "جاري الإقفال…" : "اقفل الفترة"}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={handleReopen}
+                    disabled={working !== null}
+                    className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition hover:bg-amber-100 disabled:opacity-40"
+                  >
+                    {working === "reopen" ? "جاري الفتح…" : "افتح الفترة"}
+                  </button>
+                )}
               </div>
             </div>
 
             {!isOpen && (
               <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                الفترة دي مقفولة — مش هيتقبل احتساب جديد. السطور المعتمدة والمدفوعة اتقفلت.
+                {period.status === "paid" ? (
+                  <>الفترة اتقفلت وكل المستحق اتصرف.</>
+                ) : (
+                  <>
+                    الأرقام مقفولة — مش هيتقبل احتساب ولا تعديل.{" "}
+                    {remainingPayable > 0 && (
+                      <span className="font-medium text-amber-700">
+                        باقي {remainingPayable} سطر مدفوعش — تقدر تصرفهم دلوقتي.
+                      </span>
+                    )}
+                  </>
+                )}
               </p>
             )}
 

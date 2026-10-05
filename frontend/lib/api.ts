@@ -1262,6 +1262,8 @@ export type PayrollPeriod = {
   lines_count: number;
   total_amount: number;
   total_hours: number;
+  /** سطور مستحقة (>٠ وغير مسودّة) — بتّحطّ في زر الإقفال */
+  payable: number;
 };
 
 export type PayrollLine = {
@@ -1319,6 +1321,7 @@ export type PayrollLinesResponse = {
     start_date: string;
     end_date: string;
     status: "open" | "finalized" | "paid";
+    finalized_at: string | null;
   };
   lines: PayrollLine[];
   missing: MissingPayrollLine[];
@@ -1352,6 +1355,29 @@ export function approvePayroll(periodId: number) {
     `/payroll/periods/${periodId}/approve`,
     { method: "POST" },
   );
+}
+
+/**
+ * إقفال الفترة — الأرقام بتتقفل، والمدفوعات بتكمّل.
+ *
+ * «مرحلتين»: بعد الإقفال تقدر تدفع السطور المعتمدة بس. المسودّات
+ * مش هتقدر تعتمدها (لازم تفتح الأول).
+ */
+export function closePayrollPeriod(periodId: number) {
+  return apiFetch<{
+    message: string;
+    period: PayrollPeriod;
+    unpaid: number;
+  }>(`/payroll/periods/${periodId}/close`, { method: "POST" });
+}
+
+/** إعادة فتح فترة مقفولة — بيتسجّل في audit log مين عملها */
+export function reopenPayrollPeriod(periodId: number) {
+  return apiFetch<{
+    message: string;
+    period: PayrollPeriod;
+    paid_lines: number;
+  }>(`/payroll/periods/${periodId}/reopen`, { method: "POST" });
 }
 
 /**
