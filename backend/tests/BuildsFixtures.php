@@ -283,19 +283,68 @@ trait BuildsFixtures
      * بنختبره.
      */
     /**
+     * معلم نشط — جاهز للاستعمال في مرتبات المعلمين.
+     *
+     * `makeActiveTeacher(['display_name' => 'أحمد'])`.
+     */
+    protected function makeActiveTeacher(array $attrs = []): Teacher
+    {
+        return $this->makeTeacher(array_merge([
+            'status' => 'active',
+            'display_name' => 'معلم نشط '.(Teacher::count() + 1),
+        ], $attrs));
+    }
+
+    /**
+     * سجل مستحق — **المصدر الوحيد** لمرتبات المعلمين.
+     *
+     * ملاحظة مهمة: `amount` هنا هو الرقم اللي بيتقفل عند الاعتماد.
+     * `rate_id` و `lesson_id` بيوضّحوا مصدره بس مش بيتحسبوا تاني.
+     */
+    protected function makeEarning(Teacher $teacher, string $date, array $attrs = []): \App\Models\TeacherEarning
+    {
+        return \App\Models\TeacherEarning::create(array_merge([
+            'teacher_id' => $teacher->id,
+            'amount' => 100,
+            'currency' => 'EGP',
+            'earning_date' => $date,
+            'status' => 'approved',
+        ], $attrs));
+    }
+
+    /**
      * فترة مرتبات — الجدول **مشترك** مع مرتبات المعلمين.
      *
      * `makePeriod('2026-03-01', '2026-03-31')`.
+     *
+     * ⚠️ التاريخ بيتخزّن **نضيف** (`2026-03-31` مش `2026-03-31
+     * 00:00:00`). السبب إن الـ cast `date` في الـ Model بيخزّن
+     * الوقت، فلو الفترة اتخزّنت بالوقت والكود قارن بنص تاريخ،
+     * المقارنة النصية بتضيّع آخر يوم.
+     *
+     * الـ production سيبّر (date column في SQLite بيخزّن نص صريح)،
+     * والـ fixtures لازم تطابق عشان الاختبار يحاكي الحقيقة.
      */
     protected function makePeriod(string $start, string $end, array $attrs = []): \App\Models\PayrollPeriod
     {
-        return \App\Models\PayrollPeriod::create(array_merge([
+        // نمرّر التاريخ زي ما هو (نص) مش Carbon — الـ cast هيحوّله
+        $period = new \App\Models\PayrollPeriod;
+        $period->setRawAttributes([
             'organization_id' => $this->org->id,
             'name' => 'رواتب '.substr($start, 0, 7),
             'start_date' => $start,
             'end_date' => $end,
             'status' => 'open',
-        ], $attrs));
+        ]);
+
+        $period->save();
+
+        foreach ($attrs as $key => $value) {
+            \Illuminate\Support\Facades\DB::table('payroll_periods')
+                ->where('id', $period->id)->update([$key => $value]);
+        }
+
+        return $period->fresh();
     }
 
     /**

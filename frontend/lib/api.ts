@@ -1426,6 +1426,154 @@ export function getPayrollReport(periodId: number) {
 }
 
 // ============================================================
+// مرتبات المعلمين
+// ============================================================
+
+/**
+ * ⭐ زي مرتبات الموظفين بالظبط، والفرق في **الإحساس**:
+ *   |           | المصدر              | المعادلة         |
+ *   |-----------|---------------------|------------------|
+ *   | موظف      | الحضور              | ساعات × سعر      |
+ *   | معلم حصة  | المستحق المسجّل     | حصص × سعر        |
+ *   | معلم شهري | العقد               | الراتب ثابت      |
+ *
+ * ومثل الموظفين: `amount` بيجي جاهز من السيرفر، مفيش ضرب في
+ * الواجهة.
+ */
+export type TeacherPayrollLineStatus = PayrollLineStatus;
+
+export type TeacherPayrollLine = {
+  id: number;
+  teacher: {
+    id: number;
+    name: string;
+    job_title: string | null;
+  };
+  lessons_count: number;
+  hours: number;
+  rate_snapshot: number | null;
+  amount: number;
+  currency: string;
+  status: TeacherPayrollLineStatus;
+  status_label: string;
+  editable: boolean;
+  payment_method: string | null;
+  reference: string | null;
+  paid_at: string | null;
+  notes: string | null;
+};
+
+/** معلم ليه مستحق بس مالوش سطر — «مستحق مش محتسب» */
+export type MissingTeacherPayrollLine = {
+  teacher: { id: number; name: string };
+  harvested: number;
+  amount: null;
+  status: "no_line";
+  status_label: string;
+};
+
+export type TeacherPayrollPeriodsResponse = {
+  periods: PayrollPeriod[];
+  summary: { total: number; open: number };
+  teacher_count: number;
+};
+
+export type TeacherPayrollLinesResponse = {
+  period: {
+    id: number;
+    name: string;
+    start_date: string;
+    end_date: string;
+    status: "open" | "finalized" | "paid";
+    finalized_at: string | null;
+  };
+  lines: TeacherPayrollLine[];
+  missing: MissingTeacherPayrollLine[];
+  /** المستحق الفعلي في الفترة — للمقارنة */
+  harvested_total: number;
+  totals: {
+    hours: number;
+    lessons: number;
+    amount: number;
+    lines: number;
+    paid: number;
+    approved: number;
+    draft: number;
+  };
+};
+
+export function getTeacherPayrollPeriods() {
+  return apiFetch<TeacherPayrollPeriodsResponse>("/teacher-payroll/periods");
+}
+
+export function getTeacherPayrollLines(periodId: number) {
+  return apiFetch<TeacherPayrollLinesResponse>(`/teacher-payroll/periods/${periodId}/lines`);
+}
+
+export function generateTeacherPayroll(periodId: number) {
+  return apiFetch<{
+    message: string;
+    created: number;
+    updated: number;
+    skipped: number;
+    no_rate: number;
+    harvested_total: number;
+  }>(`/teacher-payroll/periods/${periodId}/generate`, { method: "POST" });
+}
+
+export function approveTeacherPayroll(periodId: number) {
+  return apiFetch<{ message: string; approved: number; skipped_zero: number }>(
+    `/teacher-payroll/periods/${periodId}/approve`,
+    { method: "POST" },
+  );
+}
+
+export function closeTeacherPayrollPeriod(periodId: number) {
+  return apiFetch<{ message: string; period: PayrollPeriod; unpaid: number }>(
+    `/teacher-payroll/periods/${periodId}/close`,
+    { method: "POST" },
+  );
+}
+
+export function reopenTeacherPayrollPeriod(periodId: number) {
+  return apiFetch<{ message: string; period: PayrollPeriod; paid_lines: number }>(
+    `/teacher-payroll/periods/${periodId}/reopen`,
+    { method: "POST" },
+  );
+}
+
+/**
+ * تعديل سطر — المسودّات بس.
+ *
+ * `amount` مش في الـ payload عن قصد: السيرفر بيتحسبه من
+ * `lessons_count × rate_snapshot`.
+ */
+export function updateTeacherPayrollLine(
+  lineId: number,
+  payload: {
+    lessons_count?: number | null;
+    hours?: number | null;
+    rate_snapshot?: number | null;
+    notes?: string | null;
+  },
+) {
+  return apiFetch<TeacherPayrollLine>(`/teacher-payroll/lines/${lineId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function payTeacherPayrollLine(
+  lineId: number,
+  payload?: { payment_method?: string | null; reference?: string | null },
+) {
+  return apiFetch<TeacherPayrollLine>(`/teacher-payroll/lines/${lineId}/pay`, {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  });
+}
+
+// ============================================================
 // واجهة ولي الأمر
 // ============================================================
 

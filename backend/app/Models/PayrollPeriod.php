@@ -26,6 +26,9 @@ class PayrollPeriod extends Model
     /** سطور مرتبات الموظفين في الفترة — نفس الفترة تتشاركها مع المعلمين */
     public function employeeLines() { return $this->hasMany(EmployeePayrollLine::class); }
 
+    /** سطور مرتبات المعلمين في الفترة */
+    public function teacherLines() { return $this->hasMany(TeacherPayrollLine::class); }
+
     public function isOpen(): bool
     {
         return $this->status === 'open';

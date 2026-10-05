@@ -25,8 +25,8 @@ class ReportController extends Controller
         $today = Carbon::today();
         $todayLessons = Lesson::query()->whereDate('scheduled_start_at', $today);
         $monthStart = $today->copy()->startOfMonth();
-        $monthlyRevenue = Payment::query()->where('status', 'completed')->whereBetween('paid_at', [$monthStart, $today])->sum('amount');
-        $expiringSoon = Subscription::query()->where('status', 'active')->whereBetween('end_date', [$today, $today->copy()->addDays(3)])->count();
+        $monthlyRevenue = Payment::query()->where('status', 'completed')->whereRange('paid_at', $monthStart, $today)->sum('amount');
+        $expiringSoon = Subscription::query()->where('status', 'active')->whereRange('end_date', $today, $today->copy()->addDays(3))->count();
         $pendingTeacherPayments = TeacherPayment::query()->whereIn('status', ['pending'])->sum('amount');
         $unscheduledLeads = Lead::query()->whereIn('status', ['new', 'contacted'])->count();
 
@@ -54,12 +54,12 @@ class ReportController extends Controller
         $start = $request->filled('from') ? Carbon::parse($request->string('from')) : Carbon::now()->startOfMonth();
         $end = $request->filled('to') ? Carbon::parse($request->string('to')) : Carbon::now()->endOfMonth();
 
-        $payments = Payment::query()->where('status', 'completed')->whereBetween('paid_at', [$start, $end])->get();
+        $payments = Payment::query()->where('status', 'completed')->whereRange('paid_at', $start, $end)->get();
         $byCurrency = $payments->groupBy('currency')->map(fn ($group) => ['total' => number_format($group->sum('amount'), 2), 'count' => $group->count()]);
         $byMethod = $payments->groupBy('payment_method')->map(fn ($group) => ['total' => number_format($group->sum('amount'), 2), 'count' => $group->count()]);
-        $refunds = Refund::query()->whereBetween('processed_at', [$start, $end])->get();
-        $teacherEarnings = TeacherEarning::query()->whereBetween('earning_date', [$start, $end])->get();
-        $teacherPaymentsMade = TeacherPayment::query()->whereBetween('paid_at', [$start, $end])->get();
+        $refunds = Refund::query()->whereRange('processed_at', $start, $end)->get();
+        $teacherEarnings = TeacherEarning::query()->whereRange('earning_date', $start, $end)->get();
+        $teacherPaymentsMade = TeacherPayment::query()->whereRange('paid_at', $start, $end)->get();
 
         return response()->json([
             'period' => ['from' => $start->toDateString(), 'to' => $end->toDateString()],
@@ -73,9 +73,9 @@ class ReportController extends Controller
         $start = $request->filled('from') ? Carbon::parse($request->string('from')) : Carbon::now()->startOfMonth();
         $end = $request->filled('to') ? Carbon::parse($request->string('to')) : Carbon::now()->endOfMonth();
 
-        $lessons = Lesson::query()->whereBetween('scheduled_start_at', [$start, $end]);
-        $attendance = LessonAttendance::query()->whereBetween('marked_at', [$start, $end]);
-        $memorization = MemorizationRecord::query()->whereBetween('recorded_at', [$start, $end]);
+        $lessons = Lesson::query()->whereRange('scheduled_start_at', $start, $end);
+        $attendance = LessonAttendance::query()->whereRange('marked_at', $start, $end);
+        $memorization = MemorizationRecord::query()->whereRange('recorded_at', $start, $end);
 
         return response()->json([
             'period' => ['from' => $start->toDateString(), 'to' => $end->toDateString()],
@@ -101,8 +101,8 @@ class ReportController extends Controller
         $start = $request->filled('from') ? Carbon::parse($request->string('from')) : Carbon::now()->startOfMonth();
         $end = $request->filled('to') ? Carbon::parse($request->string('to')) : Carbon::now()->endOfMonth();
 
-        $leads = Lead::query()->whereBetween('created_at', [$start, $end]);
-        $assessments = Assessment::query()->whereBetween('scheduled_at', [$start, $end]);
+        $leads = Lead::query()->whereRange('created_at', $start, $end);
+        $assessments = Assessment::query()->whereRange('scheduled_at', $start, $end);
         $totalLeads = (clone $leads)->count();
         $converted = (clone $leads)->where('status', 'converted')->count();
         $conversionRate = $totalLeads > 0 ? round(($converted / $totalLeads) * 100, 1) : 0;
@@ -130,8 +130,8 @@ class ReportController extends Controller
         $teacherId = $request->filled('teacher_id') ? $request->integer('teacher_id') : null;
         $programId = $request->filled('program_id') ? $request->integer('program_id') : null;
 
-        $attendanceQuery = LessonAttendance::query()->whereBetween('marked_at', [$start, $end]);
-        $lessonQuery = Lesson::query()->whereBetween('scheduled_start_at', [$start, $end]);
+        $attendanceQuery = LessonAttendance::query()->whereRange('marked_at', $start, $end);
+        $lessonQuery = Lesson::query()->whereRange('scheduled_start_at', $start, $end);
 
         if ($studentId) {
             $attendanceQuery->whereHas('lesson', fn($q) => $q->where('student_id', $studentId));
@@ -161,7 +161,7 @@ class ReportController extends Controller
         $attendanceRate = $totalAttendance > 0 ? round(($presentCount / $totalAttendance) * 100, 1) : 0;
 
         // Per student breakdown
-        $studentStats = LessonAttendance::query()->whereBetween('marked_at', [$start, $end])
+        $studentStats = LessonAttendance::query()->whereRange('marked_at', $start, $end)
             ->with('lesson.student:id,first_name,last_name,student_code')
             ->get()
             ->groupBy('lesson.student_id')
@@ -185,7 +185,7 @@ class ReportController extends Controller
             ->values();
 
         // Daily breakdown
-        $dailyStats = LessonAttendance::query()->whereBetween('marked_at', [$start, $end])
+        $dailyStats = LessonAttendance::query()->whereRange('marked_at', $start, $end)
             ->selectRaw('DATE(marked_at) as date, status, COUNT(*) as count')
             ->groupBy('date', 'status')
             ->get()

@@ -36,7 +36,7 @@ class TeacherController extends Controller
                 Lesson::query()
                     ->selectRaw('count(*)')
                     ->whereColumn('lessons.teacher_id', 'teachers.id')
-                    ->whereBetween('scheduled_start_at', [$monthStart, $monthEnd]),
+                    ->whereRange('scheduled_start_at', $monthStart, $monthEnd),
                 'lessons_this_month'
             )
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
@@ -309,8 +309,8 @@ class TeacherController extends Controller
         $earnings = $teacher->earnings()->whereIn('status', ['approved', 'paid']);
         $payments = $teacher->payments()->where('status', 'completed');
 
-        $earnedThisMonth = (float) (clone $earnings)->whereBetween('earning_date', [$startOfMonth, $endOfMonth])->sum('amount');
-        $paidThisMonth = (float) (clone $payments)->whereBetween('paid_at', [$startOfMonth, $endOfMonth])->sum('amount');
+        $earnedThisMonth = (float) (clone $earnings)->whereRange('earning_date', $startOfMonth, $endOfMonth)->sum('amount');
+        $paidThisMonth = (float) (clone $payments)->whereRange('paid_at', $startOfMonth, $endOfMonth)->sum('amount');
         $earnedTotal = (float) (clone $earnings)->sum('amount');
         $paidTotal = (float) (clone $payments)->sum('amount');
         $pendingTotal = (float) $teacher->earnings()->where('status', 'pending')->sum('amount');
@@ -343,8 +343,8 @@ class TeacherController extends Controller
         $upcoming = (clone $lessons)->where('scheduled_start_at', '>', $now)->count();
         $cancelled = (clone $lessons)->whereIn('status', ['cancelled', 'student_absent', 'teacher_absent'])->count();
 
-        $thisMonth = (clone $lessons)->whereBetween('scheduled_start_at', [$startOfMonth, $endOfMonth])->count();
-        $thisMonthCompleted = (clone $lessons)->whereBetween('scheduled_start_at', [$startOfMonth, $endOfMonth])->where('status', 'completed')->count();
+        $thisMonth = (clone $lessons)->whereRange('scheduled_start_at', $startOfMonth, $endOfMonth)->count();
+        $thisMonthCompleted = (clone $lessons)->whereRange('scheduled_start_at', $startOfMonth, $endOfMonth)->where('status', 'completed')->count();
 
         // آخر 5 حصص مكتملة
         $recentLessons = $teacher->lessons()
@@ -402,7 +402,7 @@ class TeacherController extends Controller
             'stats' => [
                 'students_count' => (int) (clone $lessons)->distinct()->count('student_id'),
                 'lessons_count' => (clone $lessons)->count(),
-                'lessons_this_month' => (clone $lessons)->whereBetween('scheduled_start_at', [$monthStart, $monthEnd])->count(),
+                'lessons_this_month' => (clone $lessons)->whereRange('scheduled_start_at', $monthStart, $monthEnd)->count(),
                 'upcoming_lessons' => (clone $lessons)->where('scheduled_start_at', '>', $now)->count(),
                 'completed_lessons' => (clone $lessons)->where('status', 'completed')->count(),
                 'average_rating' => $teacher->averageRating() ? round((float) $teacher->averageRating(), 2) : null,

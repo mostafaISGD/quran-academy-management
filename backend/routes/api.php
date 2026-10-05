@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\EmployeePayrollController;
+use App\Http\Controllers\Api\TeacherPayrollController;
 use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\LeadController;
@@ -235,6 +236,20 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::post('/payroll/periods/{period}/reopen', [EmployeePayrollController::class, 'reopen'])->middleware('permission:payroll.manage');
     Route::put('/payroll/lines/{line}', [EmployeePayrollController::class, 'updateLine'])->middleware('permission:payroll.manage');
     Route::post('/payroll/lines/{line}/pay', [EmployeePayrollController::class, 'pay'])->middleware('permission:payroll.manage');
+
+    // ===== مرتبات المعلمين =====
+    // نفس الدورة بالظبط، والفرق في الإحساس: المعلمين بالحصة أو
+    // راتب شهري، مش بالساعة. الجدول منفصل (`teacher_payroll_lines`)
+    // لأن `teacher_earnings` هو المستحق مش السطر القابل للدفع.
+    Route::get('/teacher-payroll/periods', [TeacherPayrollController::class, 'periods'])->middleware('permission:payroll.manage');
+    Route::get('/teacher-payroll/periods/{period}/lines', [TeacherPayrollController::class, 'lines'])->middleware('permission:payroll.manage');
+    Route::get('/teacher-payroll/periods/{period}/report', [TeacherPayrollController::class, 'report'])->middleware('permission:payroll.manage');
+    Route::post('/teacher-payroll/periods/{period}/generate', [TeacherPayrollController::class, 'generate'])->middleware('permission:payroll.manage');
+    Route::post('/teacher-payroll/periods/{period}/approve', [TeacherPayrollController::class, 'approve'])->middleware('permission:payroll.manage');
+    Route::post('/teacher-payroll/periods/{period}/close', [TeacherPayrollController::class, 'close'])->middleware('permission:payroll.manage');
+    Route::post('/teacher-payroll/periods/{period}/reopen', [TeacherPayrollController::class, 'reopen'])->middleware('permission:payroll.manage');
+    Route::put('/teacher-payroll/lines/{line}', [TeacherPayrollController::class, 'updateLine'])->middleware('permission:payroll.manage');
+    Route::post('/teacher-payroll/lines/{line}/pay', [TeacherPayrollController::class, 'pay'])->middleware('permission:payroll.manage');
 
     // Expenses
     Route::get('/expenses', [ExpenseController::class, 'index']);

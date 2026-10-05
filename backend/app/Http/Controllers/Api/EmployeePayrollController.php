@@ -215,7 +215,7 @@ class EmployeePayrollController extends Controller
         }
 
         $attendance = DB::table('attendance_records')
-            ->whereBetween('date', [$period->start_date, $period->end_date])
+            ->whereRange('date', $period->start_date, $period->end_date)
             ->selectRaw('employee_id, sum(worked_hours) as hours, count(*) as days')
             ->groupBy('employee_id')
             ->get()

@@ -30,7 +30,7 @@ class LessonController extends Controller
         };
 
         $query = Lesson::query()
-            ->whereBetween('scheduled_start_at', [$from, $to])
+            ->whereRange('scheduled_start_at', $from, $to)
             ->with(['student', 'teacher', 'program', 'level']);
 
         if ($request->filled('teacher_id')) {
