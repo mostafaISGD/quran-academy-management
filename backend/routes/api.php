@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\EmployeeController;
+use App\Http\Controllers\Api\EmployeePayrollController;
 use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\LeadController;
@@ -218,6 +219,18 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/attendance/day', [AttendanceController::class, 'day'])->middleware('permission:attendance.view');
     Route::post('/attendance', [AttendanceController::class, 'store'])->middleware('permission:attendance.manage');
     Route::get('/employees/{employee}/attendance-month', [AttendanceController::class, 'month'])->middleware('permission:attendance.view');
+
+    // ===== مرتبات الموظفين بالساعات =====
+    // الاحتساب بيقرأ الحضور المسجّل، والـ `payroll_periods` جدول
+    // مشترك مع مرتبات المعلمين — الفترة الواحدة فيها الاتنين.
+    Route::get('/payroll/periods', [EmployeePayrollController::class, 'periods'])->middleware('permission:payroll.manage');
+    Route::post('/payroll/periods', [EmployeePayrollController::class, 'createPeriod'])->middleware('permission:payroll.manage');
+    Route::get('/payroll/periods/{period}/lines', [EmployeePayrollController::class, 'lines'])->middleware('permission:payroll.manage');
+    Route::get('/payroll/periods/{period}/report', [EmployeePayrollController::class, 'report'])->middleware('permission:payroll.manage');
+    Route::post('/payroll/periods/{period}/generate', [EmployeePayrollController::class, 'generate'])->middleware('permission:payroll.manage');
+    Route::post('/payroll/periods/{period}/approve', [EmployeePayrollController::class, 'approve'])->middleware('permission:payroll.manage');
+    Route::put('/payroll/lines/{line}', [EmployeePayrollController::class, 'updateLine'])->middleware('permission:payroll.manage');
+    Route::post('/payroll/lines/{line}/pay', [EmployeePayrollController::class, 'pay'])->middleware('permission:payroll.manage');
 
     // Expenses
     Route::get('/expenses', [ExpenseController::class, 'index']);

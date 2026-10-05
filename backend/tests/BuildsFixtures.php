@@ -98,10 +98,6 @@ trait BuildsFixtures
     }
 
     /**
-     * `makeTeacher(['display_name' => 'أحمد'])` — الـ array بتتحسب
-     * attributes تلقائياً. نسيب `makeTeacher(null, [...])` متعب.
-     */
-    /**
      * `makeEmployee(['status' => 'active', 'hourly_rate' => 80])`
      * — الـ array بتتحسب attributes تلقائياً.
      *
@@ -109,7 +105,7 @@ trait BuildsFixtures
      * حساب دخول. الاختبارات اللي محتاجة حساب بيعملوا `makeUser()`
      * لوحدها وبيربطوها.
      */
-    protected function makeEmployee(array $attrs = []): \App\Models\Employee
+    protected function makeEmployee(array $attrs = []): Employee
     {
         $n = \App\Models\Employee::count() + 1;
 
@@ -124,6 +120,10 @@ trait BuildsFixtures
         ], $attrs));
     }
 
+    /**
+     * `makeTeacher(['display_name' => 'أحمد'])` — الـ array بتتحسب
+     * attributes تلقائياً. نسيب `makeTeacher(null, [...])` متعب.
+     */
     protected function makeTeacher(array|User|null $userOrAttrs = null, array $attrs = []): Teacher
     {
         if (is_array($userOrAttrs)) {
@@ -282,6 +282,42 @@ trait BuildsFixtures
      * نفسه هو مصدر الحقيقة في الاختبار، مش الـ relation اللي
      * بنختبره.
      */
+    /**
+     * فترة مرتبات — الجدول **مشترك** مع مرتبات المعلمين.
+     *
+     * `makePeriod('2026-03-01', '2026-03-31')`.
+     */
+    protected function makePeriod(string $start, string $end, array $attrs = []): \App\Models\PayrollPeriod
+    {
+        return \App\Models\PayrollPeriod::create(array_merge([
+            'organization_id' => $this->org->id,
+            'name' => 'رواتب '.substr($start, 0, 7),
+            'start_date' => $start,
+            'end_date' => $end,
+            'status' => 'open',
+        ], $attrs));
+    }
+
+    /**
+     * سجل حضور — المصدر الوحيد لساعات المرتب.
+     *
+     * `makeAttendance($e, '2026-03-10', ['worked_hours' => 6])`.
+     *
+     * لاحظ إن `worked_hours` بيتكتب **مباشرة**. في الإنتاج بيوصل
+     * من `AttendanceController::resolveHours()` (اللي بيفرض صفر على
+     * الغائب)، بس هنا بنكتبه كما هو عشان نختبر الاحتساب نفسه.
+     */
+    protected function makeAttendance(Employee $employee, string $date, array $attrs = []): \App\Models\AttendanceRecord
+    {
+        return \App\Models\AttendanceRecord::create(array_merge([
+            'organization_id' => $this->org->id,
+            'employee_id' => $employee->id,
+            'date' => $date,
+            'status' => 'present',
+            'worked_hours' => 0,
+        ], $attrs));
+    }
+
     protected function linkTeacher(Program $program, Teacher $teacher, array $attrs = []): void
     {
         DB::table('program_teacher')->insert(array_merge([

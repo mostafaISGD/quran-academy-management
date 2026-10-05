@@ -22,4 +22,12 @@ class PayrollPeriod extends Model
 
     public function organization() { return $this->belongsTo(Organization::class); }
     public function teacherPayments() { return $this->hasMany(TeacherPayment::class); }
+
+    /** سطور مرتبات الموظفين في الفترة — نفس الفترة تتشاركها مع المعلمين */
+    public function employeeLines() { return $this->hasMany(EmployeePayrollLine::class); }
+
+    public function isOpen(): bool
+    {
+        return $this->status === 'open';
+    }
 }

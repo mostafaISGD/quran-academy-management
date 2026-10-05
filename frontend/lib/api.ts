@@ -1238,6 +1238,168 @@ export function getEmployeeAttendanceMonth(id: number, month?: string) {
 }
 
 // ============================================================
+// مرتبات الموظفين بالساعات
+// ============================================================
+
+/**
+ * ⭐ الأجر بيتحسب في **السيرفر** من الحضور.
+ *
+ * الشاشة بتعرض `amount` كما جاي من الـ API — مفيش أي ضرب هنا.
+ * لو حسبناها في الواجهة، هنرجع نفس باج الحضور: رقمين مختلفين
+ * لنفس الموظف.
+ *
+ * وده محمي باختبار في الباك (`test_frontend_has_no_duplicate_payroll_math`).
+ */
+export type PayrollLineStatus = "draft" | "approved" | "paid";
+
+export type PayrollPeriod = {
+  id: number;
+  name: string;
+  /** ISO date — بيتقلّص لعرض `toISO().slice(0,10)` */
+  start_date: string;
+  end_date: string;
+  status: "open" | "finalized" | "paid";
+  lines_count: number;
+  total_amount: number;
+  total_hours: number;
+};
+
+export type PayrollLine = {
+  id: number;
+  employee: {
+    id: number;
+    name: string;
+    job_title: string | null;
+    department: string | null;
+  };
+  hours: number;
+  hourly_rate: number | null;
+  /** جاهز من السيرفر — لا تحسبه هنا */
+  amount: number;
+  currency: string;
+  days_present: number;
+  status: PayrollLineStatus;
+  status_label: string;
+  editable: boolean;
+  payment_method: string | null;
+  reference: string | null;
+  paid_at: string | null;
+  notes: string | null;
+};
+
+/** موظف ليهم سعر ساعة بس مالوش سطر — «لسه ما سجّلناش حضوره» */
+export type MissingPayrollLine = {
+  employee: {
+    id: number;
+    name: string;
+    job_title: string | null;
+    hourly_rate: number;
+  };
+  hours: null;
+  amount: null;
+  status: "no_record";
+  status_label: string;
+};
+
+export type PayrollPeriodsResponse = {
+  periods: PayrollPeriod[];
+  summary: { total: number; open: number };
+  hourly_employees: {
+    id: number;
+    name: string;
+    job_title: string | null;
+    hourly_rate: number;
+  }[];
+};
+
+export type PayrollLinesResponse = {
+  period: {
+    id: number;
+    name: string;
+    start_date: string;
+    end_date: string;
+    status: "open" | "finalized" | "paid";
+  };
+  lines: PayrollLine[];
+  missing: MissingPayrollLine[];
+  totals: {
+    hours: number;
+    amount: number;
+    lines: number;
+    paid: number;
+    approved: number;
+    draft: number;
+  };
+};
+
+export function getPayrollPeriods() {
+  return apiFetch<PayrollPeriodsResponse>("/payroll/periods");
+}
+
+export function getPayrollLines(periodId: number) {
+  return apiFetch<PayrollLinesResponse>(`/payroll/periods/${periodId}/lines`);
+}
+
+export function generatePayroll(periodId: number) {
+  return apiFetch<{ message: string; created: number; updated: number; skipped: number }>(
+    `/payroll/periods/${periodId}/generate`,
+    { method: "POST" },
+  );
+}
+
+export function approvePayroll(periodId: number) {
+  return apiFetch<{ message: string; approved: number; skipped_zero: number }>(
+    `/payroll/periods/${periodId}/approve`,
+    { method: "POST" },
+  );
+}
+
+/**
+ * تعديل سطر — المسودّات بس.
+ *
+ * `amount` مش في الـ payload عن قصد: السيرفر بيتحسبه من
+ * `hours × hourly_rate` لوحده.
+ */
+export function updatePayrollLine(
+  lineId: number,
+  payload: {
+    hours?: number | null;
+    hourly_rate?: number | null;
+    days_present?: number | null;
+    notes?: string | null;
+  },
+) {
+  return apiFetch<PayrollLine>(`/payroll/lines/${lineId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function payPayrollLine(
+  lineId: number,
+  payload?: { payment_method?: string | null; reference?: string | null },
+) {
+  return apiFetch<PayrollLine>(`/payroll/lines/${lineId}/pay`, {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  });
+}
+
+export function getPayrollReport(periodId: number) {
+  return apiFetch<{
+    period: { id: number; name: string };
+    employees: {
+      employee: { name: string; job_title: string | null };
+      amount: number;
+      hours: number;
+      payments: number;
+    }[];
+    total: number;
+    currency: string;
+  }>(`/payroll/periods/${periodId}/report`);
+}
+
+// ============================================================
 // واجهة ولي الأمر
 // ============================================================
 
