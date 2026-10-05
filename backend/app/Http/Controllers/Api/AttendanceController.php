@@ -10,10 +10,17 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 /**
- * الحضور والانصراف — كله على الأدمن.
+ * الحضور — بالساعات المرنة (فريلانس).
  *
- * مفيش نظام موافقات ولا وردات: الأدمن بيفتح يوم ويمسح لكل موظف.
- * Screen واحد: GET يعرض اليوم كله، POST يسجّل الكل مرة واحدة.
+ * نظام واحد لكل الموظفين غير المعلمين: **اللي يشتغل بيكتب ساعاته**.
+ * مفيش دوام ثابت، مفيش ورديات، مفيش موافقات.
+ *
+ * ⭐ قاعدة مهمة: `worked_hours` بيوصلنا من العميل كما هو، والطريقة
+ * دي هتفضل **مكان واحد** بيتحسب فيه الساعات في كل النظام (هنا).
+ * اللي قبل كده كان في نسختين — PHP هنا و TypeScript هناك — والنتيجة
+ * كانت رقمين مختلفين لنفس السجل.
+ *
+ * شاشة واحدة: GET يعرض اليوم كله، POST يسجّل الكل مرة واحدة.
  */
 class AttendanceController extends Controller
 {
@@ -50,13 +57,15 @@ class AttendanceController extends Controller
                     'job_title' => $employee->job_title,
                     'department' => $employee->department,
                     'employment_type' => $employee->employment_type,
+                    'hourly_rate' => $employee->hourly_rate !== null
+                        ? (float) $employee->hourly_rate
+                        : null,
                 ],
                 'record' => $r ? [
                     'id' => $r->id,
                     'status' => $r->status,
                     'check_in' => $r->check_in,
                     'check_out' => $r->check_out,
-                    'late_minutes' => (int) $r->late_minutes,
                     'worked_hours' => (float) $r->worked_hours,
                     'notes' => $r->notes,
                 ] : null,
@@ -75,7 +84,7 @@ class AttendanceController extends Controller
     /**
      * تسجيل حضور ليوم — كل الموظفين مرة واحدة.
      *
-     * Body: { date, records: [{ employee_id, status, check_in, ... }] }
+     * Body: { date, records: [{ employee_id, status, worked_hours }] }
      *
      * استخدمنا upsert واحد على (employee_id, date) — التسجيل مرتين
      * بيحدّث مش يضيف سطر تاني.
@@ -87,6 +96,20 @@ class AttendanceController extends Controller
             'records' => 'required|array|min:1',
             'records.*.employee_id' => 'required|exists:employees,id',
             'records.*.status' => 'required|in:present,absent,late,on_leave,half_day',
+            /**
+             * السقف ٢٤ ساعة (يوم كامل).
+             *
+             * `max:24` بيتطبّق على كل الحالات — حتى لو الحالة
+             * «غائب». ده **مقصود**: لو غايب وساعاته ٥٠، نفضّل نرفض
+             * الطلب بدل ما نتجاهل الرقم. الرفض بيقول «الساعات دي
+             * غلط» بوضوح، وهو أأمن من إنه يتفسّر إن الغايب
+             * اشتغل.
+             *
+             * بعد الـ validation، `resolveHours` بيفرض الصفر على
+             * الغائب والإجازة — عشان مفيش طريق يتفادى الصفر غير
+             * بإدخال رقم أقل من ٢٤.
+             */
+            'records.*.worked_hours' => 'nullable|numeric|min:0|max:24',
             'records.*.check_in' => 'nullable|date_format:H:i',
             'records.*.check_out' => 'nullable|date_format:H:i',
             'records.*.notes' => 'nullable|string',
@@ -97,18 +120,11 @@ class AttendanceController extends Controller
         $organizationId = $request->user()->organization_id ?? 1;
 
         $saved = 0;
+        $totalHours = 0.0;
 
-        DB::transaction(function () use ($data, $date, $markedBy, $organizationId, &$saved) {
+        DB::transaction(function () use ($data, $date, $markedBy, $organizationId, &$saved, &$totalHours) {
             foreach ($data['records'] as $row) {
-                $checkIn = $row['check_in'] ?? null;
-                $checkOut = $row['check_out'] ?? null;
-
-                $workedHours = $this->hoursBetween($checkIn, $checkOut, $row['status']);
-
-                $lateMinutes = (int) ($row['late_minutes'] ?? 0);
-                if ($row['status'] === 'late' && $lateMinutes === 0) {
-                    $lateMinutes = 15;
-                }
+                $workedHours = $this->resolveHours($row);
 
                 $existing = AttendanceRecord::where('employee_id', $row['employee_id'])
                     ->whereDate('date', $date->toDateString())
@@ -116,9 +132,8 @@ class AttendanceController extends Controller
 
                 $payload = [
                     'status' => $row['status'],
-                    'check_in' => $checkIn,
-                    'check_out' => $checkOut,
-                    'late_minutes' => $lateMinutes,
+                    'check_in' => $row['check_in'] ?? null,
+                    'check_out' => $row['check_out'] ?? null,
                     'worked_hours' => $workedHours,
                     'notes' => $row['notes'] ?? null,
                     'marked_by' => $markedBy,
@@ -137,13 +152,14 @@ class AttendanceController extends Controller
                 }
 
                 $saved++;
+                $totalHours += $workedHours;
             }
         });
 
         app(\App\Services\AuditLogService::class)->log(
             'create', 'attendance', 0,
             null,
-            ['date' => $date->toDateString(), 'marked' => $saved],
+            ['date' => $date->toDateString(), 'marked' => $saved, 'hours' => round($totalHours, 2)],
             $request,
         );
 
@@ -151,7 +167,39 @@ class AttendanceController extends Controller
             'message' => "تم تسجيل {$saved} موظف",
             'date' => $date->toDateString(),
             'saved' => $saved,
+            'total_hours' => round($totalHours, 2),
         ]);
+    }
+
+    /**
+     * ⭐ الساعات ليها مصدر واحد في كل النظام: هنا.
+     *
+     * القاعدة:
+     *  - غائب / إجازة → صفر. مش اختياري، مش قابل للتفاوض.
+     *  - حاضر / متأخر / نص يوم → الرقم اللي الأدمن كتبه.
+     *  - لو ما كتبش رقم → نص اليوم ٤، وأي حالة تانية صفر.
+     *
+     * ليه صفر قسري للغائب؟ عشان ما يبقاش فيه طريقة تسجّل «٤ ساعات
+     * وأنا غايب» — الغياب معناه راتب صفر.
+     */
+    private function resolveHours(array $row): float
+    {
+        if (in_array($row['status'], ['absent', 'on_leave'], true)) {
+            return 0.0;
+        }
+
+        $hours = $row['worked_hours'] ?? null;
+
+        if ($hours !== null && $hours !== '') {
+            // ندوّر على صريح بدل `?? null` — لو الكليانتبعتوا
+            // وصفر، نعتبره صفر مش "مش مبعوت".
+            $hours = is_string($hours) ? trim($hours) : $hours;
+            if ($hours !== '' && $hours !== null) {
+                return round((float) $hours, 2);
+            }
+        }
+
+        return $row['status'] === 'half_day' ? 4.0 : 0.0;
     }
 
     /**

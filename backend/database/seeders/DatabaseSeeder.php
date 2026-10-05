@@ -65,8 +65,17 @@ class DatabaseSeeder extends Seeder
             ['name' => 'leads.create', 'slug' => 'leads-create', 'module' => 'leads'],
             ['name' => 'leads.edit', 'slug' => 'leads-edit', 'module' => 'leads'],
             ['name' => 'reports.view', 'slug' => 'reports-view', 'module' => 'reports'],
+            ['name' => 'programs.view', 'slug' => 'programs-view', 'module' => 'programs'],
+            ['name' => 'attendance.view', 'slug' => 'attendance-view', 'module' => 'attendance'],
+            ['name' => 'attendance.manage', 'slug' => 'attendance-manage', 'module' => 'attendance'],
+            ['name' => 'payroll.manage', 'slug' => 'payroll-manage', 'module' => 'payroll'],
             ['name' => 'settings.manage', 'slug' => 'settings-manage', 'module' => 'settings'],
         ];
+
+        // ⚠️ التوست عندي: دي نسخة ثانية من نفس قائمة الصلاحيات.
+        // المصدر الحقيقي هو `SeedRolesPermissions::PERMISSIONS` — لو
+        // أضفت صلاحية هنا بس، مش هتظهر لما `RealisticDataSeeder`
+        // يشتغل. المفروض الاتنين يتّحدوا في مصدر واحد.
 
         foreach ($permissions as $perm) {
             Permission::firstOrCreate(

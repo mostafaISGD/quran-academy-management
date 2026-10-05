@@ -6,24 +6,28 @@ use DateTimeInterface;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * حضور وانصراف موظف في يوم.
+ * حضور موظف في يوم — بالساعات المرنة.
  *
  * سجل واحد لكل (موظف + يوم) — الـ unique في الجدول بيضمن كده،
  * فالتسجيل مرتين على نفس اليوم بيعمل تحديث مش سطر تاني.
+ *
+ * ⭐ `worked_hours` هو **مصدر الأجر** — الأدمن بيكتبه بنفسه.
+ * مفيش اشتقاق من وقت دخول وخروج، لأن مفيش دوام ثابت نقيس منه.
+ * وده السبب إن مفيش نسخة ثانية من الحساب في الـ frontend: السيرفر
+ * بيقرر، والشاشة بتعرض.
  */
 class AttendanceRecord extends Model
 {
     protected $fillable = [
         'organization_id', 'employee_id', 'date',
         'status', 'check_in', 'check_out',
-        'late_minutes', 'worked_hours', 'notes', 'marked_by',
+        'worked_hours', 'notes', 'marked_by',
     ];
 
     protected function casts(): array
     {
         return [
             'date' => 'date',
-            'late_minutes' => 'integer',
             'worked_hours' => 'float',
         ];
     }

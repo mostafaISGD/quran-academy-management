@@ -280,11 +280,47 @@ export default function EmployeeProfile({
                 <InfoGrid
                   rows={[
                     { label: "نوع التوظيف", value: EMPLOYMENT_LABEL[employee.employment_type] ?? employee.employment_type },
+                    {
+                      label: "سعر الساعة",
+                      value:
+                        employee.hourly_rate !== null
+                          ? `${new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(employee.hourly_rate)} ج.م`
+                          : "مش متسجّل",
+                      tone: employee.hourly_rate !== null ? undefined : "muted",
+                    },
                     { label: "الحالة", value: STATUS_LABEL[employee.status] },
                     { label: "المدير المباشر", value: employee.manager?.name ?? "—" },
                     { label: "ملاحظات", value: employee.notes ?? "—" },
                   ]}
                 />
+
+                {/* ملخص الشهر: الساعات اللي بتتحسب منها الأجر فعلاً */}
+                {stats && stats.worked_hours > 0 && (
+                  <div className="mt-3 grid grid-cols-3 gap-3 border-t border-dashed border-slate-100 pt-3 text-center">
+                    <div>
+                      <p className="text-[11px] text-slate-400">ساعات الشهر</p>
+                      <p className="text-base font-bold tabular-nums text-slate-800">
+                        {stats.worked_hours}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-400">أيام الحضور</p>
+                      <p className="text-base font-bold tabular-nums text-slate-800">
+                        {stats.present}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-400">الأجر التقديري</p>
+                      <p className="text-base font-bold tabular-nums text-emerald-700">
+                        {employee.hourly_rate !== null
+                          ? new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 0 }).format(
+                              stats.worked_hours * employee.hourly_rate,
+                            )
+                          : "—"}
+                      </p>
+                    </div>
+                  </div>
+                )}
               </Section>
 
               {/* ===== الدور والصلاحيات ===== */}

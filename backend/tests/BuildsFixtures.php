@@ -101,6 +101,29 @@ trait BuildsFixtures
      * `makeTeacher(['display_name' => 'أحمد'])` — الـ array بتتحسب
      * attributes تلقائياً. نسيب `makeTeacher(null, [...])` متعب.
      */
+    /**
+     * `makeEmployee(['status' => 'active', 'hourly_rate' => 80])`
+     * — الـ array بتتحسب attributes تلقائياً.
+     *
+     * ملاحظة: الموظف **مش** مربوط بـ user_id هنا (null)، فمفيش
+     * حساب دخول. الاختبارات اللي محتاجة حساب بيعملوا `makeUser()`
+     * لوحدها وبيربطوها.
+     */
+    protected function makeEmployee(array $attrs = []): \App\Models\Employee
+    {
+        $n = \App\Models\Employee::count() + 1;
+
+        return \App\Models\Employee::create(array_merge([
+            'organization_id' => $this->org->id,
+            'name' => 'موظف '.$n,
+            'phone' => '010000000'.$n,
+            'job_title' => 'موظف',
+            'department' => 'الإدارة',
+            'employment_type' => 'full_time',
+            'status' => 'active',
+        ], $attrs));
+    }
+
     protected function makeTeacher(array|User|null $userOrAttrs = null, array $attrs = []): Teacher
     {
         if (is_array($userOrAttrs)) {

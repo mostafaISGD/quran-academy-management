@@ -213,9 +213,11 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/employees/{employee}/activity', [EmployeeController::class, 'activity'])->middleware('permission:students.view');
 
     // ===== الحضور والانصراف — كله على الأدمن =====
-    Route::get('/attendance/day', [AttendanceController::class, 'day'])->middleware('permission:students.view');
-    Route::post('/attendance', [AttendanceController::class, 'store'])->middleware('permission:students.edit');
-    Route::get('/employees/{employee}/attendance-month', [AttendanceController::class, 'month'])->middleware('permission:students.view');
+    // تسجيل الحضور — موظف الاستقبال والمشرف بيسجّلوا، الأدمن يشوف الكل.
+    // كان على students.* وده غلط: حضور الموظفين مش part من الطلاب.
+    Route::get('/attendance/day', [AttendanceController::class, 'day'])->middleware('permission:attendance.view');
+    Route::post('/attendance', [AttendanceController::class, 'store'])->middleware('permission:attendance.manage');
+    Route::get('/employees/{employee}/attendance-month', [AttendanceController::class, 'month'])->middleware('permission:attendance.view');
 
     // Expenses
     Route::get('/expenses', [ExpenseController::class, 'index']);

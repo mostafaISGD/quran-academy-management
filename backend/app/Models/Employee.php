@@ -32,7 +32,7 @@ class Employee extends Model
         'organization_id', 'user_id',
         'name', 'phone', 'country_code', 'email',
         'gender', 'date_of_birth', 'nationality', 'address', 'photo_url',
-        'job_title', 'department', 'employment_type', 'manager_id',
+        'job_title', 'department', 'employment_type', 'hourly_rate', 'manager_id',
         'joined_at', 'status', 'notes',
     ];
 
@@ -41,6 +41,8 @@ class Employee extends Model
         return [
             'date_of_birth' => 'date',
             'joined_at' => 'date',
+            // decimal:2 عشان PHP ما يعملش خطأ فاصلة عائمة في الحساب
+            'hourly_rate' => 'decimal:2',
         ];
     }
 

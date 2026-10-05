@@ -48,10 +48,26 @@ class SeedEmployees extends Seeder
         //
         // `programs.view` في كل الأدوار: الموظف محتاج يعرف الأكاديمية
         // بتقدم إيه وبكام عشان يرد على أولياء الأمور.
+        //
+        // الحضور والمرتبات: `attendance.manage` للاستقبال و supervisor
+        // (تسجيل الحضور)، و `payroll.manage` للمحاسب (المرتبات).
+        // الفصل ده مقصود — مش لازم نفس الشخص يعمل الاتنين.
         $rolePermissions = [
-            'accountant' => ['students.view', 'payments.view', 'payments.create', 'payments.edit', 'reports.view', 'programs.view'],
-            'receptionist' => ['students.view', 'students.create', 'students.edit', 'leads.view', 'leads.create', 'leads.edit', 'programs.view'],
-            'supervisor' => ['students.view', 'students.edit', 'teachers.view', 'lessons.view', 'lessons.edit', 'reports.view', 'programs.view'],
+            'accountant' => [
+                'students.view', 'payments.view', 'payments.create', 'payments.edit',
+                'reports.view', 'programs.view',
+                'attendance.view', 'payroll.manage',
+            ],
+            'receptionist' => [
+                'students.view', 'students.create', 'students.edit',
+                'leads.view', 'leads.create', 'leads.edit', 'programs.view',
+                'attendance.view', 'attendance.manage',
+            ],
+            'supervisor' => [
+                'students.view', 'students.edit', 'teachers.view',
+                'lessons.view', 'lessons.edit', 'reports.view', 'programs.view',
+                'attendance.view', 'attendance.manage',
+            ],
         ];
 
         $roleIds = [];

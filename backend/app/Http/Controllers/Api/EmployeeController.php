@@ -108,6 +108,9 @@ class EmployeeController extends Controller
             'job_title' => 'nullable|string',
             'department' => 'nullable|string',
             'employment_type' => 'nullable|in:full_time,part_time,contract,volunteer',
+            // سعر الساعة — أساس حساب الأجر. null = بيقفل بشهر ثابت.
+            // السقف ١٠٠٠ ج.م/ساعة: أعلى من كده غالباً خطأ إدخال.
+            'hourly_rate' => 'nullable|numeric|min:0|max:1000',
             'manager_id' => 'nullable|exists:employees,id',
             'joined_at' => 'nullable|date',
             'status' => 'nullable|in:active,inactive,on_leave',
@@ -276,6 +279,9 @@ class EmployeeController extends Controller
             'job_title' => 'nullable|string',
             'department' => 'nullable|string',
             'employment_type' => 'nullable|in:full_time,part_time,contract,volunteer',
+            // سعر الساعة — أساس حساب الأجر. null = بيقفل بشهر ثابت.
+            // السقف ١٠٠٠ ج.م/ساعة: أعلى من كده غالباً خطأ إدخال.
+            'hourly_rate' => 'nullable|numeric|min:0|max:1000',
             'manager_id' => 'nullable|exists:employees,id',
             'joined_at' => 'nullable|date',
             'status' => 'sometimes|in:active,inactive,on_leave',

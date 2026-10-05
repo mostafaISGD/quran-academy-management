@@ -78,12 +78,30 @@ export default function AttendancePage() {
 
   useEffect(() => { load(date); }, [date, load]);
 
+  /**
+   * هل في تعديلات غير محفوظة؟
+   *
+   * لازم نقارن **الساعات** كمان مش الحالة بس — لأن الده بقى الحقل
+   * الأساسي. لو قارنّا الحالة بس، الأدمن يقدر يعدّل ٤ ساعات لـ ٦
+   * ويжет زرار الحفظ معروض «محفوظ».
+   */
   const isDirty = useMemo(() => {
     if (!day) return false;
+
     return day.rows.some((row) => {
       const saved = row.record;
       const now = draft[row.employee.id] ?? null;
-      return (saved?.status ?? null) !== (now?.status ?? null);
+
+      if ((saved?.status ?? null) !== (now?.status ?? null)) return true;
+      if (!now) return false;
+
+      // نقارن الأرقام بعد التوحيد عشان 4 و 4.0 يبقوا واحد
+      return (
+        Number(saved?.worked_hours ?? 0) !== Number(now.worked_hours) ||
+        (saved?.check_in ?? null) !== (now.check_in ?? null) ||
+        (saved?.check_out ?? null) !== (now.check_out ?? null) ||
+        (saved?.notes ?? null) !== (now.notes ?? null)
+      );
     });
   }, [day, draft]);
 
@@ -92,49 +110,77 @@ export default function AttendancePage() {
     [draft],
   );
 
+  /**
+   * ساعات افتراضية بتتحط مع الحالة.
+   *
+   * دي **معاينة للمستخدم** بس — مش قيمة بتتخزّن. الـ backend هو اللي
+   * بيقرر الساعات النهائية (`resolveHours`). يعني لو الأدمن غيّر
+   * الحالة ساعات من غير ما يعدّل الخانة، السيرفر بيفرض ٠ للغائب
+   * و٤ لنص اليوم على أي حال.
+   *
+   * مهم: الحط هنا مفيش `09:00` / `17:00`. النظام فريلانس بالساعات،
+   * فمفيش يوم افتراضي نتخيّله.
+   */
+  function defaultHoursFor(status: AttendanceStatus, current: number): number {
+    if (status === "absent" || status === "on_leave") return 0;
+    if (status === "half_day") return 4;
+    // حاضر / متأخر: لو فيه رقم متسجل قبل كده نحتفظ بيه
+    return current > 0 ? current : 0;
+  }
+
+  function makeDraftRow(
+    current: AttendanceDayRow["record"],
+    status: AttendanceStatus,
+  ): NonNullable<AttendanceDayRow["record"]> {
+    return {
+      id: current?.id ?? 0,
+      status,
+      check_in: current?.check_in ?? null,
+      check_out: current?.check_out ?? null,
+      worked_hours: defaultHoursFor(status, current?.worked_hours ?? 0),
+      notes: current?.notes ?? null,
+    };
+  }
+
   function markAll(status: AttendanceStatus) {
     setDraft((prev) => {
       const next = { ...prev };
       for (const row of day?.rows ?? []) {
-        const current = prev[row.employee.id];
-        // ما نمسحش الأوقات لو الأدمن غيّر الحالة بس
-        next[row.employee.id] = {
-          id: current?.id ?? 0,
-          status,
-          check_in: current?.check_in ?? (status === "present" || status === "late" ? "09:00" : null),
-          check_out: current?.check_out ?? (status === "present" || status === "late" ? "17:00" : null),
-          late_minutes: current?.late_minutes ?? 0,
-          worked_hours: current?.worked_hours ?? 0,
-          notes: current?.notes ?? null,
-        };
+        next[row.employee.id] = makeDraftRow(prev[row.employee.id], status);
       }
       return next;
     });
   }
 
   function setStatus(employeeId: number, status: AttendanceStatus) {
-    setDraft((prev) => {
-      const current = prev[employeeId];
-      return {
-        ...prev,
-        [employeeId]: {
-          id: current?.id ?? 0,
-          status,
-          check_in: current?.check_in ?? (status === "present" || status === "late" ? "09:00" : null),
-          check_out: current?.check_out ?? (status === "present" || status === "late" ? "17:00" : null),
-          late_minutes: status === "late" ? (current?.late_minutes || 15) : 0,
-          worked_hours: current?.worked_hours ?? 0,
-          notes: current?.notes ?? null,
-        },
-      };
-    });
+    setDraft((prev) => ({
+      ...prev,
+      [employeeId]: makeDraftRow(prev[employeeId], status),
+    }));
   }
 
-  function setTime(employeeId: number, field: "check_in" | "check_out", value: string) {
+  function setField(
+    employeeId: number,
+    field: "worked_hours" | "check_in" | "check_out" | "notes",
+    value: string,
+  ) {
     setDraft((prev) => {
       const current = prev[employeeId];
       if (!current) return prev;
-      return { ...prev, [employeeId]: { ...current, [field]: value || null } };
+
+      const next = { ...current };
+
+      if (field === "worked_hours") {
+        // حد أقصى ٢٤ ساعة — من غير قيد، حد يكتب ٩٠ ويفوتّده
+        const n = parseFloat(value);
+        next.worked_hours = Number.isNaN(n) ? 0 : Math.min(Math.max(n, 0), 24);
+      } else if (field === "notes") {
+        next.notes = value || null;
+      } else {
+        next[field] = value || null;
+      }
+
+      return { ...prev, [employeeId]: next };
     });
   }
 
@@ -147,8 +193,10 @@ export default function AttendancePage() {
       .map(([employeeId, r]) => ({
         employee_id: Number(employeeId),
         status: r!.status,
+        worked_hours: r!.worked_hours,
         check_in: r!.check_in,
         check_out: r!.check_out,
+        notes: r!.notes,
       }));
 
     if (records.length === 0) {
@@ -290,26 +338,42 @@ export default function AttendancePage() {
             <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
               <tr>
                 <th className="px-4 py-3 text-right font-medium">الموظف</th>
-                <th className="px-3 py-3 text-right font-medium">القسم</th>
                 <th className="px-3 py-3 text-center font-medium">الحالة</th>
-                <th className="px-3 py-3 text-center font-medium">الحضور</th>
-                <th className="px-3 py-3 text-center font-medium">الانصراف</th>
-                <th className="px-3 py-3 text-center font-medium">الساعات</th>
+                <th className="px-3 py-3 text-center font-medium">
+                  الساعات
+                  <span className="block text-[10px] font-normal text-slate-400">الأجر بيحسب منها</span>
+                </th>
+                <th className="px-3 py-3 text-center font-medium">الأجر المتوقع</th>
+                <th className="px-3 py-3 text-center font-medium">ملاحظات</th>
               </tr>
             </thead>
             <tbody>
               {day.rows.map((row) => {
                 const record = draft[row.employee.id] ?? null;
-                const hasTimes = record && (record.status === "present" || record.status === "late" || record.status === "half_day");
-                const hours = hoursBetween(record?.check_in ?? null, record?.check_out ?? null, record?.status ?? null);
+                const worksToday =
+                  record !== null &&
+                  record.status !== "absent" &&
+                  record.status !== "on_leave";
+                // الأجر المتوقع = الساعات × سعر الساعة. معروض كمساعدة
+                // للعين، مش محفوظ.
+                const payout =
+                  row.employee.hourly_rate !== null
+                    ? record?.worked_hours
+                      ? record.worked_hours * row.employee.hourly_rate
+                      : null
+                    : null;
 
                 return (
                   <tr key={row.employee.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                     <td className="px-4 py-2.5">
                       <p className="font-medium text-slate-800">{row.employee.name}</p>
-                      <p className="text-[11px] text-slate-400">{row.employee.job_title ?? "—"}</p>
+                      <p className="text-[11px] text-slate-400">
+                        {row.employee.job_title ?? "—"}
+                        {row.employee.hourly_rate !== null && (
+                          <span className="mr-1.5">· {row.employee.hourly_rate} ج/ساعة</span>
+                        )}
+                      </p>
                     </td>
-                    <td className="px-3 py-2.5 text-xs text-slate-600">{row.employee.department ?? "—"}</td>
 
                     {/* الحالة */}
                     <td className="px-3 py-2.5">
@@ -336,33 +400,51 @@ export default function AttendancePage() {
                       )}
                     </td>
 
-                    {/* الأوقات */}
+                    {/* ⭐ الساعات — الحقل الأساسي */}
                     <td className="px-3 py-2.5 text-center">
-                      {hasTimes ? (
+                      {worksToday ? (
                         <input
-                          type="time"
-                          value={record!.check_in ?? ""}
-                          onChange={(e) => setTime(row.employee.id, "check_in", e.target.value)}
-                          className="rounded border border-slate-200 px-1.5 py-1 text-center text-xs tabular-nums"
+                          type="number"
+                          inputMode="decimal"
+                          step="0.25"
+                          min="0"
+                          max="24"
+                          value={record!.worked_hours || ""}
+                          placeholder="0"
+                          onChange={(e) => setField(row.employee.id, "worked_hours", e.target.value)}
+                          className="w-20 rounded-lg border border-slate-200 px-2 py-1.5 text-center text-sm font-semibold tabular-nums text-slate-800 focus:border-slate-400 focus:outline-none"
                         />
                       ) : (
-                        <span className="text-xs text-slate-300">—</span>
+                        <span className="text-xs text-slate-300">
+                          {record ? "٠" : "—"}
+                        </span>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-center">
-                      {hasTimes ? (
-                        <input
-                          type="time"
-                          value={record!.check_out ?? ""}
-                          onChange={(e) => setTime(row.employee.id, "check_out", e.target.value)}
-                          className="rounded border border-slate-200 px-1.5 py-1 text-center text-xs tabular-nums"
-                        />
+
+                    {/* الأجر المتوقع */}
+                    <td className="px-3 py-2.5 text-center text-xs tabular-nums">
+                      {payout !== null && payout > 0 ? (
+                        <span className="font-medium text-slate-700">
+                          {new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 0 }).format(payout)}
+                        </span>
+                      ) : row.employee.hourly_rate === null ? (
+                        <span className="text-slate-300" title="مش متسجّل سعر ساعة لهذا الموظف">
+                          بدون سعر
+                        </span>
                       ) : (
-                        <span className="text-xs text-slate-300">—</span>
+                        <span className="text-slate-300">—</span>
                       )}
                     </td>
-                    <td className="px-3 py-2.5 text-center text-xs tabular-nums text-slate-600">
-                      {hours !== null ? hours : "—"}
+
+                    {/* ملاحظات */}
+                    <td className="px-3 py-2.5">
+                      <input
+                        value={record?.notes ?? ""}
+                        onChange={(e) => setField(row.employee.id, "notes", e.target.value)}
+                        placeholder="—"
+                        maxLength={200}
+                        className="w-full rounded border border-slate-200 px-2 py-1 text-xs text-slate-700 focus:border-slate-400 focus:outline-none"
+                      />
                     </td>
                   </tr>
                 );
@@ -372,31 +454,18 @@ export default function AttendancePage() {
         </div>
       )}
 
-      {/* ===== دليل الألوان ===== */}
-      <div className="mt-4 flex flex-wrap gap-4 text-xs text-slate-500">
+      {/* ===== دليل الألوان + ملاحظة الأجر ===== */}
+      <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-slate-500">
         {STATUS_OPTIONS.map((s) => (
           <span key={s.value} className="flex items-center gap-1.5">
             <span className={`h-2.5 w-2.5 rounded-full ${s.dot}`} />
             {s.label}
           </span>
         ))}
+        <span className="mr-auto text-slate-400">
+          الساعات هي مصدر الأجر · غائب وإجازة = ٠ أياً ما كتبت
+        </span>
       </div>
     </div>
   );
-}
-
-/** الساعات بين وقتين — نفس منطق الـ backend */
-function hoursBetween(inp: string | null, out: string | null, status: AttendanceStatus | null): number | null {
-  if (!status) return null;
-  if (status === "half_day") return 4;
-  if (status !== "present" && status !== "late") return 0;
-  if (!inp || !out) return null;
-
-  const [ih, im] = inp.split(":").map(Number);
-  const [oh, om] = out.split(":").map(Number);
-  let start = ih * 60 + im;
-  let end = oh * 60 + om;
-  if (end < start) end += 24 * 60;
-
-  return Math.round(((end - start) / 60) * 100) / 100;
 }

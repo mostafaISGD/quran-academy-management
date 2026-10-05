@@ -1007,6 +1007,11 @@ export type Employee = {
   job_title: string | null;
   department: string | null;
   employment_type: EmploymentType;
+  /**
+   * سعر الساعة بالج.م — أساس حساب الأجر.
+   * null يعني: بيتقفل بشهر ثابت (أو متطوع)، فمفيش أجر بالساعة.
+   */
+  hourly_rate: number | null;
   manager_id: number | null;
   joined_at: string | null;
   status: EmployeeStatus;
@@ -1038,6 +1043,7 @@ export type EmployeePayload = {
   job_title?: string | null;
   department?: string | null;
   employment_type?: EmploymentType;
+  hourly_rate?: number | null;
   manager_id?: number | null;
   joined_at?: string | null;
   status?: EmployeeStatus;
@@ -1129,6 +1135,13 @@ export function getEmployeeActivity(id: number, page = 1) {
 
 export type AttendanceStatus = "present" | "absent" | "late" | "on_leave" | "half_day";
 
+/**
+ * حضور موظف في يوم — بالساعات المرنة.
+ *
+ * ⭐ `worked_hours` هو اللي الأدمن كتبه ومصدر الأجر. مفيش نسخة
+ * ثانية بتحسب الساعات في الـ frontend — السيرفر هو المصدر الوحيد
+ * (كانت في `hoursBetween` هنا قبل كده وطلعت رقمين مختلفين).
+ */
 export type AttendanceDayRow = {
   employee: {
     id: number;
@@ -1136,13 +1149,15 @@ export type AttendanceDayRow = {
     job_title: string | null;
     department: string | null;
     employment_type: EmploymentType;
+    /** سعر الساعة — nullable. الأجر المتوقع = الساعات × السعر */
+    hourly_rate: number | null;
   };
   record: {
     id: number;
     status: AttendanceStatus;
+    /** أوقات اختيارية — معلومة مساعِدة، مش مصدر الأجر */
     check_in: string | null;
     check_out: string | null;
-    late_minutes: number;
     worked_hours: number;
     notes: string | null;
   } | null;
@@ -1172,12 +1187,19 @@ export function saveAttendance(
   records: {
     employee_id: number;
     status: AttendanceStatus;
+    /** الساعات — المصدر الأساسي. الـ backend بيرفض أكتر من ٢٤ */
+    worked_hours?: number | null;
     check_in?: string | null;
     check_out?: string | null;
     notes?: string | null;
   }[],
 ) {
-  return apiFetch<{ message: string; date: string; saved: number }>("/attendance", {
+  return apiFetch<{
+    message: string;
+    date: string;
+    saved: number;
+    total_hours: number;
+  }>("/attendance", {
     method: "POST",
     body: JSON.stringify({ date, records }),
   });

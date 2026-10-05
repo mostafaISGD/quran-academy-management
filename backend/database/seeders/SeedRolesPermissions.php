@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use App\Models\User;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\Log;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
@@ -43,6 +44,12 @@ class SeedRolesPermissions extends Seeder
         ['name' => 'leads.edit', 'module' => 'leads'],
         ['name' => 'reports.view', 'module' => 'reports'],
         ['name' => 'programs.view', 'module' => 'programs'],
+        // ===== الحضور والمرتبات =====
+        // فصل المسؤوليات: موظف الاستقبال يسجّل الحضور، والمحاسب
+        // يشغّل المرتبات — مش لازم يكونوا نفس الشخص.
+        ['name' => 'attendance.view', 'module' => 'attendance'],
+        ['name' => 'attendance.manage', 'module' => 'attendance'],
+        ['name' => 'payroll.manage', 'module' => 'payroll'],
         ['name' => 'settings.manage', 'module' => 'settings'],
     ];
 
@@ -65,13 +72,39 @@ class SeedRolesPermissions extends Seeder
         );
         $adminRole->syncPermissions(Permission::all());
 
-        // الحساب اللي إيميله admin@... هو اللي بيرث الدور
-        $admins = User::where('email', 'like', '%@quran-academy.com')
+        // ⚠️ مين الـ admin الحقيقي؟
+        //
+        // كان مكتوب: `where('email', 'like', '%@quran-academy.com')` —
+        // بس **كل** حسابات الموظفين إيميله ينتهي بـ @quran-academy.com،
+        // فكلهم كان بياخد دور admin كامل (٢٥ صلاحية) فوق دورهم
+        // الحقيقي. النتيجة: المحاسب كان يقدر يسجّل حضور رغم إننا
+        // قاعدين نفصل بين المسجّل والمحاسب.
+        //
+        // القاعدة الصح: الـ admin هو اللي إيميله `admin@` بالظبط،
+        // أو حد مفيش له دور تاني أصلاً.
+        $admins = User::where('email', 'like', 'admin@%')
             ->whereDoesntHave('teacher')
             ->get();
 
         foreach ($admins as $admin) {
             $admin->assignRole($adminRole);
+        }
+
+        // حساب إيميله @quran-academy.com ومعاه دور بالفعل → نسيبه
+        // على دوره. لو مفيش له دور خالص → ده ناسي، نشيله admin
+        // عشان ما يفتحش حاجة بالغلط.
+        $others = User::where('email', 'like', '%@quran-academy.com')
+            ->whereDoesntHave('teacher')
+            ->where('email', 'not like', 'admin@%')
+            ->get();
+
+        foreach ($others as $user) {
+            if ($user->roles->isEmpty()) {
+                Log::warning('Account with academy email but no role', [
+                    'user_id' => $user->id,
+                    'email' => $user->email,
+                ]);
+            }
         }
 
         $this->grantTeacherAndParentRoles();

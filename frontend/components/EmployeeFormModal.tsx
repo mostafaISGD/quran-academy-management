@@ -58,6 +58,7 @@ export default function EmployeeFormModal({
     job_title: employee?.job_title ?? "",
     department: employee?.department ?? "",
     employment_type: employee?.employment_type ?? "full_time",
+    hourly_rate: employee?.hourly_rate ?? null,
     manager_id: employee?.manager_id ?? null,
     joined_at: employee?.joined_at ?? new Date().toISOString().slice(0, 10),
     status: employee?.status ?? "active",
@@ -218,6 +219,31 @@ export default function EmployeeFormModal({
                     المتطوع مش بيشتغل بدوام — مش ليه حضور ومش محتاج حساب.
                   </p>
                 )}
+              </div>
+
+              {/* ⭐ سعر الساعة — أساس حساب الأجر */}
+              <div>
+                <label className={LABEL}>سعر الساعة (ج.م)</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.25"
+                  min="0"
+                  value={form.hourly_rate ?? ""}
+                  onChange={(e) =>
+                    set(
+                      "hourly_rate",
+                      e.target.value === "" ? null : Number(e.target.value),
+                    )
+                  }
+                  placeholder="مثال: 75"
+                  disabled={form.employment_type === "volunteer"}
+                  className={`${FIELD} ${form.employment_type === "volunteer" ? "bg-slate-50 opacity-60" : ""}`}
+                />
+                <p className="mt-1 text-[11px] text-slate-400">
+                  الأجر = الساعات المسجّلة × السعر. سيبه فاضي لو بيتقفل
+                  بشهر ثابت.
+                </p>
               </div>
               <div>
                 <label className={LABEL}>الحالة</label>
