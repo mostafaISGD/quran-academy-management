@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { date } from "@/lib/format";
+import { date, egp } from "@/lib/format";
 import {
   getExpenses,
   createExpense,
@@ -31,10 +31,8 @@ const METHOD_LABEL: Record<string, string> = {
   wallet: "محفظة",
 };
 
-const fmtMoney = (n: number | undefined) =>
-  n === undefined
-    ? "—"
-    : `${n.toLocaleString("ar-EG", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`;
+/** ⭐ alias — التنسيق في `lib/format` (كان `toLocaleString` مكرر هنا) */
+const fmtMoney = egp;
 
 export default function ExpensesPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);

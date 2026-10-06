@@ -9,6 +9,7 @@ import {
   logout,
   type ParentChildView,
 } from "@/lib/api";
+import { date, egp, num, time, weekday } from "@/lib/format";
 
 /**
  * صفحة ولي الأمر.
@@ -233,14 +234,14 @@ function ChildCard({ child }: { child: ParentChildView }) {
         {outstanding.invoices > 0 && (
           <div className="rounded-lg bg-amber-50 p-3 ring-1 ring-amber-200">
             <p className="text-sm text-amber-900">
+              {/* ⭐ `egp` بتعمل التحويل لـ«ج.م» جواها. لو العملة
+                  `EGP` بناديها على طول — غير كده بنكتبها بنفس الشكل */}
               <strong className="tabular-nums">
-                {outstanding.total.toLocaleString("ar-EG", {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}{" "}
-                {outstanding.currency}
+                {outstanding.currency === "EGP"
+                  ? egp(outstanding.total)
+                  : `${num(outstanding.total)} ${outstanding.currency}`}
               </strong>{" "}
-              مستحق على {outstanding.invoices}{" "}
+              مستحق على {num(outstanding.invoices, 0)}{" "}
               {outstanding.invoices === 1 ? "فاتورة" : "فواتير"}.
             </p>
           </div>
@@ -257,32 +258,26 @@ function ChildCard({ child }: { child: ParentChildView }) {
             </p>
           ) : (
             <ul className="divide-y divide-slate-100 rounded-lg ring-1 ring-slate-200">
-              {upcoming_lessons.map((lesson) => {
-                const d = new Date(lesson.scheduled_start_at);
-                return (
-                  <li
-                    key={lesson.id}
-                    className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-                  >
-                    <span className="text-slate-700">
-                      {d.toLocaleDateString("ar-EG", {
-                        weekday: "long",
-                        day: "numeric",
-                        month: "long",
-                      })}
-                    </span>
-                    <span className="tabular-nums text-slate-500">
-                      {d.toLocaleTimeString("ar-EG", {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </span>
-                    <span className="text-xs text-slate-500">
-                      {lesson.teacher_name ?? "—"}
-                    </span>
-                  </li>
-                );
-              })}
+              {upcoming_lessons.map((lesson) => (
+                <li
+                  key={lesson.id}
+                  className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                >
+                  {/* ⭐ اليوم والوقت **في سطرين مختلفين** — قبل كده
+                      كانوا `toLocaleDateString` + `toLocaleTimeString`
+                      بخيارات مختلفة عن باقي البرنامج */}
+                  <span className="text-slate-700">
+                    {weekday(lesson.scheduled_start_at)}، {date(lesson.scheduled_start_at)}
+                  </span>
+                  <span className="tabular-nums text-slate-500">
+                    {/* ⭐ مافيش `scheduled_end_at` في رد ولي الأمر — وقت بس */}
+                    {time(lesson.scheduled_start_at)}
+                  </span>
+                  <span className="text-xs text-slate-500">
+                    {lesson.teacher_name ?? "—"}
+                  </span>
+                </li>
+              ))}
             </ul>
           )}
         </div>

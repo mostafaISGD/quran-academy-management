@@ -12,6 +12,7 @@ import {
   type EmploymentType,
   type RoleOption,
 } from "@/lib/api";
+import { date } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 import { useUI, IconTrash, IconPencil } from "@/components/ui";
 import EmployeeProfile from "@/components/EmployeeProfile";
@@ -49,13 +50,8 @@ const PAGE_SIZE = 50;
 
 // ---------- أدوات ----------
 
-const fmtDate = (v: string | null | undefined): string => {
-  if (!v) return "—";
-  const d = new Date(v);
-  return Number.isNaN(d.getTime())
-    ? "—"
-    : d.toLocaleDateString("ar-EG", { day: "numeric", month: "short", year: "numeric" });
-};
+/** ⭐ alias — التنسيق في `lib/format` بس (كان مكرر هنا) */
+const fmtDate = date;
 
 const initials = (name: string): string => name.trim().charAt(0) || "؟";
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getDashboardSummary, getFinancialReport, getAcademicReport, getSalesReport } from "@/lib/api";
+import { egp, num } from "@/lib/format";
 
 type Tab = "dashboard" | "financial" | "academic" | "sales";
 
@@ -52,16 +53,18 @@ export default function ReportsPage() {
       {!loading && !error && tab === "dashboard" && dashboard && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <StatCard label="حصص اليوم" value={String(dashboard.today.lessons_total)} />
-            <StatCard label="مكتملة" value={String(dashboard.today.lessons_completed)} />
-            <StatCard label="قادمة" value={String(dashboard.today.lessons_upcoming)} />
-            <StatCard label="إيرادات الشهر" value={dashboard.totals.monthly_revenue} />
+            {/* ⭐ `num` و `egp` من `lib/format` — الأرقام أرقام خام
+                من السيرفر دلوقتي (مش نصوص منسّقة) */}
+            <StatCard label="حصص اليوم" value={num(dashboard.today.lessons_total, 0)} />
+            <StatCard label="مكتملة" value={num(dashboard.today.lessons_completed, 0)} />
+            <StatCard label="قادمة" value={num(dashboard.today.lessons_upcoming, 0)} />
+            <StatCard label="إيرادات الشهر" value={egp(dashboard.totals.monthly_revenue)} />
           </div>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <StatCard label="طلاب نشطون" value={String(dashboard.totals.active_students)} />
-            <StatCard label="معلمين نشطون" value={String(dashboard.totals.active_teachers)} />
-            <StatCard label="اشتراكات قاربت على الانتهاء" value={String(dashboard.alerts.subscriptions_expiring_soon)} alert />
-            <StatCard label="مستحقات معلمين معلقة" value={dashboard.alerts.pending_teacher_payments} alert />
+            <StatCard label="طلاب نشطون" value={num(dashboard.totals.active_students, 0)} />
+            <StatCard label="معلمين نشطون" value={num(dashboard.totals.active_teachers, 0)} />
+            <StatCard label="اشتراكات قاربت على الانتهاء" value={num(dashboard.alerts.subscriptions_expiring_soon, 0)} alert />
+            <StatCard label="مستحقات معلمين معلقة" value={egp(dashboard.alerts.pending_teacher_payments)} alert />
           </div>
         </div>
       )}
@@ -70,11 +73,16 @@ export default function ReportsPage() {
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
             {Object.entries(financial.revenue.by_currency).map(([currency, data]) => (
-              <StatCard key={currency} label={`الإيرادات (${currency})`} value={data.total} sub={`${data.count} دفعة`} />
+              <StatCard
+                key={currency}
+                label={`الإيرادات (${currency})`}
+                value={currency === "EGP" ? egp(data.total) : `${num(data.total)} ${currency}`}
+                sub={`${num(data.count, 0)} دفعة`}
+              />
             ))}
-            <StatCard label="إجمالي المسترجع" value={financial.revenue.total_refunded} alert />
-            <StatCard label="أرباح المعلمين" value={financial.teacher_costs.gross_earnings} />
-            <StatCard label="دفعات المعلمين" value={financial.teacher_costs.payments_made} />
+            <StatCard label="إجمالي المسترجع" value={egp(financial.revenue.total_refunded)} alert />
+            <StatCard label="أرباح المعلمين" value={egp(financial.teacher_costs.gross_earnings)} />
+            <StatCard label="دفعات المعلمين" value={egp(financial.teacher_costs.payments_made)} />
           </div>
         </div>
       )}
@@ -82,16 +90,16 @@ export default function ReportsPage() {
       {!loading && !error && tab === "academic" && academic && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <StatCard label="إجمالي الحصص" value={String(academic.lessons.total)} />
-            <StatCard label="مكتملة" value={String(academic.lessons.completed)} />
-            <StatCard label="ملغاة" value={String(academic.lessons.cancelled)} />
-            <StatCard label="غياب طالب" value={String(academic.lessons.student_absent)} />
+            <StatCard label="إجمالي الحصص" value={num(academic.lessons.total, 0)} />
+            <StatCard label="مكتملة" value={num(academic.lessons.completed, 0)} />
+            <StatCard label="ملغاة" value={num(academic.lessons.cancelled, 0)} />
+            <StatCard label="غياب طالب" value={num(academic.lessons.student_absent, 0)} />
           </div>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <StatCard label="حاضر" value={String(academic.attendance.present)} />
-            <StatCard label="غائب" value={String(academic.attendance.absent)} />
-            <StatCard label="متأخر" value={String(academic.attendance.late)} />
-            <StatCard label="اشتراكات نشطة" value={String(academic.subscriptions.active)} />
+            <StatCard label="حاضر" value={num(academic.attendance.present, 0)} />
+            <StatCard label="غائب" value={num(academic.attendance.absent, 0)} />
+            <StatCard label="متأخر" value={num(academic.attendance.late, 0)} />
+            <StatCard label="اشتراكات نشطة" value={num(academic.subscriptions.active, 0)} />
           </div>
         </div>
       )}
@@ -99,15 +107,16 @@ export default function ReportsPage() {
       {!loading && !error && tab === "sales" && sales && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <StatCard label="إجمالي Leads" value={String(sales.leads.total)} />
-            <StatCard label="تم التحويل" value={String(sales.leads.converted)} />
-            <StatCard label="معدل التحويل" value={sales.leads.conversion_rate} />
-            <StatCard label="تقييمات تجريبية" value={String(sales.trials.total)} />
+            <StatCard label="إجمالي Leads" value={num(sales.leads.total, 0)} />
+            <StatCard label="تم التحويل" value={num(sales.leads.converted, 0)} />
+            {/* ⭐ النسبة **رقم** دلوقتي — الـ `%` بتتحط هنا */}
+            <StatCard label="معدل التحويل" value={`${num(sales.leads.conversion_rate, 1)}%`} />
+            <StatCard label="تقييمات تجريبية" value={num(sales.trials.total, 0)} />
           </div>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <StatCard label="جاهز للاشتراك" value={String(sales.trials.ready_to_subscribe)} />
-            <StatCard label="يحتاج متابعة" value={String(sales.trials.needs_follow_up)} />
-            <StatCard label="غير مناسب" value={String(sales.trials.not_suitable)} />
+            <StatCard label="جاهز للاشتراك" value={num(sales.trials.ready_to_subscribe, 0)} />
+            <StatCard label="يحتاج متابعة" value={num(sales.trials.needs_follow_up, 0)} />
+            <StatCard label="غير مناسب" value={num(sales.trials.not_suitable, 0)} />
           </div>
         </div>
       )}

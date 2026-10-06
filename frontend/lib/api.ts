@@ -2692,8 +2692,14 @@ export function getAuditLogs(params?: {
 export function getDashboardSummary() {
   return apiFetch<{
     today: { lessons_total: number; lessons_completed: number; lessons_upcoming: number };
-    totals: { active_students: number; active_teachers: number; monthly_revenue: string };
-    alerts: { subscriptions_expiring_soon: number; pending_teacher_payments: string; unscheduled_leads: number };
+    // ⭐ الأرقام المالية **أرقام خام** مش نصوص منسّقة.
+    //
+    // كان السيرفر بيرجّع `number_format($x, 2)` = نص `"1234.50"`.
+    // فالقيم كانت نصوص والواجهة كانت بتعمل `.replace(/,/g, "")`
+    // وترجع رقم — اقتباس مرتين. دلوقتي `number` والعرض
+    // بياخد `egp()` من `lib/format`.
+    totals: { active_students: number; active_teachers: number; monthly_revenue: number };
+    alerts: { subscriptions_expiring_soon: number; pending_teacher_payments: number; unscheduled_leads: number };
   }>("/dashboard/summary");
 }
 
@@ -2703,8 +2709,13 @@ export function getFinancialReport(params?: { from?: string; to?: string }) {
   if (params?.to) search.set("to", params.to);
   return apiFetch<{
     period: { from: string; to: string };
-    revenue: { by_currency: Record<string, { total: string; count: number }>; by_method: Record<string, { total: string; count: number }>; total_refunded: string };
-    teacher_costs: { gross_earnings: string; payments_made: string };
+    // ⭐ أرقام خام — شوف `getDashboardSummary()`
+    revenue: {
+      by_currency: Record<string, { total: number; count: number }>;
+      by_method: Record<string, { total: number; count: number }>;
+      total_refunded: number;
+    };
+    teacher_costs: { gross_earnings: number; payments_made: number };
   }>(`/reports/financial?${search.toString()}`);
 }
 
@@ -2727,7 +2738,14 @@ export function getSalesReport(params?: { from?: string; to?: string }) {
   if (params?.to) search.set("to", params.to);
   return apiFetch<{
     period: { from: string; to: string };
-    leads: { total: number; converted: number; conversion_rate: string };
+    /**
+     * ⭐ `conversion_rate` **رقم** مش نص.
+     *
+     * كان السيرفر بيعمل `round(...) . '%'` — يعني `"45.5%"` نص.
+     * فالواجهة كانت بتعمل `replace("%", "")` وترجع رقم. دلوقتي
+     * الرقم لوحده والـ `%` بتتحط في العرض.
+     */
+    leads: { total: number; converted: number; conversion_rate: number };
     trials: { total: number; ready_to_subscribe: number; needs_follow_up: number; not_suitable: number };
   }>(`/reports/sales?${search.toString()}`);
 }

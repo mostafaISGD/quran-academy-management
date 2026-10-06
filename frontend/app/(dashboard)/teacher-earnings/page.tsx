@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getTeacherEarnings, getTeachers, type TeacherEarning, type Teacher } from "@/lib/api";
-import { date } from "@/lib/format";
+import { date, egp } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
 const PAGE_SIZE = 100;
@@ -21,10 +21,8 @@ const STATUS_TONE: Record<TeacherEarning["status"], string> = {
   cancelled: "bg-slate-100 text-slate-500",
 };
 
-const fmtMoney = (n: number | undefined) =>
-  n === undefined
-    ? "—"
-    : `${n.toLocaleString("ar-EG", { maximumFractionDigits: 2 })} ج.م`;
+/** ⭐ alias — التنسيق في `lib/format` (كان `toLocaleString` مكرر هنا) */
+const fmtMoney = egp;
 
 export default function TeacherEarningsPage() {
   const [earnings, setEarnings] = useState<TeacherEarning[]>([]);

@@ -1,48 +1,75 @@
 /**
- * ⭐ تنسيق الأرقام والتواريخ بالعربي — في مكان واحد.
+ * ⭐ تنسيق الأرقام والتواريخ والأوقات — في مكان واحد.
  *
- * ليه ده في ملف؟ لأن `toLocaleString("ar-EG")` من غير خيارات
- * بيطلع **أرقام إنجليزية** (Gregorian) — تقدر تشوف في كل
- * صفحة تاريخ بيطلع `05/10/2026`. الطريقة الصح:
+ * ليه ده في ملف؟ لأن كل صفحة كانت بتعمل `toLocaleString("ar-EG")`
+ * لوحدها، فطلعت **٣٠ شكل مختلف** في برنامج واحد:
  *
- *   - `'ar-EG'` + خيارات → أرقام إنجليزية مع شهر عربي
- *   - `'ar-EG-u-nu-arab'` → أرقام عربية (٠١٢٣) والشهر العربي
+ *   - سطر طويل غامض: `toLocaleString` من غير خيارات بيضيف
+ *     **الثواني**: `7/10/2026، 7:05:00 م`
+ *   - تواريخ بأشكال مختلفة: `2026-10-07` / `10/7/2026` / `٧ أكتوبر`
  *
- * التطبيق كله عربي، فالأرقام العربية هي الصح. وكل التواريخ
- * والأرقام بتعدّي من هنا عشان ما ننسى.
+ * فكل تاريخ ورقم في التطبيق يعدّي من هنا. لو تغيّر شكل غلط، ده
+ * سطر واحد في الملف ده مش ٣٠ سطر في ١٧ ملف.
+ *
+ * ─────────────────────────────────────────────────────────────
+ * ⭐ ليه `ar-EG-u-nu-latn` بالذات؟
+ *
+ * ⚠️ **`ar-EG` لوحدها مش كافية** — ودي نقطة اتأكدت منها في
+ * المتصفح نفسه:
+ *
+ *   `ar-EG`           → ٧ أكتوبر ٢٠٢٦   (عربية)
+ *   `ar-EG-u-nu-arab` → ٧ أكتوبر ٢٠٢٦   (عربية)
+ *   `ar-EG-u-nu-latn` → 7 أكتوبر 2026   (لاتينية)  ✅
+ *
+ * `-u-nu-latn` بيقول للـ Intl صريح: «عايز الأرقام اللاتينية».
+ * من غيرها النتيجة بتختلف من متصفح لمتصفح ومن بيئة لليومدة.
+ *
+ * التطبيق كله عربي (الشهر والأيام عربية)، بس الأرقام لATIN
+ * لأنها اللي بتتقرا أسرع في الجداول المالية — وعندنا أرقام
+ * بتعرض كل يوم.
  */
+
+/** أرقام لاتينية + شهر وأيام عربية */
+const LOCALE = "ar-EG-u-nu-latn";
 
 /**
- * ⭐ الأرقام العربية الـtrue: `ar-EG-u-nu-arab`.
+ * ⭐ خيارات الوقت — **مشتركة** ومكتوبة صراحةً.
  *
- * `ar-EG` لوحدها بتطلع **أرقام إنجليزية** (٠١٢٣ مش 123). الفرق
- * في الـ Unicode extension `-u-nu-arab` اللي بيقول للـ Intl:
- * «عايز أرقام عربية». التطبيق كله عربي، فده الصح.
+ * `hour12: true` ضروري: لو اتشال، النتيجة بتختلف بين إصدارات
+ * ICU — ساعة هنا و24 ساعة هناك.
  *
- * لو المستخدم يفضل الأرقام اللاتينية (لأن الأرقام بتبان أسرع
- * في الجداول المالية)، ده تغيير في سطر واحد هنا مش في كل ملف.
+ * `hour: "numeric"` مش `"2-digit"`: عشان `7:05 م` بدل
+ * `07:05 م`. الصفر البادي مش بيقول هنا حاجة.
  */
-const LOCALE = "ar-EG-u-nu-arab";
+const TIME_OPTS: Intl.DateTimeFormatOptions = {
+  hour: "numeric",
+  minute: "2-digit",
+  hour12: true,
+};
 
-/** رقم بفاصلة آلاف وأرقام عربية */
+/** رقم بفاصلة آلاف: `1,200` */
 export function num(value: number | string | null | undefined, maxFrac = 2): string {
-  const n = typeof value === "string" ? parseFloat(value) : value;
-  if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  const n = toNumber(value);
+  if (n === null) return "—";
   return n.toLocaleString(LOCALE, { maximumFractionDigits: maxFrac });
 }
 
-/** جنيه مصري */
+/**
+ * جنيه مصري: `400 ج.م` أو `1,234.5 ج.م`
+ *
+ * ⭐ من غير `minimumFractionDigits` — يعني `400` بتبقى `400`
+ * مش `400.00`. ده اللي المفروض يبان في الفواتير.
+ */
 export function egp(value: number | string | null | undefined, maxFrac = 2): string {
-  const n = typeof value === "string" ? parseFloat(value) : value;
-  if (n === null || n === undefined || Number.isNaN(n)) return "—";
+  const n = toNumber(value);
+  if (n === null) return "—";
   return `${n.toLocaleString(LOCALE, { maximumFractionDigits: maxFrac })} ج.م`;
 }
 
-/** تاريخ قصير: ٥ أكتوبر ٢٠٢٦ */
+/** تاريخ بس: `7 أكتوبر 2026` */
 export function date(value: string | Date | null | undefined): string {
-  if (!value) return "—";
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
+  const d = toDate(value);
+  if (!d) return "—";
   return d.toLocaleDateString(LOCALE, {
     day: "numeric",
     month: "short",
@@ -50,38 +77,126 @@ export function date(value: string | Date | null | undefined): string {
   });
 }
 
-/** تاريخ طويل: ٥ أكتوبر ٢٠٢٦ */
+/**
+ * تاريخ بس **من غير السنة**: `7 أكتوبر`
+ *
+ * للمكان اللي محتاج تاريخ مختصر — لو الحصة يوم ٧ في نفس
+ * السنة، الـ«2026» بتzierعشو وتضيّع المساحة.
+ */
+export function dateNoYear(value: string | Date | null | undefined): string {
+  const d = toDate(value);
+  if (!d) return "—";
+  return d.toLocaleDateString(LOCALE, { day: "numeric", month: "short" });
+}
+
+/**
+ * شهر وسنة بس: `أكتوبر 2026`
+ *
+ * ⭐ لفلاتر الشهور («آخر ٦ شهور») والفلاتر اللي بتعرض شهر.
+ * من غير يوم — لأن الفلتر بيختار شهر، مش يوم.
+ */
+export function monthYear(value: string | Date | null | undefined): string {
+  const d = toDate(value);
+  if (!d) return "—";
+  return d.toLocaleDateString(LOCALE, { month: "long", year: "numeric" });
+}
+
+/**
+ * شهر بس: `أكتوبر`
+ *
+ * ⭐ للشبكة اللي بتورّي الشهر في أول عمود (تقويم الـ اشتراك).
+ * التسمية صغيرة، فالسنة بتتزحم عليها.
+ */
+export function monthName(value: string | Date | null | undefined): string {
+  const d = toDate(value);
+  if (!d) return "—";
+  return d.toLocaleDateString(LOCALE, { month: "short" });
+}
+
+/**
+ * تاريخ طويل: `7 أكتوبر 2026`
+ *
+ * ⚠️ في `ar-EG` كلمة «long» و«short» بتطلع **نفس الشكل**.
+ * الفرق بيظهر مع لغات تانية (الإنجليزية: `Oct 7` vs `October 7`).
+ * فالناتج واحد في الحالتين — وده مسجّل هنا عشان ما نسألش تاني.
+ */
 export function dateLong(value: string | Date | null | undefined): string {
-  if (!value) return "—";
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(LOCALE, {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
+  return date(value);
 }
 
-/** تاريخ ووقت: ٥ أكتوبر ٢٠٢٦، ٤:٣٠ م */
-export function dateTime(value: string | Date | null | undefined): string {
-  if (!value) return "—";
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString(LOCALE, {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+/** يوم في الأسبوع: `الأربعاء` */
+export function weekday(value: string | Date | null | undefined): string {
+  const d = toDate(value);
+  if (!d) return "—";
+  return d.toLocaleDateString(LOCALE, { weekday: "long" });
 }
 
-/** وقت بس: ٤:٣٠ م */
+/** وقت بس: `7:05 م` */
 export function time(value: string | Date | null | undefined): string {
-  if (!value) return "—";
-  const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
+  const d = toDate(value);
+  if (!d) return "—";
+  return d.toLocaleTimeString(LOCALE, TIME_OPTS);
+}
+
+/**
+ * ⭐ تاريخ ووقت **في سطر واحد**: `7 أكتوبر، الأربعاء - 7:05 م`
+ *
+ * ⚠️ ليه مش `toLocaleString` بخيارات؟
+ *
+ * لأن `toLocaleString` — حتى بخيارات — بيرتّب الحقول بترتيب الـ
+ * locale مش بترتيب عربي مقروء. الطريقة المضمونة إننا نبنيه **إحنا**
+ * من ثلاث قطع: اليوم، اليوم، الوقت.
+ *
+ * ⭐ مافيش سنة هنا — لأنها بتزحم. لو محتاجها، استخدم `dateSmart()`.
+ */
+export function dateTime(value: string | Date | null | undefined): string {
+  const d = toDate(value);
+  if (!d) return "—";
+
+  const dayPart = d.toLocaleDateString(LOCALE, { day: "numeric", month: "short" });
+  const weekdayPart = d.toLocaleDateString(LOCALE, { weekday: "long" });
+  const timePart = d.toLocaleTimeString(LOCALE, TIME_OPTS);
+
+  return `${dayPart}، ${weekdayPart} - ${timePart}`;
+}
+
+/**
+ * ⭐ تاريخ ووقت + **السنة لو مش السنة الحالية**.
+ *
+ * السبب: في سجل العمليات أو إشعار قديم، «7 أكتوبر» من غير سنة
+ * = مش واضح إمتى. أما حاجة من النهاردة، السنة بتzierعشو والوقت
+ * أهم.
+ *
+ *   حدث النهاردة → `7 أكتوبر، الأربعاء - 7:05 م`
+ *   حدث سنة فاتتة → `7 أكتوبر 2025، الثلاثاء - 7:05 م`
+ */
+export function dateSmart(value: string | Date | null | undefined): string {
+  const d = toDate(value);
+  if (!d) return "—";
+
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+
+  const dayPart = sameYear
+    ? d.toLocaleDateString(LOCALE, { day: "numeric", month: "short" })
+    : d.toLocaleDateString(LOCALE, { day: "numeric", month: "short", year: "numeric" });
+
+  const weekdayPart = d.toLocaleDateString(LOCALE, { weekday: "long" });
+  const timePart = d.toLocaleTimeString(LOCALE, TIME_OPTS);
+
+  return `${dayPart}، ${weekdayPart} - ${timePart}`;
+}
+
+/**
+ * ⭐ وقت بداية ونهاية: `7:05 م - 8:00 م`
+ *
+ * للمكان اللي بيعرض **مدى** (ميعاد مجموعة، وردية في الجدول).
+ */
+export function clock(start: string | Date | null | undefined, end?: string | Date | null): string {
+  const from = time(start);
+  if (from === "—") return "—";
+
+  const to = end ? time(end) : "—";
+  return to === "—" ? from : `${from} - ${to}`;
 }
 
 /**
@@ -109,14 +224,11 @@ export function timeOnly(hhmm: string | null | undefined): string {
   if (meridiem === "PM" && hours < 12) hours += 12;
   if (meridiem === "AM" && hours === 12) hours = 0;
 
-  const d = new Date(2000, 0, 1, hours, Number(m[2]));
-  if (Number.isNaN(d.getTime())) return "—";
-
-  return d.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
+  return new Date(2000, 0, 1, hours, Number(m[2])).toLocaleTimeString(LOCALE, TIME_OPTS);
 }
 
 /**
- * ⭐ سطر الميعاد: «الخميس ٧:٠٠ م — ٨:٠٠ م».
+ * ⭐ سطر الميعاد: «الخميس 7:05 م - 8:00 م».
  *
  * ⭐ **التركيب في الواجهة مش في السيرفر** — عن قصد.
  *
@@ -125,8 +237,7 @@ export function timeOnly(hhmm: string | null | undefined): string {
  * وده بيختلف من بيئة لأخرى.
  *
  * التوقيت **عرض** — فلو السيرفر رجّع رقم غلط، الأرقام في الشاشة
- * هتبقى غلط برضه. كل الـ formats في مكان واحد عشان لو غيرنا
- * مرة واحدة.
+ * هتبقى غلط برضه.
  */
 export function scheduleLine(
   weekday: string | null,
@@ -139,15 +250,37 @@ export function scheduleLine(
   if (!day && !from) return null;
 
   const to = end ? timeOnly(end) : null;
-  const range = from ? (to && to !== "—" ? `${from} — ${to}` : from) : null;
+  const range = from ? (to && to !== "—" ? `${from} - ${to}` : from) : null;
 
   return [day, range].filter(Boolean).join(" ");
 }
 
-/** يوم في الأسبوع: الست */
-export function weekday(value: string | Date | null | undefined): string {
-  if (!value) return "—";
+// ============================================================
+// المساعدين — عشان كل دالة فوق تتصرّف زي واحدة
+// ============================================================
+
+/**
+ * ⭐ تحويل لرقم صالح واحد — بتقرأ `null` و`undefined` و`""`.
+ *
+ * ⚠️ ليه مش `parseFloat` لوحدها؟
+ *
+ * `parseFloat("abc")` بترجّع `NaN` — تمام. لكن `Number("")`
+ * بترجّع `0` مش `NaN`! فلو دالة اتنادىت بنص فاضي (الحقل اتسيب
+ * فاضي)، كانت هتعرض `0` بدل «—». و`0` معناها «فعلاً صفر» —
+ * فبتكسر الأرقام بشكل صامت.
+ */
+function toNumber(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined || value === "") return null;
+
+  const n = typeof value === "string" ? parseFloat(value) : value;
+
+  return typeof n === "number" && Number.isFinite(n) ? n : null;
+}
+
+/** ⭐ تحويل لـ `Date` صالح — بترجّع `null` بدل `Invalid Date` */
+function toDate(value: string | Date | null | undefined): Date | null {
+  if (value === null || value === undefined || value === "") return null;
+
   const d = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString(LOCALE, { weekday: "long" });
+  return Number.isNaN(d.getTime()) ? null : d;
 }

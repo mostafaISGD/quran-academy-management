@@ -10,6 +10,7 @@ import {
   type TeacherFinancialSummary, type Lesson,
   type TeacherScheduleBlock, type ScheduleKind,
 } from "@/lib/api";
+import { date, dateSmart, egp, num } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 import { useUI, Modal, IconTrash, IconPencil, IconCheck, IconAlert } from "@/components/ui";
 
@@ -84,28 +85,22 @@ const SORT_OPTIONS = [
 
 // ---------- أدوات مساعدة ----------
 
-function fmtDate(value: string | null | undefined): string {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("ar-EG", { year: "numeric", month: "short", day: "numeric" });
-}
+/**
+ * ⭐ `fmtDate` و `fmtDateTime` و `fmtMoney` اتشالوا.
+ *
+ * كان فيهم **٣ نسخ** من التنسيق مكتوبة يدوي هنا. وكل واحدة
+ * بتعمل حاجة مختلفة عن التانية (`: "ar-EG"` مش `-u-nu-arab`،
+ * و`fmtDateTime` من غير `hour12` صريح).
+ *
+ * فبقى في مكان واحد — `lib/format`.
+ */
+const fmtDate = date;
+const fmtDateTime = dateSmart;
 
-function fmtDateTime(value: string | null | undefined): string {
-  if (!value) return "—";
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleString("ar-EG", {
-    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
-  });
-}
-
+/** ⭐ `egp` بتعمل التحويل لـ«ج.م» جواها — بس لو العملة EGP */
 function fmtMoney(amount: string | number | null | undefined, currency = "EGP"): string {
-  if (amount === null || amount === undefined) return "—";
-  const n = Number(amount);
-  if (Number.isNaN(n)) return "—";
-  const symbol = currency === "EGP" ? "ج.م" : currency;
-  return `${n.toLocaleString("ar-EG", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ${symbol}`;
+  if (currency === "EGP") return egp(amount);
+  return `${num(amount)} ${currency}`;
 }
 
 function fullPhone(teacher: Pick<Teacher, "phone" | "country_code">): string {
@@ -628,7 +623,7 @@ function ScheduleTab({ teacherId }: { teacherId: number }) {
             return (
               <span key={k} className="inline-flex items-center gap-1">
                 <span className={`size-2 rounded-full ${KIND_DOT[k]}`} />
-                {SCHEDULE_KIND_LABEL[k]} {n.toLocaleString("ar-EG")}
+                {SCHEDULE_KIND_LABEL[k]} {num(n, 0)}
               </span>
             );
           })}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getNotifications, markNotificationRead, markAllNotificationsRead, type Notification } from "@/lib/api";
+import { dateSmart } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
 const EVENT_LABEL: Record<Notification["event_type"], string> = {
@@ -108,7 +109,11 @@ export default function NotificationsPage() {
             <div key={n.id} className={`flex items-center justify-between rounded-xl border p-4 ${n.read_at ? "border-slate-200 bg-white" : "border-blue-200 bg-blue-50"}`}>
               <div>
                 <p className={`text-sm ${n.read_at ? "text-slate-600" : "font-medium text-slate-800"}`}>{EVENT_LABEL[n.event_type]}</p>
-                <p className="text-xs text-slate-400">{CHANNEL_LABEL[n.channel]} — {n.sent_at ? new Date(n.sent_at).toLocaleString("ar-EG") : ""}</p>
+                {/* ⭐ `dateSmart` — كان السطر الطويل بالثواني */}
+                <p className="text-xs text-slate-400">
+                  {CHANNEL_LABEL[n.channel]}
+                  {n.sent_at ? ` — ${dateSmart(n.sent_at)}` : ""}
+                </p>
                 {n.payload && typeof n.payload === "object" && "message" in n.payload && <p className="mt-1 text-xs text-slate-500">{String((n.payload as { message?: string }).message)}</p>}
               </div>
               {!n.read_at && (

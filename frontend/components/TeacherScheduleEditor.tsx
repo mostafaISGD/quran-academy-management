@@ -12,6 +12,7 @@ import {
   type ScheduleKind,
   type Lesson,
 } from "@/lib/api";
+import { dateTime, num } from "@/lib/format";
 import { Modal, useUI, IconTrash, IconPencil, IconCheck, IconAlert } from "@/components/ui";
 
 export const DAY_ORDER = [0, 1, 2, 3, 4, 5, 6];
@@ -60,11 +61,12 @@ const spanOf = (b: TeacherScheduleBlock) => {
   return e > s ? e - s : e + 1440 - s;
 };
 
+/** ⭐ مدة بالساعات: `١٢ ساعة` / `ساعة و٣٠ دقيقة` */
 const fmtDur = (mins: number) => {
-  if (mins < 60) return `${mins} دقيقة`;
+  if (mins < 60) return `${num(mins, 0)} دقيقة`;
   const h = Math.floor(mins / 60);
   const m = mins % 60;
-  return m === 0 ? `${h} ساعة` : `${h} ساعة و${m} دقيقة`;
+  return m === 0 ? `${num(h, 0)} ساعة` : `${num(h, 0)} ساعة و${num(m, 0)} دقيقة`;
 };
 
 type Props = {
@@ -249,24 +251,25 @@ export default function TeacherScheduleEditor({
         <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
           <div className="rounded-xl bg-slate-800 p-4 text-center text-white">
             <p className="text-xs text-slate-300">إجمالي المواعيد</p>
-            <p className="mt-1 text-xl font-bold">{blocks.length.toLocaleString("ar-EG")}</p>
+            <p className="mt-1 text-xl font-bold">{num(blocks.length, 0)}</p>
           </div>
           <div className="rounded-xl bg-slate-50 p-4 text-center ring-1 ring-slate-200">
             <p className="text-xs text-slate-500">أيام مشغولة</p>
             <p className="mt-1 text-xl font-bold text-slate-800">
-              {activeDays.length.toLocaleString("ar-EG")}
+              {num(activeDays.length, 0)}
             </p>
           </div>
           <div className="rounded-xl bg-slate-50 p-4 text-center ring-1 ring-slate-200">
             <p className="text-xs text-slate-500">ساعات مشغولة / الأسبوع</p>
+            {/* ⭐ رقم عشري واحد — الساعات ممكن تبقى ٢٫٥ */}
             <p className="mt-1 text-xl font-bold text-slate-800">
-              {(byDay.busy / 60).toLocaleString("ar-EG", { maximumFractionDigits: 1 })}
+              {num(byDay.busy / 60, 1)}
             </p>
           </div>
           <div className="rounded-xl bg-emerald-50 p-4 text-center">
             <p className="text-xs text-emerald-600">حصص قادمة في الأكاديمية</p>
             <p className="mt-1 text-xl font-bold text-emerald-800">
-              {loadingLessons ? "…" : upcomingLessons.length.toLocaleString("ar-EG")}
+              {loadingLessons ? "…" : num(upcomingLessons.length, 0)}
             </p>
           </div>
         </div>
@@ -418,14 +421,11 @@ export default function TeacherScheduleEditor({
                 <span className="size-2 shrink-0 rounded-full bg-emerald-500" />
                 <span className="text-sm text-slate-700">{l.student?.full_name ?? "—"}</span>
                 <span className="text-xs text-slate-500">{l.program?.name ?? "—"}</span>
+                {/* ⭐ `dateTime` — «7 أكتوبر، الأربعاء - 7:05 م».
+                    القديم كان بيطلع ترتيب الحقول بتاعة الـ locale
+                    («الأحد، 7 أكتوبر، 07:05 م») وفيه صفر بادي. */}
                 <span className="ms-auto text-xs tabular-nums text-slate-500">
-                  {new Date(l.scheduled_start_at).toLocaleString("ar-EG", {
-                    weekday: "short",
-                    day: "numeric",
-                    month: "short",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
+                  {dateTime(l.scheduled_start_at)}
                 </span>
               </li>
             ))}

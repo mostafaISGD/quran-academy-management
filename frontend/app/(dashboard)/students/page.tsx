@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef, memo } from "react";
-import { date, num, time } from "@/lib/format";
+import { date, dateNoYear, dateSmart, egp, monthYear, num, time, weekday } from "@/lib/format";
 import {
   apiFetch, getStudents, createStudent, updateStudent, deleteStudent,
   getTeachers, getPrograms, getSubscriptions, getSchedule, getStudent,
@@ -365,7 +365,8 @@ export default function StudentsPage() {
 
   const renderNextLessonColumn = (s: Student) => {
     if (!s.next_lesson_date) return "—";
-    return new Date(s.next_lesson_date).toLocaleDateString("ar-EG", { day: "numeric", month: "short" });
+    // ⭐ تاريخ **من غير السنة** — الحصة الجاية قريبة، والسنة بتزحم
+    return dateNoYear(s.next_lesson_date);
   };
 
   // Phone Manager Functions
@@ -1361,13 +1362,14 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
         );
       } else if (r.skipped_count > 0) {
         toast.warning(
-          `تم إنشاء ${r.created_count} فاتورة بإجمالي ${r.total_amount.toLocaleString("ar-EG")} ج.م`,
-          `${r.skipped_count} طالب اتخطوا (مفيش ليهم اشتراك نشط).`,
+          // ⭐ `num` + `egp` من `lib/format` — مش `toLocaleString` مباشرة
+          `تم إنشاء ${num(r.created_count, 0)} فاتورة بإجمالي ${egp(r.total_amount)}`,
+          `${num(r.skipped_count, 0)} طالب اتخطوا (مفيش ليهم اشتراك نشط).`,
         );
       } else {
         toast.success(
-          `تم إنشاء ${r.created_count} فاتورة`,
-          `إجمالي ${r.total_amount.toLocaleString("ar-EG")} ج.م`,
+          `تم إنشاء ${num(r.created_count, 0)} فاتورة`,
+          `إجمالي ${egp(r.total_amount)}`,
         );
       }
       setSelectedIds([]);
@@ -1509,7 +1511,9 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
     }
 
     const now = new Date();
-    const dateStr = now.toLocaleDateString("ar-EG", { day: "numeric", month: "long", year: "numeric" });
+    // ⭐ `dateSmart` مش `dateLong` — التقرير بيقول إمتى اتعمل،
+    // فلازم يظهر **السنة** لو التقرير من سنة فاتتة
+    const dateStr = dateSmart(now);
     const timeStr = time(now);
 
     // Build filter description
@@ -1624,7 +1628,8 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                         cellContent = s.date_of_birth ? date(s.date_of_birth) : "—";
                         break;
                       case "next_lesson":
-                        cellContent = s.next_lesson_date ? new Date(s.next_lesson_date).toLocaleDateString("ar-EG", { day: "numeric", month: "short" }) : "—";
+                        // ⭐ `dateNoYear` — الحصة الجاية، السنة بتزحم
+                        cellContent = s.next_lesson_date ? dateNoYear(s.next_lesson_date) : "—";
                         break;
                       default:
                         cellContent = "—";
@@ -1656,7 +1661,8 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
     const now = new Date();
     for (let i = 0; i < 6; i++) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      result.push({ label: d.toLocaleDateString("ar-EG", { month: "long", year: "numeric" }), value: d.toISOString().split("T")[0] });
+      // ⭐ «أكتوبر 2026» — اسم الشهر والسنة، من غير يوم
+      result.push({ label: monthYear(d), value: d.toISOString().split("T")[0] });
     }
     return result;
   }, []);
@@ -1754,7 +1760,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
           <div className="flex flex-wrap items-center gap-3">
             <span className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-3 py-1.5 text-sm font-semibold">
               <span className="flex size-6 items-center justify-center rounded-full bg-white text-xs font-bold text-slate-800">
-                {selectedIds.length.toLocaleString("ar-EG")}
+                {num(selectedIds.length, 0)}
               </span>
               طالب محدد
             </span>
@@ -2161,7 +2167,9 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     {(studentDetail?.lessons ?? []).length === 0 && <p className="text-sm text-slate-400">لا توجد حصص</p>}
                     {(studentDetail?.lessons ?? []).slice(0, 10).map((lesson) => (
                       <div key={lesson.id} className="flex items-center justify-between border-b border-slate-100 py-2 last:border-0">
-                        <div><p className="text-sm text-slate-800">{new Date(lesson.scheduled_start_at).toLocaleString("ar-EG")}</p><p className="text-xs text-slate-500">{programs.find((p) => p.id === lesson.program_id)?.name ?? "—"}</p></div>
+                        {/* ⭐ `dateSmart` — كان `toLocaleString` بيطلع
+                            السطر الطويل بالثواني */}
+                        <div><p className="text-sm text-slate-800">{dateSmart(lesson.scheduled_start_at)}</p><p className="text-xs text-slate-500">{programs.find((p) => p.id === lesson.program_id)?.name ?? "—"}</p></div>
                         <span className={`rounded-full px-2 py-0.5 text-xs ${lesson.status === "completed" ? "bg-green-100 text-green-700" : lesson.status === "scheduled" ? "bg-yellow-100 text-yellow-700" : "bg-slate-100 text-slate-500"}`}>{lesson.status}</span>
                       </div>
                     ))}
@@ -2562,12 +2570,16 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                       <tbody className="divide-y divide-slate-100">
                         {attendanceReport.by_date?.slice(-14).reverse().map((d: AttendanceReport['by_date'][0]) => (
                           <tr key={d.date} className="hover:bg-slate-50">
-                            <td className="px-4 py-2">{new Date(d.date).toLocaleDateString('ar-EG', { weekday: 'short', day: 'numeric', month: 'short' })}</td>
-                            <td className="px-4 py-2 text-center">{d.total}</td>
-                            <td className="px-4 py-2 text-center text-green-600">{d.present}</td>
-                            <td className="px-4 py-2 text-center text-red-600">{d.absent}</td>
-                            <td className="px-4 py-2 text-center text-amber-600">{d.late}</td>
-                            <td className="px-4 py-2 text-center font-medium">{d.rate}%</td>
+                            {/* ⭐ «الأحد 7 أكتوبر» — يوم + يوم مختصر */}
+                            <td className="px-4 py-2">
+                              {weekday(d.date)} {dateNoYear(d.date)}
+                            </td>
+                            <td className="px-4 py-2 text-center">{num(d.total, 0)}</td>
+                            <td className="px-4 py-2 text-center text-green-600">{num(d.present, 0)}</td>
+                            <td className="px-4 py-2 text-center text-red-600">{num(d.absent, 0)}</td>
+                            <td className="px-4 py-2 text-center text-amber-600">{num(d.late, 0)}</td>
+                            {/* ⭐ `num` بحد أقصى رقم عشري — النسبة كسر */}
+                            <td className="px-4 py-2 text-center font-medium">{num(d.rate, 1)}%</td>
                           </tr>
                         ))}
                       </tbody>
@@ -2616,10 +2628,10 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                       <div key={currency} className="rounded-lg bg-slate-50 p-3 text-center">
                         <p className="text-xs text-slate-500">{currency}</p>
                         <p className="text-lg font-bold text-slate-800">
-                          {data.total.toLocaleString("ar-EG", { maximumFractionDigits: 2 })}{" "}
-                          {currency === "EGP" ? "ج.م" : currency}
+                          {/* ⭐ `egp` بتعمل التحويل لـ«ج.م» جواها */}
+                          {currency === "EGP" ? egp(data.total) : `${num(data.total)} ${currency}`}
                         </p>
-                        <p className="text-xs text-slate-500">{data.count} اشتراك</p>
+                        <p className="text-xs text-slate-500">{num(data.count, 0)} اشتراك</p>
                       </div>
                     ))}
                   </div>
@@ -2643,12 +2655,10 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                         {subscriptionReport.by_program?.map((p: SubscriptionReport['by_program'][0]) => (
                           <tr key={p.program_id} className="hover:bg-slate-50">
                             <td className="px-4 py-2">{p.program_name}</td>
-                            <td className="px-4 py-2 text-center">{p.total}</td>
-                            <td className="px-4 py-2 text-center text-green-600">{p.active}</td>
-                            <td className="px-4 py-2 text-center text-red-600">{p.expired}</td>
-                            <td className="px-4 py-2 text-right font-medium">
-                              {p.revenue.toLocaleString("ar-EG", { maximumFractionDigits: 2 })}
-                            </td>
+                            <td className="px-4 py-2 text-center">{num(p.total, 0)}</td>
+                            <td className="px-4 py-2 text-center text-green-600">{num(p.active, 0)}</td>
+                            <td className="px-4 py-2 text-center text-red-600">{num(p.expired, 0)}</td>
+                            <td className="px-4 py-2 text-right font-medium">{egp(p.revenue)}</td>
                           </tr>
                         ))}
                       </tbody>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getInvoices, createInvoice, deleteInvoice, type Invoice } from "@/lib/api";
+import { egp } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 import { useUI } from "@/components/ui";
 
@@ -49,8 +50,9 @@ export default function InvoicesPage() {
 
   useEffect(() => { loadInvoices(1); }, []);
 
-  const fmt = (n: number | undefined) =>
-    n === undefined ? "—" : n.toLocaleString("ar-EG", { maximumFractionDigits: 2 }) + " ج.م";
+  // ⭐ `egp` من `lib/format` — بتعمل التحويل لـ«ج.م» جواها
+  const fmt = egp;
+
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();

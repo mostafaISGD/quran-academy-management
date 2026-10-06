@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { date } from "@/lib/format";
+import { date, dateTime } from "@/lib/format";
 import {
   getEmployee,
   getEmployeeActivity,
@@ -78,21 +78,16 @@ const ENTITY_LABEL: Record<string, string> = {
   attendance: "حضور",
 };
 
-const fmtDate = (v?: string | null): string => {
-  if (!v) return "—";
-  const d = new Date(v);
-  return Number.isNaN(d.getTime())
-    ? "—"
-    : date(d);
-};
-
-const fmtDateTime = (v?: string | null): string => {
-  if (!v) return "—";
-  const d = new Date(v);
-  return Number.isNaN(d.getTime())
-    ? "—"
-    : d.toLocaleString("ar-EG", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-};
+/**
+ * ⭐ `fmtDate` و `fmtDateTime` بقوا مجرد أسماء لـ `lib/format`.
+ *
+ * كان فيهم منطق مكرر (`!v` و `NaN` و `toLocaleString`) — والنسخة
+ * الأولى بتعمل `date()` والتانية بتعمل حاجة تانية خالص.
+ *
+ * فبقوا alias. لو `format` اتغيّر، الشاشة كلها تتحرك معاه.
+ */
+const fmtDate = date;
+const fmtDateTime = dateTime;
 
 const AVATAR_COLORS = [
   "bg-blue-100 text-blue-700", "bg-emerald-100 text-emerald-700",

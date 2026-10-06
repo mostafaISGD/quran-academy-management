@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getAssessments, createAssessment, updateAssessmentResult, type Assessment } from "@/lib/api";
+import { dateSmart } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
 const RESULT_LABEL: Record<string, string> = {
@@ -121,7 +122,10 @@ export default function AssessmentsPage() {
               <div className="flex items-center justify-between">
                 <div>
                   <p className="font-medium text-slate-800">{a.lead?.full_name ?? `Lead ${a.lead_id}`}</p>
-                  <p className="text-sm text-slate-500">المعلم: {a.teacher?.full_name ?? a.teacher_id} — {new Date(a.scheduled_at).toLocaleString("ar-EG")}</p>
+                  {/* ⭐ `dateSmart` — كان السطر الطويل بالثواني */}
+                  <p className="text-sm text-slate-500">
+                    المعلم: {a.teacher?.full_name ?? a.teacher_id} — {dateSmart(a.scheduled_at)}
+                  </p>
                   <div className="mt-1 flex gap-3 text-xs text-slate-500">
                     <span>قراءة: {a.reading_score ?? "—"}</span>
                     <span>تجويد: {a.tajweed_score ?? "—"}</span>

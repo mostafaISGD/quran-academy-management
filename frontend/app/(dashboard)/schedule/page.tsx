@@ -13,6 +13,7 @@ import {
   getPrograms, getSubscriptions,
   type Lesson, type Student, type Teacher, type Program, type Subscription,
 } from "@/lib/api";
+import { date, dateSmart, monthYear, num, time } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
 type ViewMode = "day" | "week" | "teachers";
@@ -37,13 +38,15 @@ const LESSON_TYPE_LABEL: Record<string, string> = {
 const DAYS_AR = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"];
 const DAYS_SHORT = ["أحد", "إثنين", "ثلاثاء", "أربعاء", "خميس", "جمعة", "سبت"];
 
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
-}
-
-function formatDate(date: Date) {
-  return date.toLocaleDateString("ar-EG", { day: "numeric", month: "long", year: "numeric" });
-}
+/**
+ * ⭐ `formatTime` و `formatDate` اتشالوا.
+ *
+ * كان فيهم نسختين من `lib/format` مكتوبتين يدوي هنا، وكل واحدة
+ * بطريقتها: `formatTime` كانت 12 ساعة **من غير** `hour12` صريح،
+ * و`formatDate` كانت بتطلع `٧ أكتوبر ٢٠٢٦`.
+ *
+ * فبقى في **مكان واحد** — والتغيير لو حصل، مكان واحد.
+ */
 
 export default function SchedulePage() {
   const { toast, prompt } = useUI();
@@ -207,7 +210,8 @@ export default function SchedulePage() {
     const who = lesson.student?.full_name ?? `الحصة #${lesson.id}`;
     const reason = await prompt({
       title: "إلغاء الحصة",
-      message: `اختر سبب إلغاء حصة ${who} في ${new Date(lesson.scheduled_start_at).toLocaleString("ar-EG")}.`,
+      // ⭐ `dateSmart` — كان `toLocaleString` بيطلع السطر الطويل بالثواني
+      message: `اختر سبب إلغاء حصة ${who} في ${dateSmart(lesson.scheduled_start_at)}.`,
       label: "سبب الإلغاء",
       options: [
         { value: "غياب الطالب", label: "غياب الطالب" },
@@ -304,7 +308,7 @@ export default function SchedulePage() {
         <div className="flex items-center gap-2">
           <button onClick={() => navigateDate(-1)} className="rounded-lg bg-slate-100 px-3 py-2 text-sm hover:bg-slate-200">◀</button>
           <span className="min-w-[200px] text-center text-sm font-medium text-slate-700">
-            {viewMode === "day" ? formatDate(currentDate) : viewMode === "week" ? `أسبوع ${formatDate(currentDate)}` : currentDate.toLocaleDateString("ar-EG", { month: "long", year: "numeric" })}
+            {viewMode === "day" ? date(currentDate) : viewMode === "week" ? `أسبوع ${date(currentDate)}` : monthYear(currentDate)}
           </span>
           <button onClick={() => navigateDate(1)} className="rounded-lg bg-slate-100 px-3 py-2 text-sm hover:bg-slate-200">▶</button>
           <button onClick={() => setCurrentDate(new Date())} className="rounded-lg bg-slate-100 px-3 py-2 text-xs text-slate-600 hover:bg-slate-200">اليوم</button>
@@ -361,7 +365,7 @@ export default function SchedulePage() {
       {/* DAY VIEW - Timeline */}
       {!loading && !error && viewMode === "day" && (
         <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <h2 className="mb-4 text-lg font-semibold text-slate-800">جدول اليوم — {formatDate(currentDate)}</h2>
+          <h2 className="mb-4 text-lg font-semibold text-slate-800">جدول اليوم — {date(currentDate)}</h2>
           <div className="space-y-1">
             {HOURS.map((hour) => {
               const hourLessons = lessonsByHour[hour] ?? [];
@@ -451,7 +455,7 @@ export default function SchedulePage() {
                   {tLessons.length === 0 && <p className="text-sm text-slate-400">لا توجد حصص</p>}
                   {tLessons.map((lesson) => (
                     <div key={lesson.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                      <span className="text-slate-600">{formatTime(lesson.scheduled_start_at)} — {lesson.student?.full_name}</span>
+                      <span className="text-slate-600">{time(lesson.scheduled_start_at)} — {lesson.student?.full_name}</span>
                       <span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_CONFIG[lesson.status]?.bg ?? "bg-slate-100"}`}>
                         {STATUS_CONFIG[lesson.status]?.label ?? lesson.status}
                       </span>
@@ -549,7 +553,7 @@ export default function SchedulePage() {
               </div>
               <p className="text-sm text-slate-600">المعلم: {selectedLesson.teacher?.full_name}</p>
               <p className="text-sm text-slate-600">البرنامج: {selectedLesson.program?.name}</p>
-              <p className="text-sm text-slate-600">الوقت: {formatTime(selectedLesson.scheduled_start_at)} — {formatTime(selectedLesson.scheduled_end_at)}</p>
+              <p className="text-sm text-slate-600">الوقت: {time(selectedLesson.scheduled_start_at)} — {time(selectedLesson.scheduled_end_at)}</p>
               <p className="text-sm text-slate-600">النوع: {LESSON_TYPE_LABEL[selectedLesson.lesson_type]}</p>
               {selectedLesson.lesson_type === "makeup" && (
                 <p className="text-sm text-teal-600">تعويضية عن حصة #{selectedLesson.parent_lesson_id}</p>
@@ -597,7 +601,7 @@ function LessonCard({ lesson, onClick }: { lesson: Lesson; onClick: () => void }
         <span className={`rounded-full px-2 py-0.5 text-xs ${config.bg} ${config.color}`}>{config.label}</span>
       </div>
       <p className="mt-1 text-sm text-slate-600">المعلم: {lesson.teacher?.full_name}</p>
-      <p className="text-xs text-slate-500">{formatTime(lesson.scheduled_start_at)} — {formatTime(lesson.scheduled_end_at)}</p>
+      <p className="text-xs text-slate-500">{time(lesson.scheduled_start_at)} — {time(lesson.scheduled_end_at)}</p>
       <p className="text-xs text-slate-500">{lesson.program?.name}</p>
       {lesson.lesson_type === "trial" && <span className="mt-1 inline-block rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">🆕 تجريبية</span>}
       {lesson.lesson_type === "makeup" && <span className="mt-1 inline-block rounded bg-teal-100 px-2 py-0.5 text-xs text-teal-700">↪ تعويضية</span>}
@@ -618,7 +622,7 @@ function DraggableLessonCard({ lesson, onClick }: { lesson: Lesson; onClick: () 
       <div className="flex items-center justify-between">
         <span className="font-medium text-slate-800">{lesson.student?.full_name}</span>
       </div>
-      <p className="mt-1 text-slate-500">{formatTime(lesson.scheduled_start_at)} — {lesson.teacher?.full_name}</p>
+      <p className="mt-1 text-slate-500">{time(lesson.scheduled_start_at)} — {lesson.teacher?.full_name}</p>
       {lesson.lesson_type === "trial" && <span className="mt-0.5 inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">🆕</span>}
       {lesson.lesson_type === "makeup" && <span className="mt-0.5 inline-block rounded bg-teal-100 px-1.5 py-0.5 text-[10px] text-teal-700">↪</span>}
     </div>

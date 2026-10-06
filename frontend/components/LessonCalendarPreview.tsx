@@ -1,5 +1,7 @@
 "use client";
 
+import { monthName, num } from "@/lib/format";
+
 /**Preview لجدول الحصص الأسبوعية خلال مدة الاشتراك.*/
 export type SchedulePreviewSlot = {
   /** yyyy-mm-dd */
@@ -130,7 +132,7 @@ export default function LessonCalendarPreview({
       <div className="mb-2.5 flex flex-wrap items-center justify-between gap-2">
         <div className="text-xs text-slate-600">
           <span className="font-semibold text-slate-800">
-            {lessonCount.toLocaleString("ar-EG")} حصة
+            {num(lessonCount, 0)} حصة
           </span>
           {hasEnd && (
             <>
@@ -189,9 +191,8 @@ export default function LessonCalendarPreview({
               {dayNum}
               {cell.isMonthStart && (
                 <span className="absolute -top-1 start-0 rounded bg-slate-700 px-1 text-[8px] text-white">
-                  {new Date(`${cell.date}T00:00:00`).toLocaleDateString("ar-EG", {
-                    month: "short",
-                  })}
+                  {/* ⭐ شهر بس — التسمية صغيرة، فالسنة بتتزحم */}
+                  {monthName(cell.date)}
                 </span>
               )}
             </div>

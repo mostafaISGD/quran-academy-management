@@ -8,6 +8,7 @@ import {
   type Subscription,
   type ProcessDayResult,
 } from "@/lib/api";
+import { egp, num } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 import { useUI, IconRefresh } from "@/components/ui";
 
@@ -28,10 +29,14 @@ const STATUS_TONE: Record<Subscription["status"], string> = {
 
 const PAGE_SIZE = 100;
 
-const fmtMoney = (n: number | undefined, currency = "EGP") =>
-  n === undefined
-    ? "—"
-    : `${n.toLocaleString("ar-EG", { maximumFractionDigits: 2 })} ${currency === "EGP" ? "ج.م" : currency}`;
+/**
+ * ⭐ alias — التنسيق في `lib/format`.
+ *
+ * ⭐ `egp` بتعمل التحويل لـ«ج.م» جواها، فلو العملة `EGP` بناديها
+ * على طول. للعملة التانية بنكتبها بنفس الشكل القديم.
+ */
+const fmtMoney = (n: number | undefined, currency = "EGP"): string =>
+  currency === "EGP" ? egp(n) : `${num(n)} ${currency}`;
 
 export default function SubscriptionsPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);

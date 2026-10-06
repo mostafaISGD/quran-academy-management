@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getAuditLogs, type AuditLog } from "@/lib/api";
+import { dateSmart } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
 const PAGE_SIZE = 100;
@@ -117,7 +118,9 @@ export default function AuditLogsPage() {
                     {log.user?.name ?? `مستخدم ${log.user_id}`}
                   </p>
                 </div>
-                <span className="text-xs text-slate-400">{new Date(log.created_at).toLocaleString("ar-EG")}</span>
+                {/* ⭐ `dateSmart` — كان `toLocaleString` من غير خيارات،
+                    فبيطلع السطر الطويل بالثواني: `7/10/2026، 7:05:00 م` */}
+                <span className="text-xs text-slate-400">{dateSmart(log.created_at)}</span>
               </div>
               {(log.old_value || log.new_value) && (
                 <div className="mt-2 grid grid-cols-2 gap-2 text-xs">

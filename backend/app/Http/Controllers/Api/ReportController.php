@@ -39,11 +39,12 @@ class ReportController extends Controller
             'totals' => [
                 'active_students' => Student::where('status', 'active')->count(),
                 'active_teachers' => Teacher::where('status', 'active')->count(),
-                'monthly_revenue' => number_format($monthlyRevenue, 2),
+                // ⭐ رقم خام — مش `number_format`
+                'monthly_revenue' => $monthlyRevenue,
             ],
             'alerts' => [
                 'subscriptions_expiring_soon' => $expiringSoon,
-                'pending_teacher_payments' => number_format($pendingTeacherPayments, 2),
+                'pending_teacher_payments' => $pendingTeacherPayments,
                 'unscheduled_leads' => $unscheduledLeads,
             ],
         ]);
@@ -55,16 +56,28 @@ class ReportController extends Controller
         $end = $request->filled('to') ? Carbon::parse($request->string('to')) : Carbon::now()->endOfMonth();
 
         $payments = Payment::query()->where('status', 'completed')->whereRange('paid_at', $start, $end)->get();
-        $byCurrency = $payments->groupBy('currency')->map(fn ($group) => ['total' => number_format($group->sum('amount'), 2), 'count' => $group->count()]);
-        $byMethod = $payments->groupBy('payment_method')->map(fn ($group) => ['total' => number_format($group->sum('amount'), 2), 'count' => $group->count()]);
+        // ⭐ أرقام خام — `number_format` هنا كان بيرجّع نص
+        // `"1234.50"`، فالواجهة كانت بتشيل الفاصلة وترجع رقم
+        // (اقتباس مرتين: نص منسّق → رقم → نص منسّق).
+        $byCurrency = $payments->groupBy('currency')
+            ->map(fn ($group) => ['total' => $group->sum('amount'), 'count' => $group->count()]);
+        $byMethod = $payments->groupBy('payment_method')
+            ->map(fn ($group) => ['total' => $group->sum('amount'), 'count' => $group->count()]);
         $refunds = Refund::query()->whereRange('processed_at', $start, $end)->get();
         $teacherEarnings = TeacherEarning::query()->whereRange('earning_date', $start, $end)->get();
         $teacherPaymentsMade = TeacherPayment::query()->whereRange('paid_at', $start, $end)->get();
 
         return response()->json([
             'period' => ['from' => $start->toDateString(), 'to' => $end->toDateString()],
-            'revenue' => ['by_currency' => $byCurrency, 'by_method' => $byMethod, 'total_refunded' => number_format($refunds->sum('amount'), 2)],
-            'teacher_costs' => ['gross_earnings' => number_format($teacherEarnings->sum('amount'), 2), 'payments_made' => number_format($teacherPaymentsMade->sum('amount'), 2)],
+            'revenue' => [
+                'by_currency' => $byCurrency,
+                'by_method' => $byMethod,
+                'total_refunded' => $refunds->sum('amount'),
+            ],
+            'teacher_costs' => [
+                'gross_earnings' => $teacherEarnings->sum('amount'),
+                'payments_made' => $teacherPaymentsMade->sum('amount'),
+            ],
         ]);
     }
 
@@ -109,7 +122,8 @@ class ReportController extends Controller
 
         return response()->json([
             'period' => ['from' => $start->toDateString(), 'to' => $end->toDateString()],
-            'leads' => ['total' => $totalLeads, 'converted' => $converted, 'conversion_rate' => $conversionRate . '%'],
+            // ⭐ رقم خام — الـ `%` بتتحط في العرض (مش في الداتابيز)
+            'leads' => ['total' => $totalLeads, 'converted' => $converted, 'conversion_rate' => $conversionRate],
             'trials' => [
                 'total' => (clone $assessments)->count(),
                 'ready_to_subscribe' => (clone $assessments)->where('result', 'ready_to_subscribe')->count(),

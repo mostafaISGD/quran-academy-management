@@ -2,20 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getFinancialReport, getAcademicReport, getSalesReport } from "@/lib/api";
-
-/**
- * تنسيق الجنيه المصري.
- *
- * ⭐ كان `toLocaleString()` من غير locale → رقم إنجليزي مع
- * فاصلة، و«EGP» بدل «ج.م».
- *
- * ⚠️ ملاحظة على المصدر: السيرفر بيرجع `number_format($x, 2)`
- * (نص بفاصلة) فالواجهة بتشيل الفاصلة وترجع رقم. ده **اقتباس**
- * (نص منسّق → رقم → نص منسّق). المظبوط إن السيرفر يرجع رقم
- * خام. ده شغل مرحلة لوحده.
- */
-const egp = (n: number) =>
-  `${n.toLocaleString("ar-EG", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`;
+import { egp, num } from "@/lib/format";
 
 export default function FinancePage() {
   const [financial, setFinancial] = useState<Awaited<ReturnType<typeof getFinancialReport>> | null>(null);
@@ -35,9 +22,17 @@ export default function FinancePage() {
   if (error) return <p className="text-sm text-red-600">{error}</p>;
   if (!financial || !academic || !sales) return null;
 
-  const totalRevenue = Object.values(financial.revenue.by_currency).reduce((sum, c) => sum + Number(c.total.replace(/,/g, "")), 0);
-  const totalRefunded = Number(financial.revenue.total_refunded.replace(/,/g, ""));
-  const teacherCosts = Number(financial.teacher_costs.gross_earnings.replace(/,/g, ""));
+  // ⭐ أرقام **خام** من السيرفر — مبفتّش `number_format` بعد كده.
+  //
+  // كان السيرفر بيرجّع نص `"1234.50"` فالواجهة كانت بتعمل
+  // `.replace(/,/g, "")` وترجع رقم (اقتباس مرتين). دلوقتي
+  // الأرقام بتوصل زي ما هي وبننسّقها مرة واحدة بس في العرض.
+  const totalRevenue = Object.values(financial.revenue.by_currency).reduce(
+    (sum, c) => sum + Number(c.total),
+    0,
+  );
+  const totalRefunded = Number(financial.revenue.total_refunded);
+  const teacherCosts = Number(financial.teacher_costs.gross_earnings);
   const netRevenue = totalRevenue - totalRefunded - teacherCosts;
 
   return (
@@ -71,7 +66,10 @@ export default function FinancePage() {
           {Object.entries(financial.revenue.by_method).map(([method, data]) => (
             <div key={method} className="flex items-center justify-between rounded-lg bg-slate-50 px-4 py-2">
               <span className="text-sm text-slate-600">{method}</span>
-              <span className="text-sm font-medium text-slate-800">{data.total} ({data.count} دفعة)</span>
+              {/* ⭐ `egp` و `num` من `lib/format` — مش تنسيق محلي */}
+              <span className="text-sm font-medium text-slate-800">
+                {egp(data.total)} ({num(data.count, 0)} دفعة)
+              </span>
             </div>
           ))}
         </div>
@@ -83,11 +81,16 @@ export default function FinancePage() {
         <div className="space-y-2">
           <div className="flex items-center justify-between rounded-lg bg-white px-4 py-2">
             <span className="text-sm text-slate-600">فواتير متأخرة</span>
-            <span className="text-sm font-medium text-red-600">{academic.subscriptions.expired} اشتراك منتهي</span>
+            {/* ⭐ «ج.م» مش «EGP» — الترجمة بتتعمل مرة واحدة */}
+            <span className="text-sm font-medium text-red-600">
+              {num(academic.subscriptions.expired, 0)} اشتراك منتهي
+            </span>
           </div>
           <div className="flex items-center justify-between rounded-lg bg-white px-4 py-2">
             <span className="text-sm text-slate-600">مستحقات معلمين غير مدفوعة</span>
-            <span className="text-sm font-medium text-amber-600">{financial.teacher_costs.gross_earnings} EGP</span>
+            <span className="text-sm font-medium text-amber-600">
+              {egp(financial.teacher_costs.gross_earnings)}
+            </span>
           </div>
         </div>
       </div>
