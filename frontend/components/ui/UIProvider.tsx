@@ -13,6 +13,7 @@ import {
 import Toaster from "./Toaster";
 import ConfirmDialog from "./ConfirmDialog";
 import PromptDialog from "./PromptDialog";
+import { ApiError } from "@/lib/api";
 import type { UiTone } from "./Modal";
 
 /* ============================================================
@@ -74,6 +75,19 @@ type UIContextValue = {
     warning: (title: string, description?: string, duration?: number) => void;
     info: (title: string, description?: string, duration?: number) => void;
     show: (tone: ToastTone, title: string, description?: string, duration?: number) => void;
+    /**
+     * ⭐ خطأ من الـ API — بيطلع الرسالة الصح لوحدها.
+     *
+     * قبل كده كل شاشة كانت بتعمل:
+     *   `toast.error("فشل الحفظ", e instanceof Error ? e.message : undefined)`
+     * ولو الـ 422 رجّع `errors` من غير `message`، المستخدم كان
+     * بيشوف «API error: 422».
+     *
+     * دلوقتي بيبقى:
+     *   `toast.apiError("فشل الحفظ", e)`
+     * والرسالة بتيجي عربية ومفهومة.
+     */
+    apiError: (title: string, error: unknown) => void;
     dismiss: (id: number) => void;
   };
   /** Promise<boolean> — بديل confirm */
@@ -127,16 +141,44 @@ export function UIProvider({ children }: { children: ReactNode }) {
     [],
   );
 
+  /**
+   * ⭐ عرض خطأ الـ API.
+   *
+   * بتاخد `ApiError` وبترجّع الرسالة العربية. لو مش ApiError
+   * (network error مثلاً) بتعرض رسالة عامة مفهومة.
+   *
+   * لو في **كذا حقل** خطأ، الـ description بيجمعهم — عشان
+   * المستخدم يعرف كل اللي عليه يصححه، مش الأول بس.
+   */
+  const apiError = useCallback(
+    (title: string, error: unknown) => {
+      if (error instanceof ApiError) {
+        const details = error.details;
+        show("error", title, details ?? error.message, 7000);
+        return;
+      }
+
+      if (error instanceof Error && error.message) {
+        show("error", title, error.message);
+        return;
+      }
+
+      show("error", title, "حصل خطأ غير متوقع");
+    },
+    [show],
+  );
+
   const toast = useMemo(
     () => ({
       success: (t: string, d?: string, ms?: number) => show("success", t, d, ms),
       error: (t: string, d?: string, ms?: number) => show("error", t, d, ms),
       warning: (t: string, d?: string, ms?: number) => show("warning", t, d, ms),
       info: (t: string, d?: string, ms?: number) => show("info", t, d, ms),
+      apiError,
       show,
       dismiss,
     }),
-    [show, dismiss],
+    [show, dismiss, apiError],
   );
 
   /* ---------- نافذة التأكيد ---------- */

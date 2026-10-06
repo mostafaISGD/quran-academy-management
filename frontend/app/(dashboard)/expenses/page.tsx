@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { date } from "@/lib/format";
 import {
   getExpenses,
   createExpense,
@@ -267,7 +268,7 @@ export default function ExpensesPage() {
                     {fmtMoney(Number(exp.amount))}
                   </td>
                   <td className="hidden px-3 py-3 text-xs text-slate-500 sm:table-cell">
-                    {new Date(exp.expense_date).toLocaleDateString("ar-EG")}
+                    {date(exp.expense_date)}
                   </td>
                   <td className="hidden px-3 py-3 text-xs text-slate-600 md:table-cell">
                     {METHOD_LABEL[exp.payment_method ?? ""] ?? exp.payment_method ?? "—"}

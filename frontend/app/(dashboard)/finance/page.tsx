@@ -3,6 +3,20 @@
 import { useEffect, useState } from "react";
 import { getFinancialReport, getAcademicReport, getSalesReport } from "@/lib/api";
 
+/**
+ * تنسيق الجنيه المصري.
+ *
+ * ⭐ كان `toLocaleString()` من غير locale → رقم إنجليزي مع
+ * فاصلة، و«EGP» بدل «ج.م».
+ *
+ * ⚠️ ملاحظة على المصدر: السيرفر بيرجع `number_format($x, 2)`
+ * (نص بفاصلة) فالواجهة بتشيل الفاصلة وترجع رقم. ده **اقتباس**
+ * (نص منسّق → رقم → نص منسّق). المظبوط إن السيرفر يرجع رقم
+ * خام. ده شغل مرحلة لوحده.
+ */
+const egp = (n: number) =>
+  `${n.toLocaleString("ar-EG", { minimumFractionDigits: 0, maximumFractionDigits: 2 })} ج.م`;
+
 export default function FinancePage() {
   const [financial, setFinancial] = useState<Awaited<ReturnType<typeof getFinancialReport>> | null>(null);
   const [academic, setAcademic] = useState<Awaited<ReturnType<typeof getAcademicReport>> | null>(null);
@@ -34,19 +48,19 @@ export default function FinancePage() {
       <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
         <div className="rounded-xl border border-green-200 bg-green-50 p-4">
           <p className="text-sm text-green-600">إيرادات الطلاب</p>
-          <p className="mt-2 text-2xl font-bold text-green-800">{totalRevenue.toLocaleString()} EGP</p>
+          <p className="mt-2 text-2xl font-bold text-green-800">{egp(totalRevenue)}</p>
         </div>
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
           <p className="text-sm text-blue-600">مستحقات المعلمين</p>
-          <p className="mt-2 text-2xl font-bold text-blue-800">{teacherCosts.toLocaleString()} EGP</p>
+          <p className="mt-2 text-2xl font-bold text-blue-800">{egp(teacherCosts)}</p>
         </div>
         <div className="rounded-xl border border-red-200 bg-red-50 p-4">
           <p className="text-sm text-red-600">المصروفات</p>
-          <p className="mt-2 text-2xl font-bold text-red-800">{totalRefunded.toLocaleString()} EGP</p>
+          <p className="mt-2 text-2xl font-bold text-red-800">{egp(totalRefunded)}</p>
         </div>
         <div className="rounded-xl border border-purple-200 bg-purple-50 p-4">
           <p className="text-sm text-purple-600">صافي الإيرادات</p>
-          <p className="mt-2 text-2xl font-bold text-purple-800">{netRevenue.toLocaleString()} EGP</p>
+          <p className="mt-2 text-2xl font-bold text-purple-800">{egp(netRevenue)}</p>
         </div>
       </div>
 

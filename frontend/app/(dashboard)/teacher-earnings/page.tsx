@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getTeacherEarnings, getTeachers, type TeacherEarning, type Teacher } from "@/lib/api";
+import { date } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
 const PAGE_SIZE = 100;
@@ -176,7 +177,7 @@ export default function TeacherEarningsPage() {
                     {fmtMoney(Number(e.amount))}
                   </td>
                   <td className="px-3 py-3 text-xs text-slate-500">
-                    {new Date(e.earning_date).toLocaleDateString("ar-EG")}
+                    {date(e.earning_date)}
                   </td>
                   <td className="px-3 py-3 text-center">
                     <span className={`rounded-full px-2 py-1 text-xs font-medium ${STATUS_TONE[e.status]}`}>

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getTeacherPayments, getTeachers, type TeacherPayment, type Teacher } from "@/lib/api";
+import { date } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
 const PAGE_SIZE = 100;
@@ -181,7 +182,7 @@ export default function TeacherPaymentsPage() {
                     {fmtMoney(Number(p.amount))}
                   </td>
                   <td className="hidden px-3 py-3 text-xs text-slate-500 sm:table-cell">
-                    {p.paid_at ? new Date(p.paid_at).toLocaleDateString("ar-EG") : "—"}
+                    {p.paid_at ? p.paid_at ? date(p.paid_at) : "—" : "—"}
                   </td>
                   <td className="hidden px-3 py-3 text-xs text-slate-600 md:table-cell">
                     {METHOD_LABEL[p.payment_method ?? ""] ?? p.payment_method ?? "—"}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getPayments, createPayment, refundPayment, type Payment } from "@/lib/api";
+import { date } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
 const STATUS_LABEL: Record<Payment["status"], string> = {
@@ -156,7 +157,7 @@ export default function PaymentsPage() {
                   <td className="px-4 py-3 text-slate-600">{METHOD_LABEL[p.payment_method]}</td>
                   <td className="px-4 py-3 text-slate-600">{p.transaction_reference ?? "—"}</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${p.status === "completed" ? "bg-green-100 text-green-700" : p.status === "pending" ? "bg-amber-100 text-amber-700" : p.status === "failed" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500"}`}>{STATUS_LABEL[p.status]}</span></td>
-                  <td className="px-4 py-3 text-slate-500">{new Date(p.paid_at).toLocaleDateString("ar-EG")}</td>
+                  <td className="px-4 py-3 text-slate-500">{date(p.paid_at)}</td>
                   <td className="px-4 py-3">{p.status === "completed" && <button onClick={() => setRefundPaymentId(p.id)} className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100">استرجاع</button>}</td>
                 </tr>
               ))}

@@ -117,7 +117,7 @@ export default function ProgramsPage() {
       if (openId === p.id) setOpenId(null);
       refresh();
     } catch (e) {
-      toast.error("فشل حذف البرنامج", e instanceof Error ? e.message : undefined);
+      toast.apiError("فشل حذف البرنامج", e);
     }
   }
 

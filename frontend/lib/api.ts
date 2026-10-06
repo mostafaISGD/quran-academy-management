@@ -5,6 +5,61 @@ function getToken(): string | null {
   return localStorage.getItem("auth_token");
 }
 
+/**
+ * ⭐ خطأ من الـ API — بيحمل الـ 422 بشكل مفهوم.
+ *
+ * قبل كده كان `new Error(body.message)` يعني:
+ * - الـ toast بيشوف **رسالة واحدة** بس
+ * - لما الـ 422 بيرجع `errors` (مش `message`)، الـ UI بيعرض
+ *   "API error: 422" — رقم مش بيقول حاجة للمستخدم عربي
+ *
+ * دلوقتي الـ `description` بيركّب كل رسائل الحقول بالعربي، فيظهر
+ * للمستخدم «البريد الإلكتروني لازم يكون صحيح» بدل «API error: 422».
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  /** رسائل الحقول — المفتاح اسم الحقل بالعربي */
+  readonly fieldErrors: Record<string, string[]>;
+
+  constructor(status: number, body: Record<string, unknown>) {
+    const errors = (body?.errors ?? {}) as Record<string, string[]>;
+
+    // ⭐ لو السيرفر رجّع `errors` بس من غير `message`، بنركّب رسالة
+    // من أول حقل. غير كده المستخدم بيشوف رقم 422.
+    const message =
+      (body?.message as string) ??
+      (Object.values(errors)[0]?.[0] ?? defaultMessage(status));
+
+    super(message);
+
+    this.name = "ApiError";
+    this.status = status;
+    this.fieldErrors = errors;
+  }
+
+  /** كل رسائل الحقول في سطر واحد — للـ toast */
+  get details(): string | null {
+    const all = Object.values(this.fieldErrors).flat();
+    return all.length > 1 ? all.join(" · ") : null;
+  }
+}
+
+/** رسالة افتراضية لكل كود — عربي */
+function defaultMessage(status: number): string {
+  switch (status) {
+    case 400: return "الطلب مش صحيح";
+    case 401: return "لازم تسجّل دخول الأول";
+    case 403: return "ماعندكش صلاحية للعملية دي";
+    case 404: return "الحاجة المطلوبة مش موجودة";
+    case 409: return "فيه تعارض — البيانات موجودة بالفعل";
+    case 422: return "البيانات المدخلة مش صحيحة";
+    case 429: return "محاولات كتير — استنى شوية وحاول تاني";
+    case 500: return "حصل خطأ في السيرفر";
+    case 503: return "السيرفر مش متاح دلوقتي";
+    default: return "حصل خطأ غير متوقع";
+  }
+}
+
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
 
@@ -20,7 +75,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.message ?? `API error: ${res.status}`);
+    throw new ApiError(res.status, body);
   }
 
   return res.json() as Promise<T>;
@@ -1426,7 +1481,66 @@ export function getPayrollReport(periodId: number) {
 }
 
 // ============================================================
+// ============================================================
+// جدول الأسعار
+// ============================================================
+
+/**
+ * ⭐ الباقات **مشتركة** بين البرامج.
+ *
+ * الباقة مبنية على مدة الحصة (٣٠/٤٥/٦٠ دقيقة) وعدد الحصص
+ * (٤/٨/١٢/١٦) — مش على البرنامج. «٤ حصص × ٣٠ دقيقة» معناها أربع
+ * حصص نص ساعة، سواء تحفيظ ولا تجويد.
+ *
+ * الفئات:
+ *   traditional = تقليدي · golden = ذهبي · group = مجموعات · single = حصة مفردة
+ */
+export type PlanCategory = "traditional" | "golden" | "group" | "single";
+
+export type PricingPlan = {
+  id: number;
+  name: string;
+  category: PlanCategory;
+  category_label: string;
+  lesson_duration_minutes: number;
+  lessons_count: number | null;
+  /** ⭐ السعر الإجمالي — مش سعر الحصة */
+  price: number;
+  currency: string;
+  description: string | null;
+  /** حصة جماعية — بتعرض بلون مختلف */
+  is_group: boolean;
+};
+
+export type PricingGroup = {
+  category: PlanCategory;
+  label: string;
+  description: string | null;
+  plans: PricingPlan[];
+};
+
+export type PricingResponse = {
+  groups: PricingGroup[];
+  durations: number[];
+  counts: { lessons: number[]; total: number };
+};
+
+/**
+ * ⭐ عام — مفيش تسجيل دخول.
+ *
+ * الأسعار حاجة الأهالي بيسألوا عنها، فلازم يشوفوها من غير حساب.
+ */
+export function getPricing() {
+  return apiFetch<PricingResponse>("/pricing");
+}
+
+export function getPricingCsvUrl(): string {
+  return `${API_BASE_URL}/pricing/export`;
+}
+
+// ============================================================
 // مرتبات المعلمين
+// ============================================================
 // ============================================================
 
 /**

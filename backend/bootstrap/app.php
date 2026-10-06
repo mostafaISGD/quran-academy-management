@@ -42,6 +42,16 @@ return Application::configure(basePath: dirname(__DIR__))
         
         // Add JSON parsing middleware to API routes
         $middleware->prependToGroup('api', \App\Http\Middleware\ParseJsonRequest::class);
+        
+        // ⭐ ترجمة رسائل الـ 422 للعربي.
+        //
+        // لازم `append` مش `prepend`: الـ validation بيحصل في الـ
+        // controller، فلو الوسطية دي شغّلت قبله مش هتلاقي
+        // `errors` أصلاً. `appendToGroup` بيشتغل بعد كل حاجة.
+        //
+        // الـ API كله عربي، فمفيش endpoint محتاج يستثنى — لو في
+        // endpoint إنجليزي فعلاً، نضيف شرط هنا.
+        $middleware->appendToGroup('api', \App\Http\Middleware\TranslateValidationErrors::class);
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

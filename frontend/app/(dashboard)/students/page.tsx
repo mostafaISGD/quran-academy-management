@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef, memo } from "react";
+import { date, num, time } from "@/lib/format";
 import {
   apiFetch, getStudents, createStudent, updateStudent, deleteStudent,
   getTeachers, getPrograms, getSubscriptions, getSchedule, getStudent,
@@ -1509,7 +1510,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
 
     const now = new Date();
     const dateStr = now.toLocaleDateString("ar-EG", { day: "numeric", month: "long", year: "numeric" });
-    const timeStr = now.toLocaleTimeString("ar-EG");
+    const timeStr = time(now);
 
     // Build filter description
     const activeFilters: string[] = [];
@@ -1620,7 +1621,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                         cellContent = phoneDisplay;
                         break;
                       case "date_of_birth":
-                        cellContent = s.date_of_birth ? new Date(s.date_of_birth).toLocaleDateString("ar-EG") : "—";
+                        cellContent = s.date_of_birth ? date(s.date_of_birth) : "—";
                         break;
                       case "next_lesson":
                         cellContent = s.next_lesson_date ? new Date(s.next_lesson_date).toLocaleDateString("ar-EG", { day: "numeric", month: "short" }) : "—";
@@ -1839,7 +1840,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                         {col.key === "status" && <span className={`rounded-full px-2 py-1 text-xs ${STATUS_COLORS[s.status]}`}>{STATUS_LABEL[s.status]}</span>}
                         {col.key === "country" && <span className="text-slate-600">{country ? `${country.flag} ${country.name}` : "—"}</span>}
                         {col.key === "whatsapp" && renderPhoneColumn(s)}
-                        {col.key === "date_of_birth" && <span className="text-slate-600">{s.date_of_birth ? new Date(s.date_of_birth).toLocaleDateString("ar-EG") : "—"}</span>}
+                        {col.key === "date_of_birth" && <span className="text-slate-600">{s.date_of_birth ? date(s.date_of_birth) : "—"}</span>}
                         {col.key === "next_lesson" && <span className="text-slate-600">{renderNextLessonColumn(s)}</span>}
                       </td>
                     ))}
@@ -2134,7 +2135,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     {(studentDetail?.progress ?? []).length === 0 && <p className="text-sm text-slate-400">لا يوجد سجل تقدم</p>}
                     {(studentDetail?.progress ?? []).slice(0, 10).map((p, i) => (
                       <div key={i} className="flex items-center justify-between border-b border-slate-100 py-2 last:border-0">
-                        <div><p className="text-sm text-slate-800">{p.category}</p><p className="text-xs text-slate-500">{new Date(p.recorded_at).toLocaleDateString("ar-EG")}</p></div>
+                        <div><p className="text-sm text-slate-800">{p.category}</p><p className="text-xs text-slate-500">{date(p.recorded_at)}</p></div>
                         <span className="text-sm font-medium text-slate-800">{p.score}/5</span>
                       </div>
                     ))}
@@ -2283,7 +2284,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     {(studentDetail?.attendance ?? []).length === 0 && <p className="text-sm text-slate-400">لا يوجد سجل حضور</p>}
                     {(studentDetail?.attendance ?? []).slice(0, 10).map((a, i) => (
                       <div key={i} className="flex items-center justify-between border-b border-slate-100 py-2 last:border-0">
-                        <span className="text-sm text-slate-600">{new Date(a.marked_at).toLocaleDateString("ar-EG")}</span>
+                        <span className="text-sm text-slate-600">{date(a.marked_at)}</span>
                         <span className={`rounded-full px-2 py-0.5 text-xs ${a.status === "present" ? "bg-green-100 text-green-700" : a.status === "absent" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"}`}>
                           {a.status === "present" ? "حاضر" : a.status === "absent" ? "غائب" : "متأخر"}
                         </span>
@@ -2614,7 +2615,10 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     {Object.entries(subscriptionReport.revenue_by_currency || {}).map(([currency, data]: [string, { total: number; count: number }]) => (
                       <div key={currency} className="rounded-lg bg-slate-50 p-3 text-center">
                         <p className="text-xs text-slate-500">{currency}</p>
-                        <p className="text-lg font-bold text-slate-800">{data.total.toLocaleString()} {currency}</p>
+                        <p className="text-lg font-bold text-slate-800">
+                          {data.total.toLocaleString("ar-EG", { maximumFractionDigits: 2 })}{" "}
+                          {currency === "EGP" ? "ج.م" : currency}
+                        </p>
                         <p className="text-xs text-slate-500">{data.count} اشتراك</p>
                       </div>
                     ))}
@@ -2642,7 +2646,9 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                             <td className="px-4 py-2 text-center">{p.total}</td>
                             <td className="px-4 py-2 text-center text-green-600">{p.active}</td>
                             <td className="px-4 py-2 text-center text-red-600">{p.expired}</td>
-                            <td className="px-4 py-2 text-right font-medium">{p.revenue.toLocaleString()}</td>
+                            <td className="px-4 py-2 text-right font-medium">
+                              {p.revenue.toLocaleString("ar-EG", { maximumFractionDigits: 2 })}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -2720,7 +2726,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                                 s.days_left >= 0 ? `${s.days_left} يوم` : <span className="text-red-600">منتهي منذ {Math.abs(s.days_left)} يوم</span>
                               ) : '—'}
                             </td>
-                            <td className="px-4 py-2 text-right font-medium">{s.price.toLocaleString()} {s.currency}</td>
+                            <td className="px-4 py-2 text-right font-medium">{num(s.price)} {s.currency}</td>
                             <td className="px-4 py-2 text-center">{s.billing_type === 'monthly' ? 'شهري' : s.billing_type === 'per_lesson' ? 'لكل حصة' : 'مخصص'}</td>
                           </tr>
                         ))}

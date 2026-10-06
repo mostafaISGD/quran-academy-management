@@ -217,7 +217,7 @@ export default function AttendancePage() {
       toast.success(r.message, day.is_friday ? "الجمعة إجازة أسبوعية" : undefined);
       load(date);
     } catch (e) {
-      toast.error("فشل الحفظ", e instanceof Error ? e.message : undefined);
+      toast.apiError("فشل الحفظ", e);
       setError(e instanceof Error ? e.message : "فشل الحفظ");
     } finally {
       setSaving(false);

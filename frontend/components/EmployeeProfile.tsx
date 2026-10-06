@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { date } from "@/lib/format";
 import {
   getEmployee,
   getEmployeeActivity,
@@ -82,7 +83,7 @@ const fmtDate = (v?: string | null): string => {
   const d = new Date(v);
   return Number.isNaN(d.getTime())
     ? "—"
-    : d.toLocaleDateString("ar-EG", { day: "numeric", month: "short", year: "numeric" });
+    : date(d);
 };
 
 const fmtDateTime = (v?: string | null): string => {

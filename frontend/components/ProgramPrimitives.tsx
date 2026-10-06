@@ -1,5 +1,7 @@
 "use client";
 
+
+import { date } from "@/lib/format";
 /**
  * عناصر صغيرة مشتركة بين شاشة البرامج ومُلَف البرنامج.
  *
@@ -130,7 +132,7 @@ export const fmtDate = (v?: string | null): string => {
   const d = new Date(v);
   return Number.isNaN(d.getTime())
     ? "—"
-    : d.toLocaleDateString("ar-EG", { day: "numeric", month: "short", year: "numeric" });
+    : date(d);
 };
 
 export const fmtMoney = (amount?: number | string | null, currency = "EGP"): string => {

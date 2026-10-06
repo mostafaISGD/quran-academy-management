@@ -146,7 +146,7 @@ export default function TeacherPayrollPage() {
       toast.success(r.message);
       await Promise.all([loadLines(period.id), loadPeriods()]);
     } catch (e) {
-      toast.error("فشل الاحتساب", e instanceof Error ? e.message : undefined);
+      toast.apiError("فشل الاحتساب", e);
     } finally {
       setWorking(null);
     }
@@ -177,7 +177,7 @@ export default function TeacherPayrollPage() {
       toast.success(r.message);
       await Promise.all([loadLines(period.id), loadPeriods()]);
     } catch (e) {
-      toast.error("فشل الاعتماد", e instanceof Error ? e.message : undefined);
+      toast.apiError("فشل الاعتماد", e);
     } finally {
       setWorking(null);
     }
@@ -211,7 +211,7 @@ export default function TeacherPayrollPage() {
       toast.success(r.message);
       await Promise.all([loadLines(period.id), loadPeriods()]);
     } catch (e) {
-      toast.error("فشل الإقفال", e instanceof Error ? e.message : undefined);
+      toast.apiError("فشل الإقفال", e);
     } finally {
       setWorking(null);
     }
@@ -239,7 +239,7 @@ export default function TeacherPayrollPage() {
       toast.success(r.message);
       await Promise.all([loadLines(period.id), loadPeriods()]);
     } catch (e) {
-      toast.error("فشل الفتح", e instanceof Error ? e.message : undefined);
+      toast.apiError("فشل الفتح", e);
     } finally {
       setWorking(null);
     }
@@ -260,7 +260,7 @@ export default function TeacherPayrollPage() {
       );
       return r;
     } catch (e) {
-      toast.error("فشل التعديل", e instanceof Error ? e.message : undefined);
+      toast.apiError("فشل التعديل", e);
       throw e;
     }
   }
@@ -283,7 +283,7 @@ export default function TeacherPayrollPage() {
       toast.success(`اتسجّل دفع ${line.teacher.name}`);
       await Promise.all(periodId ? [loadLines(periodId), loadPeriods()] : []);
     } catch (e) {
-      toast.error("فشل تسجيل الدفع", e instanceof Error ? e.message : undefined);
+      toast.apiError("فشل تسجيل الدفع", e);
     } finally {
       setWorking(null);
     }

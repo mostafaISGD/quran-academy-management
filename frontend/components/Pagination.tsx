@@ -1,5 +1,7 @@
 "use client";
 
+
+import { num } from "@/lib/format";
 type PaginationProps = {
   /** الصفحة الحالية (1-indexed) */
   page: number;
@@ -80,11 +82,11 @@ export default function Pagination({
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
       <p className="text-sm text-slate-500">
         عرض{" "}
-        <span className="font-medium text-slate-700">{from.toLocaleString("ar-EG")}</span>
+        <span className="font-medium text-slate-700">{num(from)}</span>
         {" — "}
-        <span className="font-medium text-slate-700">{to.toLocaleString("ar-EG")}</span>
+        <span className="font-medium text-slate-700">{num(to)}</span>
         {" من "}
-        <span className="font-medium text-slate-700">{total.toLocaleString("ar-EG")}</span>{" "}
+        <span className="font-medium text-slate-700">{num(total)}</span>{" "}
         {label}
       </p>
 
@@ -120,7 +122,7 @@ export default function Pagination({
                   : "border border-slate-300 text-slate-600 hover:bg-slate-50"
               }`}
             >
-              {p.toLocaleString("ar-EG")}
+              {num(p)}
             </button>
           ),
         )}
