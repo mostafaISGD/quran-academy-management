@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\EmployeePayrollController;
 use App\Http\Controllers\Api\TeacherPayrollController;
+use App\Http\Controllers\Api\PricingController;
 use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\LeadController;
@@ -32,6 +33,19 @@ use Illuminate\Support\Facades\Route;
 Route::post('/auth/login', [AuthController::class, 'login']);
 Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
+
+    // ===== جدول الأسعار =====
+    //
+    // ⭐ **عام** — مفيش `auth:sanctum` ومفيش `permission`.
+    //
+    // السبب: الأسعار حاجة **الأهالي** بيسألوا عنها من غير حساب
+    // دخول. لو حطيناها جوه `auth:sanctum`، اللي بيسأل هيتقابل
+    // بـ «Unauthenticated» — وده جواب غلط على سؤال صحيح.
+    //
+    // ⚠️ التصميم: نرجّع **الأسعار بس**. مفيش بيانات طلاب ولا
+    // مدرسين ولا أرباح — يعني مفيش حاجة تتسرب.
+    Route::get('/pricing', [PricingController::class, 'index']);
+    Route::get('/pricing/export', [PricingController::class, 'export']);
 
 // ---- Authenticated ----
 Route::middleware('auth:sanctum')->group(function () {

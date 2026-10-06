@@ -48,6 +48,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/schedule", label: "جدول الحصص", icon: "📅" },
       { href: "/attendance", label: "تسجيل الحضور", icon: "🕐" },
+      { href: "/pricing", label: "جدول الأسعار", icon: "💲" },
     ],
   },
   {
