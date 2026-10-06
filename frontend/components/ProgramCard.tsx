@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { Program } from "@/lib/api";
 import { Pill, alpha } from "./ProgramPrimitives";
 
@@ -99,12 +100,14 @@ export default function ProgramCard({
         </div>
       )}
 
-      {/* ===== الأرقام: ملخّص، مش إدارة ===== */}
-      <dl className="grid grid-cols-4 gap-px border-y border-slate-100 bg-slate-100 text-center">
+      {/* ===== الأرقام: ملخّص، مش إدارة =====
+          ⭐ مفيش «الباقات» هنا — الباقات بقت **مشتركة** بين كل
+          البرامج، فالرقم هيبقى واحد على كل الكروت وميفرقش حاجة.
+          زر «الأسعار» تحت بيفتح الصفحة المشتركة. */}
+      <dl className="grid grid-cols-3 gap-px border-y border-slate-100 bg-slate-100 text-center">
         {[
           { label: "الطلاب", value: program.students_count ?? 0 },
           { label: "المعلمون", value: program.teachers_count ?? 0 },
-          { label: "الباقات", value: program.plans_count ?? 0 },
           { label: "المستويات", value: program.levels_count ?? 0 },
         ].map((s) => (
           <div key={s.label} className="bg-white px-1 py-2.5">
@@ -115,12 +118,22 @@ export default function ProgramCard({
       </dl>
 
       {/* ===== الإجراء ===== */}
-      <button
-        onClick={() => onOpen(program)}
-        className="mt-auto px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
-      >
-        عرض البرنامج ←
-      </button>
+      <div className="mt-auto flex items-stretch border-t border-slate-100 text-sm">
+        <button
+          onClick={() => onOpen(program)}
+          className="flex-1 px-4 py-2.5 font-medium text-slate-600 transition hover:bg-slate-50 hover:text-slate-900"
+        >
+          عرض البرنامج ←
+        </button>
+        {/* الباقات مش للبرنامج — فبنوديها لصفحتها المشتركة */}
+        <Link
+          href="/pricing"
+          className="border-r border-slate-100 px-3 py-2.5 text-xs text-slate-400 transition hover:bg-slate-50 hover:text-slate-700"
+          title="جدول الأسعار"
+        >
+          💲 الأسعار
+        </Link>
+      </div>
     </article>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
   createProgramLevel,
@@ -21,7 +22,7 @@ import {
 } from "@/lib/api";
 import { useUI } from "@/components/ui";
 import {
-  Empty, InfoGrid, Pill, Section, Skeleton, StatCard, alpha, fmtDate, fmtMoney,
+  Empty, InfoGrid, Pill, Section, Skeleton, StatCard, alpha, fmtDate,
 } from "./ProgramPrimitives";
 
 /**
@@ -32,12 +33,6 @@ import {
  * حدود القسم (مهم): البرنامج بيعرّف الخدمة وبيعرض اللي مرتبط بيها.
  * جدول المعلم والحضور والدفع — دي أقسامها، مش هنا.
  */
-
-const BILLING_LABEL: Record<string, string> = {
-  monthly: "شهري",
-  per_lesson: "حصة مفردة",
-  custom: "مخصص",
-};
 
 const SUB_STATUS: Record<string, { label: string; tone: "green" | "amber" | "slate" }> = {
   active: { label: "نشط", tone: "green" },
@@ -393,14 +388,15 @@ export default function ProgramProfile({
             </div>
           ) : !program || !stats ? null : (
             <>
-              {/* ===== الأرقام: ملخّص ===== */}
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              {/* ===== الأرقام: ملخّص =====
+                  ⭐ مفيش «الباقات» — الباقات مشتركة فالرقم واحد
+                  على كل الملفات وميقولش حاجة. رابط الأسعار تحت. */}
+              <div className="grid grid-cols-3 gap-3">
                 <StatCard
                   label="الطلاب" icon="👥" value={stats.students_count} tone="blue"
                   hint={stats.students.paused > 0 ? `${stats.students.active} نشط · ${stats.students.paused} موقوف` : "كلهم نشطين"}
                 />
                 <StatCard label="المعلمون" icon="👨‍🏫" value={stats.teachers_count} tone="green" />
-                <StatCard label="الباقات" icon="🏷️" value={stats.plans_count} tone="purple" />
                 <StatCard label="المستويات" icon="🪜" value={stats.levels_count} tone="amber" />
               </div>
 
@@ -651,51 +647,26 @@ export default function ProgramProfile({
                 )}
               </Section>
 
-              {/* ===== الباقات: عرض بس ===== */}
+              {/* ===== الباقات =====
+                  ⭐ الباقات بقت **مشتركة** بين كل البرامج، فما فيش
+                  «باقات البرنامج» — اللي كان بيعرض الباقات القديمة
+                  المتوقفة وبيضلّل الأدمن.
+                  مكانها رابط لصفحة الأسعار الواحدة. */}
               <Section
-                title="الباقات" icon="🏷️" count={program.subscription_plans?.length ?? 0}
-                action={<span className="text-[11px] text-slate-400">إدارة الباقات ليها قسمها</span>}
+                title="الباقات" icon="🏷️"
+                action={
+                  <Link
+                    href="/pricing"
+                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-700 transition hover:bg-slate-50"
+                  >
+                    💲 شوف الأسعار
+                  </Link>
+                }
               >
-                {!program.subscription_plans?.length ? (
-                  <Empty text="مفيش باقات على البرنامج" />
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-slate-200 text-right text-xs text-slate-500">
-                          <th className="py-2 pl-3 font-medium">الباقة</th>
-                          <th className="py-2 pl-3 font-medium">النظام</th>
-                          <th className="py-2 pl-3 font-medium">الحصص</th>
-                          <th className="py-2 pl-3 font-medium">السعر</th>
-                          <th className="py-2 font-medium">الحالة</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {program.subscription_plans.map((p) => (
-                          <tr key={p.id} className="border-b border-slate-100 last:border-0">
-                            <td className="py-2 pl-3">
-                              <span className="font-medium text-slate-800">{p.name}</span>
-                              {p.description && (
-                                <span className="block text-xs text-slate-400">{p.description}</span>
-                              )}
-                            </td>
-                            <td className="py-2 pl-3 text-slate-600">{BILLING_LABEL[p.billing_type] ?? p.billing_type}</td>
-                            <td className="py-2 pl-3 text-slate-600">
-                              {p.lessons_count ?? "—"}
-                              <span className="text-xs text-slate-400"> × {p.lesson_duration_minutes}د</span>
-                            </td>
-                            <td className="py-2 pl-3 font-medium text-slate-800">{fmtMoney(p.price, p.currency)}</td>
-                            <td className="py-2">
-                              <Pill tone={p.status === "active" ? "green" : "slate"}>
-                                {p.status === "active" ? "نشطة" : "متوقفة"}
-                              </Pill>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                <p className="text-xs leading-relaxed text-slate-500">
+                  الباقات مش بتاعة برنامج واحد — هي <b className="text-slate-700">مشتركة</b>.
+                  الطالب بيختار الباقة اللي تناسبه (مدة الحصة وعددها) وهو مشترك في أي برنامج.
+                </p>
               </Section>
 
               {/* ===== الطلاب: ملخّص، مش إدارة اشتراك ===== */}

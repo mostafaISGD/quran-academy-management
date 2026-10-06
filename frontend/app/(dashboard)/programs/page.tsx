@@ -278,7 +278,6 @@ export default function ProgramsPage() {
                 <th className="px-3 py-2.5 font-medium">التصنيفات</th>
                 <th className="px-3 py-2.5 font-medium">طلاب</th>
                 <th className="px-3 py-2.5 font-medium">معلمون</th>
-                <th className="px-3 py-2.5 font-medium">باقات</th>
                 <th className="px-3 py-2.5 font-medium">مستويات</th>
                 <th className="px-3 py-2.5 font-medium">الحالة</th>
                 <th className="px-3 py-2.5 font-medium">إجراءات</th>
@@ -320,7 +319,6 @@ export default function ProgramsPage() {
                     </td>
                     <td className="px-3 py-2 font-medium text-slate-700">{p.students_count ?? 0}</td>
                     <td className="px-3 py-2 font-medium text-slate-700">{p.teachers_count ?? 0}</td>
-                    <td className="px-3 py-2 font-medium text-slate-700">{p.plans_count ?? 0}</td>
                     <td className="px-3 py-2 font-medium text-slate-700">{p.levels_count ?? 0}</td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1.5">

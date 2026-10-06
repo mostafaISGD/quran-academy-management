@@ -104,6 +104,16 @@ class Program extends Model
         return $this->studentStatusBreakdown()['total'];
     }
 
+    /**
+     * ⭐ عدد الباقات **المخصّصة للبرنامج ده** (مش المشتركة).
+     *
+     * الباقات الـ ٢٨ بقت **مشتركة** (`program_id = null`) — فالرقم
+     * ده بيحسب الباقات القديمة اللي ليها برنامج بس. عشان كده
+     * الواجهة **مش بتعرضه**؛ بتودّي لصفحة الأسعار المشتركة.
+     *
+     * سيبناه موجود لأن `ProgramCountConsistencyTest` بيحمي توافق
+     * الرقم بين القائمة والملف — وسندة لو حصل تعديل بعدين.
+     */
     public function getPlansCountAttribute(): int
     {
         return $this->subscriptionPlans()->where('status', 'active')->count();
