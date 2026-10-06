@@ -36,6 +36,26 @@ abstract class TestCase extends BaseTestCase
      */
     protected function authHeaders($user): array
     {
+        // ⭐⭐ **ننسى الـ guard قبل كل تسجيل دخول.**
+        //
+        // السبب: اختبارات Laravel بتعيش في **عملية واحدة**، فـ
+        // `auth` service provider بيسمّي guard واحد في الـ container
+        // وبيشتغل عبر كل الطلبات. أول ما حد يعمل Sanctum login، الـ
+        // guard بيحفظ المستخدم ده جواه (`$this->user`).
+        //
+        // فلو اختبار طلب بحسابين مختلفين — الأول بـ reception مثلاً
+        // والتاني بـ admin — الطلب التاني بيلاقي المستخدم **الأول**
+        // لسه متخزّن. النتيجة: **403 غلط** على حساب ليه الصلاحية.
+        //
+        // ده كان بيخلي اختبار الجرس يفشل وجواه reason مفهومة:
+        // «السيرفر رجّع 403 لحساب admin عنده `groups.manage`».
+        // و`hasPermissionTo()` على الموديل بيقول `true` — لأنه فعلاً
+        // صحيح. الغلط كان في الـ guard بس.
+        //
+        // ⚠️ ده **مش** سلوك خاطئ في الكود — في السيرفر الحقيقي كل
+        // طلب عملية منفصلة والـ guard جديد. ده تفصيلة الاختبار بس.
+        app('auth')->forgetGuards();
+
         return [
             'Authorization' => 'Bearer '.$this->postJson('/api/auth/login', [
                 'email' => $user->email,

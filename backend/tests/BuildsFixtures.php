@@ -2,6 +2,9 @@
 
 namespace Tests;
 
+use App\Models\GroupClass;
+use App\Models\GroupMember;
+use App\Models\WaitingListEntry;
 use App\Models\Branch;
 use App\Models\Lesson;
 use App\Models\Level;
@@ -202,6 +205,82 @@ trait BuildsFixtures
             'duration_days' => 30,
             'status' => 'active',
         ], $attrs));
+    }
+
+    // ============================================================
+    // ⭐ المجموعات وقائمة الانتظار
+    // ============================================================
+
+    /**
+     * مجموعة أونلاين.
+     *
+     * ⭐ `capacity` **مفيش قيمة افتراضية** — عن قصد. لأن كل
+     * اختبار محتاج يختبر حالة مختلفة:
+     *   - عدد أقصى محدود (السعة بتخلص)
+     *   - `null` (مفيش حد)
+     *
+     * لو حطّينا `10` كافتراضي، نص الاختبارات هتبقى غلط من غير
+     * ما حد ينتبه. كل اختبار لازم يحدّد سعته بنفسه.
+     */
+    protected function makeGroup(array $attrs = [], ?Program $program = null): GroupClass
+    {
+        return GroupClass::create(array_merge([
+            'organization_id' => $this->org->id,
+            'program_id' => ($program ?? $this->makeProgram())->id,
+            'name' => 'مجموعة '.(GroupClass::count() + 1),
+            'status' => 'active',
+        ], $attrs));
+    }
+
+    /** ⭐ يضيف طلاب للمجموعة ويفترض إنهم داخلين */
+    protected function fillGroup(GroupClass $group, int $count): void
+    {
+        for ($i = 0; $i < $count; $i++) {
+            GroupMember::admit($group, $this->makeStudent());
+        }
+    }
+
+    /**
+     * ⭐ سطر في قائمة الانتظار — **من غير حساب**.
+     *
+     * ده الشكل الحقيقي: حد جديد بيحط اسمه وموبايله ومش له
+     * طالب في النظام.
+     */
+    protected function makeWaitingEntry(GroupClass $group, array $attrs = []): WaitingListEntry
+    {
+        $n = WaitingListEntry::count() + 1;
+
+        return WaitingListEntry::create(array_merge([
+            'organization_id' => $this->org->id,
+            'group_class_id' => $group->id,
+            'name' => 'منتظر '.$n,
+            // ⭐ أرقام مختلفة لكل واحد — القيد `unique` على الموبايل
+            // هيرفض التكرار، والاختبار عايز يتأكد من ده
+            'phone' => '0100000'.$n,
+            'status' => 'waiting',
+            'entered_at' => now(),
+        ], $attrs));
+    }
+
+    /**
+     * ⭐ يملأ قائمة الانتظار بعدد، **بترتيب زمني واضح**.
+     *
+     * كل واحد بعد التاني بـدقيقة — عشان اختبار الترتيب يبقى
+     * محسوم مش «اتنين في نفس الثانية ونتشوف».
+     */
+    protected function fillWaitingList(GroupClass $group, int $count): array
+    {
+        $entries = [];
+        $start = now()->subMinutes($count + 5);
+
+        for ($i = 0; $i < $count; $i++) {
+            $entries[] = $this->makeWaitingEntry($group, [
+                'phone' => '0110000'.$i,
+                'entered_at' => $start->copy()->addMinutes($i),
+            ]);
+        }
+
+        return $entries;
     }
 
     /**

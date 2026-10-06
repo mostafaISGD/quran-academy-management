@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\EmployeePayrollController;
 use App\Http\Controllers\Api\TeacherPayrollController;
 use App\Http\Controllers\Api\PricingController;
+use App\Http\Controllers\Api\GroupController;
 use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\LeadController;
@@ -52,10 +53,69 @@ Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
     Route::put('/pricing/{plan}', [PricingController::class, 'update'])
         ->middleware(['auth:sanctum', 'permission:pricing.manage']);
 
+    // ===== المجموعات الأونلاين + قائمة الانتظار =====
+    //
+    // ⭐ **الطلب عام، والدخول محمي.**
+    //
+    //  - العرض: عام — زي الأسعار، الأولاد بيسألوا «فيه مجموعة
+    //    للتحفيظ؟»
+    //  - التسجيل في الطابور: **أي حد من غير حساب**. أكتر الناس
+    //    اللي بتطلب هي اللي لسه ما عندهمش اشتراك — ولو ربطناها
+    //    بحساب، اللي عايزينه هو اللي مش هيقدر يسجّل.
+    //  - **«ادخل» / «ارفض» / إدارة المجموعة**: `groups.manage`.
+    //    الاستقبال بياخد الطلب ويحطّه في الطابور، بس **اللي بيقرّر
+    //    «يدخل» هو الإدارة** — عشان لازم حد مسؤول يبقى عارف مين
+    //    داخل.
+    Route::get('/groups', [GroupController::class, 'index']);
+
+    // ⚠️⭐ **`/groups/alerts` لازم قبل `{group}` — مش ترتيب تنسيق.**
+    //
+    // `{group}` بيلقط **أي** كلمة بعد `/groups/`. فلو `alerts`
+    // بعده، الطلب بيروح لـ `show` بـ id = "alerts" وبيرجّع 404
+    // — يعني **الجرس ما اشتغلش أصلاً** مهما كلّفنا كلام.
+    //
+    // وهو محمي بـ `auth:sanctum`، فمش ينفع نعمله عام. فالحل:
+    // guard جوّه الـ route نفسه — يتطابق أول، ويحمي بعد.
+    //
+    // ⚠️ لازم `auth:sanctum` **جوّه** الـ group مع `permission`، زي
+    // بالظبط باقي الـ routes. لو حطيناهم array في_route واحد، الـ
+    // `CheckPermission` بيشتغل قبل ما `auth` يحدّد الـ guard فيبوق
+    // إن `$request->user()` فاضي ويرجّع 403 **غلط**.
+    Route::middleware('auth:sanctum')->group(function () {
+        Route::get('/groups/alerts', [GroupController::class, 'alerts'])
+            ->middleware('permission:groups.manage');
+    });
+
+    Route::get('/groups/{group}', [GroupController::class, 'show']);
+    Route::post('/groups/{group}/waitlist', [GroupController::class, 'joinWaitingList']);
+
 // ---- Authenticated ----
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
+
+    // ===== المجموعات — كل حاجة بعد كده محمية بـ `groups.manage` =====
+    // ⚠️ `/groups/alerts` **مش** هنا — لازم يسبق `{group}` فوق.
+    Route::post('/groups', [GroupController::class, 'store'])
+        ->middleware('permission:groups.manage');
+    Route::put('/groups/{group}', [GroupController::class, 'update'])
+        ->middleware('permission:groups.manage');
+    Route::delete('/groups/{group}', [GroupController::class, 'destroy'])
+        ->middleware('permission:groups.manage');
+
+    Route::get('/groups/{group}/members', [GroupController::class, 'members'])
+        ->middleware('permission:groups.manage');
+    Route::post('/groups/{group}/members', [GroupController::class, 'addMember'])
+        ->middleware('permission:groups.manage');
+    Route::delete('/groups/{group}/members/{member}', [GroupController::class, 'removeMember'])
+        ->middleware('permission:groups.manage');
+
+    Route::get('/groups/{group}/waiting', [GroupController::class, 'waitingList'])
+        ->middleware('permission:groups.manage');
+    Route::post('/groups/{group}/waiting/{entry}/admit', [GroupController::class, 'admit'])
+        ->middleware('permission:groups.manage');
+    Route::post('/groups/{group}/waiting/{entry}/decline', [GroupController::class, 'decline'])
+        ->middleware('permission:groups.manage');
 
     // Students
     Route::get('/students', [StudentController::class, 'index'])->middleware('permission:students.view');

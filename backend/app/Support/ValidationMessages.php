@@ -111,6 +111,17 @@ class ValidationMessages
         'installment' => 'قسط',
         'discount' => 'خصم',
 
+        // ===== المجموعات وقائمة الانتظار =====
+        'capacity' => 'العدد الأقصى',
+        'meeting_url' => 'رابط الاجتماع',
+        'meeting_provider' => 'منصة الاجتماع',
+        'weekday' => 'اليوم',
+        'start_time' => 'وقت البداية',
+        'end_time' => 'وقت النهاية',
+        'sort_order' => 'الترتيب',
+        'group_class_id' => 'المجموعة',
+        'entry' => 'السجل',
+
         // ===== آخر صفحة =====
         'slug' => 'المعرّف',
         'color' => 'اللون',
