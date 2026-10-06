@@ -47,11 +47,32 @@ class PricingPlansTest extends TestCase
         ['group', 60, 12, 350], ['group', 60, 16, 450],
     ];
 
+    /**
+     * كل الباقات المشتركة النشطة — ٢٨ باقة + ٣ حصة مفردة.
+     */
     private function sharedPlans()
     {
         return SubscriptionPlan::whereNull('program_id')
             ->where('status', 'active')
             ->get();
+    }
+
+    /**
+     * ⭐ باقات عدد الحصص بس (٢٨) — **من غير** الحصة المفردة.
+     *
+     * ليش منفصلة؟ لأن «مفيش زيادة عن الجدول» لازم يقارن بالجدول
+     * الصح. الحصة المفردة نظام مختلف، فلو دخلت في المقارنة لكان
+     * الاختبار بيقول «في زيادة» وهي زيادة مقصودة.
+     */
+    private function packages()
+    {
+        return $this->sharedPlans()->where('category', '!=', 'single');
+    }
+
+    /** ⭐ باقات الحصة الواحدة (٣ مدد) */
+    private function singleLessonPlans()
+    {
+        return $this->sharedPlans()->where('category', 'single');
     }
 
     // ============================================================
@@ -66,7 +87,7 @@ class PricingPlansTest extends TestCase
      */
     public function test_every_expected_price_exists_exactly(): void
     {
-        $plans = $this->sharedPlans()->keyBy(
+        $plans = $this->packages()->keyBy(
             fn ($p) => "{$p->category}:{$p->lesson_duration_minutes}:{$p->lessons_count}"
         );
 
@@ -86,10 +107,13 @@ class PricingPlansTest extends TestCase
         }
     }
 
-    public function test_there_are_exactly_28_shared_plans(): void
+    /** ⭐ ٢٨ باقة + ٣ حصة مفردة = ٣١ */
+    public function test_there_are_exactly_28_packages_and_3_single_lesson_plans(): void
     {
         $this->assertCount(28, self::EXPECTED, 'الجدول نفسه ٢٨ سطر');
-        $this->assertCount(28, $this->sharedPlans());
+        $this->assertCount(28, $this->packages());
+        $this->assertCount(3, $this->singleLessonPlans());
+        $this->assertCount(31, $this->sharedPlans());
     }
 
     public function test_no_extra_plans_beyond_the_table(): void
@@ -98,13 +122,76 @@ class PricingPlansTest extends TestCase
             fn ($e) => "{$e[0]}:{$e[1]}:{$e[2]}"
         );
 
-        $actual = $this->sharedPlans()->map(
+        $actual = $this->packages()->map(
             fn ($p) => "{$p->category}:{$p->lesson_duration_minutes}:{$p->lessons_count}"
         );
 
         $extra = $actual->diff($expected);
 
         $this->assertCount(0, $extra, 'في باقات زيادة مش في الجدول: '.$extra->implode(', '));
+    }
+
+    // ============================================================
+    // ⭐ باقات الحصة الواحدة
+    // ===========================================================
+
+    /**
+     * ⭐ الحصة الواحدة: **٣ مدد**، وكل واحدة حصة واحدة بس.
+     *
+     * دي نظام مختلف عن الـ ٢٨ — الـ `billing_type` بتاعها
+     * `per_lesson` مش `monthly`. لو نسينا الـ flag ده، الاشتراك
+     * بيتحسب على أنه شهري وده غلط.
+     */
+    public function test_single_lesson_plans_cover_all_three_durations(): void
+    {
+        $durations = $this->singleLessonPlans()
+            ->pluck('lesson_duration_minutes')
+            ->sort()
+            ->values()
+            ->all();
+
+        $this->assertSame([30, 45, 60], $durations);
+    }
+
+    public function test_single_lesson_plans_are_one_lesson_and_per_lesson_billing(): void
+    {
+        foreach ($this->singleLessonPlans() as $p) {
+            $this->assertSame(1, $p->lessons_count, 'الحصة الواحدة = حصة واحدة');
+            $this->assertSame(
+                'per_lesson', $p->billing_type,
+                'نظام الحصة الواحدة لازم يفضل per_lesson'
+            );
+            $this->assertNull($p->program_id, 'ومشيرة لبرنامج — زي الباقي');
+        }
+    }
+
+    /** ⭐ الحصة الواحدة **أرخص** من أي باقة عدد حصص لنفس المدة */
+    public function test_single_lesson_is_cheaper_than_any_package_of_same_duration(): void
+    {
+        $single = $this->singleLessonPlans()->keyBy('lesson_duration_minutes');
+
+        foreach ($this->packages() as $p) {
+            $other = $single[$p->lesson_duration_minutes] ?? null;
+
+            if ($other === null) {
+                continue;
+            }
+
+            $this->assertTrue(
+                (float) $other->price < (float) $p->price,
+                "حصة واحدة {$p->lesson_duration_minutes}د لازم أرخص من {$p->name}"
+            );
+        }
+    }
+
+    /** ⭐ الأسعار المؤقتة — لو الأدمن عدّلها الاختبار يفشل */
+    public function test_single_lesson_prices_start_at_the_temporary_values(): void
+    {
+        $prices = $this->singleLessonPlans()
+            ->mapWithKeys(fn ($p) => [$p->lesson_duration_minutes => (float) $p->price])
+            ->all();
+
+        $this->assertSame([30 => 60.0, 45 => 90.0, 60 => 120.0], $prices);
     }
 
     // ============================================================
@@ -120,7 +207,7 @@ class PricingPlansTest extends TestCase
     public function test_shared_plans_are_not_attached_to_a_program(): void
     {
         $this->assertSame(
-            28,
+            31,
             $this->sharedPlans()->whereNull('program_id')->count(),
             'الباقات المشتركة program_id = null'
         );
@@ -210,7 +297,13 @@ class PricingPlansTest extends TestCase
     // الأسماء
     // ============================================================
 
-    /** الاسم فيه المدة والعدد والفئة — عشان يبقى واضح */
+    /**
+     * الاسم فيه المدة والعدد — عشان يبقى واضح.
+     *
+     * ⚠️ الحصة المفردة استثناء: اسمها «٣٠ دقيقة - حصة واحدة» مش
+     * «٣٠ دقيقة - ١ حصة». الرقم `1` في الاسم ده كان هيبقى مربك
+     * («حصة واحدة» أوضح بكتير من «حصة ١»).
+     */
     public function test_plan_names_are_self_describing(): void
     {
         foreach ($this->sharedPlans() as $p) {
@@ -218,6 +311,15 @@ class PricingPlansTest extends TestCase
                 (string) $p->lesson_duration_minutes, $p->name,
                 "الاسم «{$p->name}» مفقود منه المدة"
             );
+
+            if ($p->category === 'single') {
+                $this->assertStringContainsString(
+                    'حصة واحدة', $p->name,
+                    "باقة الحصة الواحدة «{$p->name}» لازم تقول إنها حصة واحدة"
+                );
+                continue;
+            }
+
             $this->assertStringContainsString(
                 (string) $p->lessons_count, $p->name,
                 "الاسم «{$p->name}» مفقود منه عدد الحصص"
@@ -244,20 +346,55 @@ class PricingPlansTest extends TestCase
     {
         $this->getJson('/api/pricing')
             ->assertOk()
-            ->assertJsonPath('counts.total', 28);
+            ->assertJsonPath('counts.total', 31);
     }
 
+    /**
+     * ⭐ ٤ جداول بالترتيب ده بالظبط.
+     *
+     * الترتيب مقصود: الأرخص/الأشهر الأول. الحصة المفردة آخر واحد
+     * لأنها **استثناء** مش الباقة الأساسية.
+     */
     public function test_pricing_groups_are_split_by_category(): void
     {
         $r = $this->getJson('/api/pricing')->assertOk();
 
         $labels = collect($r->json('groups'))->pluck('label')->all();
 
-        $this->assertSame(['تقليدي', 'ذهبي', 'مجموعات'], $labels);
+        $this->assertSame(['تقليدي', 'ذهبي', 'مجموعات', 'حصة مفردة'], $labels);
 
-        // ⭐ المجموع = ٢٨ (١٢ تقليدي + ١٢ ذهبي + ٤ مجموعات)
+        // ⭐ المجموع = ٣١ (١٢ تقليدي + ١٢ ذهبي + ٤ مجموعات + ٣ مفردة)
         $total = collect($r->json('groups'))->sum(fn ($g) => count($g['plans']));
-        $this->assertSame(28, $total, "المجموع طلع {$total}");
+        $this->assertSame(31, $total, "المجموع طلع {$total}");
+    }
+
+    /** ⭐ الحصة المفردة جدول مستقل بـ ٣ صفوف */
+    public function test_pricing_returns_the_single_lesson_group(): void
+    {
+        $r = $this->getJson('/api/pricing')->assertOk();
+
+        $group = collect($r->json('groups'))->firstWhere('category', 'single');
+
+        $this->assertNotNull($group, 'مفيش جدول للحصة الواحدة');
+        $this->assertCount(3, $group['plans']);
+        $this->assertSame(
+            [30, 45, 60],
+            collect($group['plans'])->pluck('lesson_duration_minutes')->sort()->values()->all()
+        );
+    }
+
+    /**
+     * ⭐ شريط الترويسة مابقاش فيه «١ حصص».
+     *
+     * الحصة المفردة عددها ١، فلو دخلت في شريط أعداد الحصص كان
+     * هيقول «١ حصص · ٤ حصص · ٨ حصص» — كلام مالوش معنى.
+     */
+    public function test_the_header_lesson_counts_exclude_the_single_lesson(): void
+    {
+        $r = $this->getJson('/api/pricing')->assertOk();
+
+        $this->assertSame([4, 8, 12, 16], $r->json('counts.lessons'));
+        $this->assertSame([30, 45, 60], $r->json('durations'));
     }
 
     /** ⭐ الأرقام المعروضة **إجمالية** — مفيش سعر للحصة */
@@ -375,7 +512,151 @@ class PricingPlansTest extends TestCase
         $this->assertStringContainsString('عدد الحصص', $csv);
         $this->assertStringContainsString('السعر', $csv);
 
-        // ⭐ ٢٨ سطر + سطر العناوين
-        $this->assertCount(29, array_filter(explode("\r\n", trim($csv))));
+        // ⭐ ٣١ سطر + سطر العناوين
+        $this->assertCount(32, array_filter(explode("\r\n", trim($csv))));
+    }
+
+    // ============================================================
+    // ⭐ تعديل السعر
+    // ============================================================
+
+    /**
+     * ⭐ الأدمن يقدر يعدّل السعر، والصفحة بترجع الرقم النهائي.
+     *
+     * بنرجع `plan` من السيرفر (مش اللي بعته العميل) عشان السيرفر
+     * هو اللي بيقرّر شكل الرقم.
+     */
+    public function test_admin_can_change_a_price(): void
+    {
+        $admin = $this->makeUserWithRole('admin', ['pricing.manage']);
+        $plan = $this->packages()->where('category', 'traditional')
+            ->where('lesson_duration_minutes', 30)
+            ->where('lessons_count', 8)
+            ->firstOrFail();
+
+        $r = $this->putJson("/api/pricing/{$plan->id}", ['price' => 375], $this->authHeaders($admin));
+
+        $r->assertOk()->assertJsonPath('plan.price', 375);
+
+        $this->assertSame(375.0, (float) $plan->fresh()->price);
+    }
+
+    /** ⭐ السعر بيفضل **رقم** — مش نص ولا ٣٧٥٫٠٠ ج */
+    public function test_the_returned_price_is_a_number_not_a_formatted_string(): void
+    {
+        $admin = $this->makeUserWithRole('admin', ['pricing.manage']);
+        $plan = $this->packages()->firstOrFail();
+
+        $r = $this->putJson("/api/pricing/{$plan->id}", ['price' => '399.5'], $this->authHeaders($admin));
+
+        $r->assertOk();
+
+        $this->assertIsFloat($r->json('plan.price'));
+        $this->assertSame(399.5, $r->json('plan.price'));
+    }
+
+    /** ⭐ صفر مسموح — حصة مجانية ممكنة */
+    public function test_zero_price_is_allowed(): void
+    {
+        $admin = $this->makeUserWithRole('admin', ['pricing.manage']);
+        $plan = $this->packages()->firstOrFail();
+
+        $this->putJson("/api/pricing/{$plan->id}", ['price' => 0], $this->authHeaders($admin))
+            ->assertOk()
+            ->assertJsonPath('plan.price', 0);
+    }
+
+    /** ⭐ السعر السالب مرفوض — برسالة عربية */
+    public function test_negative_price_is_rejected_in_arabic(): void
+    {
+        $admin = $this->makeUserWithRole('admin', ['pricing.manage']);
+        $plan = $this->packages()->firstOrFail();
+
+        $this->putJson("/api/pricing/{$plan->id}", ['price' => -5], $this->authHeaders($admin))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('price');
+
+        $this->assertSame(
+            'السعر مش بيقل عن صفر',
+            $this->putJson("/api/pricing/{$plan->id}", ['price' => -5], $this->authHeaders($admin))
+                ->json('errors.price.0')
+        );
+
+        // ⭐ والسعر ما اتغيّرش
+        $this->assertNotSame(-5.0, (float) $plan->fresh()->price);
+    }
+
+    /** ⭐ من غير سعر خالص — مرفوض */
+    public function test_price_is_required(): void
+    {
+        $admin = $this->makeUserWithRole('admin', ['pricing.manage']);
+        $plan = $this->packages()->firstOrFail();
+
+        $this->putJson("/api/pricing/{$plan->id}", [], $this->authHeaders($admin))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('price');
+    }
+
+    // ============================================================
+    // ⭐ الصلاحيات — السعر قرار تجاري
+    // ============================================================
+
+    /**
+     * ⭐ العرض عام، **التعديل** محمي.
+     *
+     * لو الـ PUT بقى مفتوح زي الـ GET، يبقى أي حد يقدر يغيّر
+     * أسعار الأكاديمية من غير حساب.
+     */
+    public function test_viewing_is_public_but_editing_is_not(): void
+    {
+        $this->getJson('/api/pricing')->assertOk();
+
+        $plan = $this->packages()->firstOrFail();
+
+        $this->putJson("/api/pricing/{$plan->id}", ['price' => 1])
+            ->assertStatus(401);
+    }
+
+    /** ⭐ المحاسب والاستقبال **مش** يعدّلوا أسعار */
+    public function test_non_admin_roles_cannot_change_a_price(): void
+    {
+        $plan = $this->packages()->firstOrFail();
+        $before = (float) $plan->price;
+
+        foreach (['accountant', 'reception', 'supervisor', 'teacher'] as $role) {
+            $user = $this->makeUserWithRole($role, []);
+
+            $this->putJson(
+                "/api/pricing/{$plan->id}",
+                ['price' => 999],
+                $this->authHeaders($user)
+            )->assertStatus(403);
+        }
+
+        $this->assertSame($before, (float) $plan->fresh()->price, 'السعر ما اتغيّرش');
+    }
+
+    /** ⭐ الباقة القديمة (ليها برنامج) مش بتتعدّل — فيها اشتراكات */
+    public function test_a_plan_attached_to_a_program_cannot_be_edited(): void
+    {
+        $admin = $this->makeUserWithRole('admin', ['pricing.manage']);
+
+        $plan = SubscriptionPlan::create([
+            'organization_id' => $this->org->id,
+            'program_id' => $this->makeProgram()->id,
+            'name' => 'باقة قديمة',
+            'billing_type' => 'monthly',
+            'price' => 400,
+            'currency' => 'EGP',
+            'lessons_count' => 8,
+            'lesson_duration_minutes' => 30,
+            'status' => 'inactive',
+            'category' => 'traditional',
+        ]);
+
+        $this->putJson("/api/pricing/{$plan->id}", ['price' => 1], $this->authHeaders($admin))
+            ->assertStatus(422);
+
+        $this->assertSame(400.0, (float) $plan->fresh()->price);
     }
 }

@@ -57,11 +57,19 @@ class PricingController extends Controller
         $durations = $plans->pluck('lesson_duration_minutes')
             ->unique()->sort()->values()->all();
 
+        // ⭐ أعداد الحصص — **من غير** الحصة المفردة.
+        //
+        // الحصة المفردة عددها ١، فلو دخلت هنا كان الشريط هيقول
+        // «١ حصص · ٤ حصص · ٨ حصص…» وده كلام غريب. الجدول
+        // بتاعها («حصة مفردة») بيقول «حصة واحدة» لوحده.
+        $packages = $plans->where('category', '!=', 'single');
+
         return response()->json([
             'groups' => $grouped,
             'durations' => $durations,
             'counts' => [
-                'lessons' => $plans->pluck('lessons_count')->unique()->sort()->values()->all(),
+                'lessons' => $packages->pluck('lessons_count')
+                    ->unique()->sort()->values()->all(),
                 'total' => $plans->count(),
             ],
         ]);
@@ -103,6 +111,60 @@ class PricingController extends Controller
         return response($csv, 200, [
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="prices.csv"',
+        ]);
+    }
+
+    /**
+     * ⭐ تعديل سعر باقة واحدة.
+     *
+     * مفيش شاشة «إدارة باقات» منفصلة — الأدمن بيضغط على السعر في
+     * نفس صفحة الأسعار ويعدّله على طول. ده اللي طلبه.
+     *
+     * ⭐ بيتعدّل **السعر بس**. المدة وعدد الحصص والفئة هي
+     * **هيكل الجدول** — لو اتغيّرت من هنا ممكن الباقة تطلع في
+     * مكان غريب بالجدول. دي بتتغيّر بالترحيل، مش بالكتابة العادية.
+     *
+     * `pricing.manage` — للإدارة بس، مش محاسب ولا موظف استقبال:
+     * السعر قرار تجاري.
+     */
+    public function update(Request $request, SubscriptionPlan $plan)
+    {
+        $data = $request->validate(
+            ['price' => ['required', 'numeric', 'min:0', 'max:1000000']],
+            [
+                'price.required' => 'اكتب السعر الجديد',
+                'price.numeric' => 'السعر لازم يكون رقم',
+                'price.min' => 'السعر مش بيقل عن صفر',
+                'price.max' => 'السعر كبير أوي',
+            ],
+        );
+
+        // ⚠️ الباقات اللي ليها برنامج (القديمة المتوقفة) مش
+        // بتتعدّل من هنا — دي تاريخ، وفيها اشتراكات قدامها.
+        // لو سمحنا، رقم اشتراك قدام يتحرّك.
+        if (! $plan->isShared()) {
+            return response()->json([
+                'message' => 'الباقة دي مربوطة ببرنامج — مقدرش تعدّل سعرها من هنا',
+            ], 422);
+        }
+
+        $old = (float) $plan->price;
+        $new = round((float) $data['price'], 2);
+
+        $plan->update(['price' => $new]);
+
+        app(\App\Services\AuditLogService::class)->log(
+            'update',
+            'subscription_plan',
+            $plan->id,
+            ['price' => $old],
+            ['price' => $new],
+            $request,
+        );
+
+        return response()->json([
+            'message' => 'اتحفظ السعر',
+            'plan' => $this->present($plan->fresh()),
         ]);
     }
 

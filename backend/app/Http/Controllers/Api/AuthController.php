@@ -76,6 +76,11 @@ class AuthController extends Controller
             'department' => $user->department,
             'status' => $user->status,
             'roles' => $user->roles->pluck('name'),
+            // ⭐ الصلاحيات نفسها — عشان الواجهة تعرف مين يقدر يعدّل.
+            // قبل كده الواجهة كانت عميانة: بتطلب وتاخد 403، أو
+            // بتخفي الزرار وبعدين تطلع رسالة. دلوقتي تقدر تعرض
+            // الزرار بس لللي له الصلاحية.
+            'permissions' => $user->getAllPermissions()->pluck('name'),
             'is_teacher' => $user->teacher !== null,
             'teacher' => $user->teacher ? [
                 'id' => $user->teacher->id,

@@ -47,6 +47,11 @@ Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
     Route::get('/pricing', [PricingController::class, 'index']);
     Route::get('/pricing/export', [PricingController::class, 'export']);
 
+    // ⭐ التعديل **مش** عام — بيحتاج تسجيل دخول + صلاحية.
+    // العرض عام، والتعديل قرار تجاري للإدارة بس.
+    Route::put('/pricing/{plan}', [PricingController::class, 'update'])
+        ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+
 // ---- Authenticated ----
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);

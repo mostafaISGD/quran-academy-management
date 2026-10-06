@@ -2,13 +2,18 @@
 
 import { useEffect, useState } from "react";
 import {
+  fetchMe,
   getPricing,
   getPricingCsvUrl,
+  updatePlanPrice,
+  type AuthUser,
   type PlanCategory,
   type PricingGroup,
+  type PricingPlan,
   type PricingResponse,
 } from "@/lib/api";
 import { egp, num } from "@/lib/format";
+import { useUI } from "@/components/ui";
 
 /**
  * جدول الأسعار — ٢٨ باقة مقسّمة على ٣ فئات.
@@ -56,16 +61,52 @@ const CATEGORY_STYLE: Record<
 };
 
 export default function PricingPage() {
+  const { toast } = useUI();
   const [data, setData] = useState<PricingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // ⭐ مين يقدر يعدّل؟ هنجيبها من `auth/me` — الأهل مافيش ليهم
+  // حساب أصلاً، والأدمن هو اللي عنده `pricing.manage`.
+  const [me, setMe] = useState<AuthUser | null>(null);
 
   useEffect(() => {
     getPricing()
       .then(setData)
       .catch((e) => setError(e instanceof Error ? e.message : "تعذر تحميل الأسعار"))
       .finally(() => setLoading(false));
+
+    fetchMe().then(setMe).catch(() => setMe(null));
   }, []);
+
+  const canEdit = Boolean(me?.permissions?.includes("pricing.manage"));
+
+  /**
+   * ⭐ الحفظ بيحصل في **نفس الصفحة** — مفيش شاشة تانية.
+   *
+   * بنرجّع السعر الجديد من السيرفر (مش اللي كتبه المستخدم) عشان
+   * السيرفر هو اللي بيقرّر شكل الرقم النهائي.
+   */
+  async function savePrice(planId: number, price: number) {
+    try {
+      const res = await updatePlanPrice(planId, price);
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              groups: prev.groups.map((g) => ({
+                ...g,
+                plans: g.plans.map((p) => (p.id === planId ? res.plan : p)),
+              })),
+            }
+          : prev,
+      );
+      toast.success(res.message);
+    } catch (e) {
+      toast.apiError("فشل حفظ السعر", e);
+      // ⭐ نرجّع الرقم القديم — الشاشة فضلت على رقم مش موجود
+      throw e;
+    }
+  }
 
   if (loading) {
     return (
@@ -101,19 +142,22 @@ export default function PricingPage() {
           </p>
         </div>
 
-        <a
-          href={getPricingCsvUrl()}
-          download
-          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
-        >
-          تحميل CSV
-        </a>
+        {/* لازم صلاحية — عشان ما نعرضش زرار لحد مش هيقدر يضغطه */}
+        {canEdit && (
+          <a
+            href={getPricingCsvUrl()}
+            download
+            className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50"
+          >
+            تحميل CSV
+          </a>
+        )}
       </div>
 
       {/* ===== الفئات جنب بعض ===== */}
       <div className="grid gap-4 lg:grid-cols-3">
         {data.groups.map((g) => (
-          <GroupCard key={g.category} group={g} />
+          <GroupCard key={g.category} group={g} canEdit={canEdit} onSave={savePrice} />
         ))}
       </div>
 
@@ -131,7 +175,15 @@ export default function PricingPage() {
 }
 
 /** كارت فئة واحدة */
-function GroupCard({ group }: { group: PricingGroup }) {
+function GroupCard({
+  group,
+  canEdit,
+  onSave,
+}: {
+  group: PricingGroup;
+  canEdit: boolean;
+  onSave: (planId: number, price: number) => Promise<void>;
+}) {
   const style = CATEGORY_STYLE[group.category] ?? CATEGORY_STYLE.traditional;
 
   // ⭐ الترتيب: المدة (٣٠/٤٥/٦٠) × عدد الحصص (٤/٨/١٢/١٦)
@@ -196,10 +248,7 @@ function GroupCard({ group }: { group: PricingGroup }) {
                   {p.lessons_count === null ? "—" : num(p.lessons_count, 0)}
                 </td>
                 <td className="px-4 py-2 text-left">
-                  {/* ⭐ السعر الإجمالي — جوه الجنيه */}
-                  <span className="text-sm font-bold tabular-nums text-slate-900">
-                    {egp(p.price, 0)}
-                  </span>
+                  <PriceCell plan={p} canEdit={canEdit} onSave={onSave} />
                 </td>
               </tr>
             )),
@@ -207,5 +256,119 @@ function GroupCard({ group }: { group: PricingGroup }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * ⭐ خلية السعر — بتتعدّل **في مكانها**.
+ *
+ * بالضغط على الرقم: يتحوّل لحقل، تكتب الرقم الجديد، تدوس Enter
+ * أو تضغط برّه — بيتحفظ. تدوس Esc — يرجع زي ما كان.
+ *
+ * ليه بالضغط مش بحقل دايماً؟ لأن ٣١ صف في جداول — حقول دايماً
+ * هتبقى مرهق. الضغط على اللي عايز تعدّله بس أسرع.
+ */
+function PriceCell({
+  plan,
+  canEdit,
+  onSave,
+}: {
+  plan: PricingPlan;
+  canEdit: boolean;
+  onSave: (planId: number, price: number) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  // ⭐ string مش number — المستخدم بيكتب، ولحد ما يضغط Enter الرقم
+  // نص. التحويل لـ number بيحصل عند الحفظ بس.
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // ⭐ متى الـ price يتغيّر من برّه (من الحفظ)، نحدّث النص المعروض
+  const shown = editing ? draft : egp(plan.price, 0);
+
+  function start() {
+    if (!canEdit || saving) return;
+    // ⭐ نكتب الرقم **الإنجليزي** في الحقل — الأرقام العربية
+    // (٠١٢٣) ما بتتقراش بـ parseFloat، واللي كتبه الأدمن لازم
+    // يوصل للسيرفر كرقم.
+    setDraft(String(plan.price));
+    setEditing(true);
+  }
+
+  function cancel() {
+    setEditing(false);
+    setDraft("");
+  }
+
+  async function commit() {
+    const value = Number(draft.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)));
+
+    if (!Number.isFinite(value) || value < 0) {
+      cancel();
+      return;
+    }
+
+    // ⭐ ما نبعثش لو ما اتغيّرش — بيملا سجل النشاط ب noise
+    if (value === Number(plan.price)) {
+      cancel();
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await onSave(plan.id, value);
+      setEditing(false);
+      setDraft("");
+    } catch {
+      // ⭐ نسيب الحقل مفتوح — الـ toast بيقول العطل، والرقم
+      // القديم رجع في الشاشة بالفعل
+      cancel();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ===== وضع التعديل =====
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="number"
+        inputMode="decimal"
+        min={0}
+        step="0.01"
+        dir="ltr"
+        value={draft}
+        disabled={saving}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") void commit();
+          if (e.key === "Escape") cancel();
+        }}
+        onBlur={() => void commit()}
+        className="w-24 rounded-md border border-slate-300 px-2 py-1 text-left text-sm font-bold tabular-nums text-slate-900 focus:border-slate-500 focus:outline-none"
+      />
+    );
+  }
+
+  // ===== وضع العرض =====
+  if (!canEdit) {
+    return (
+      <span className="text-sm font-bold tabular-nums text-slate-900">{shown}</span>
+    );
+  }
+
+  return (
+    <button
+      onClick={start}
+      title="اضغط للتعديل"
+      className="group/cell -mr-1 rounded-md px-1 py-0.5 text-sm font-bold tabular-nums text-slate-900 transition hover:bg-slate-100"
+    >
+      {shown}
+      {/* ⭐ علامة خفيفة بتقول «ده بيتعدّل» — من غير ما نلوّث الرقم */}
+      <span className="mr-1 text-[10px] font-normal text-slate-300 opacity-0 transition group-hover/cell:opacity-100">
+        ✎
+      </span>
+    </button>
   );
 }

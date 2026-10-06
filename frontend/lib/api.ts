@@ -102,6 +102,8 @@ export type AuthUser = {
   department: string | null;
   status: "active" | "suspended" | "inactive";
   roles: string[];
+  /** ⭐ الصلاحيات — عشان نعرض الزرار لللي يقدر يعدّل بس */
+  permissions: string[];
   /** الحساب مربوط بمعلم — كل معلم بيتحكم بجدوله بنفسه */
   is_teacher: boolean;
   teacher: AuthTeacher | null;
@@ -1532,6 +1534,18 @@ export type PricingResponse = {
  */
 export function getPricing() {
   return apiFetch<PricingResponse>("/pricing");
+}
+
+/**
+ * ⭐ تعديل سعر باقة — **محمي** بـ `pricing.manage`.
+ *
+ * بيحتاج تسجيل دخول، بعكس `getPricing()` اللي عامة.
+ */
+export function updatePlanPrice(id: number, price: number) {
+  return apiFetch<{ message: string; plan: PricingPlan }>(`/pricing/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ price }),
+  });
 }
 
 export function getPricingCsvUrl(): string {

@@ -50,6 +50,11 @@ class SeedRolesPermissions extends Seeder
         ['name' => 'attendance.view', 'module' => 'attendance'],
         ['name' => 'attendance.manage', 'module' => 'attendance'],
         ['name' => 'payroll.manage', 'module' => 'payroll'],
+        // ===== الأسعار =====
+        // الأسعار نفسها **عامة** (الأهالي بيسألوا عنها من غير
+        // حساب) — بس تعديلها لازم يكون صلاحية. فبنخليها للإدارة
+        // بس: ده قرار تجاري، مش شغل محاسب ولا موظف استقبال.
+        ['name' => 'pricing.manage', 'module' => 'pricing'],
         ['name' => 'settings.manage', 'module' => 'settings'],
     ];
 
