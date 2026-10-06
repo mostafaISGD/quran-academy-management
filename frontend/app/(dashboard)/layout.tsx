@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { logout, fetchMe, type AuthUser } from "@/lib/api";
+import { getGroupAlerts, logout, fetchMe, type AuthUser } from "@/lib/api";
+import { num } from "@/lib/format";
 import { UIProvider } from "@/components/ui/UIProvider";
 
 interface NavItem {
@@ -48,6 +49,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/schedule", label: "جدول الحصص", icon: "📅" },
       { href: "/attendance", label: "تسجيل الحضور", icon: "🕐" },
+      { href: "/groups", label: "المجموعات", icon: "👥" },
+      { href: "/groups/manage", label: "إدارة المجموعات", icon: "🧑‍🏫" },
       { href: "/pricing", label: "جدول الأسعار", icon: "💲" },
     ],
   },
@@ -100,6 +103,47 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     "المالية": true,
   });
   const [user, setUser] = useState<AuthUser | null>(null);
+  /**
+   * ⭐ رقم الجرس: «فيه ناس مستنية وفيه مقعد فاضي».
+   *
+   * بيتحسب **جوه** `GroupController::alerts()` — مش هنا. لو حسبناه
+   * في الواجهة كمان، هنشوف رقمين مختلفين أول ما حد يدخل.
+   *
+   * ⚠️ الخطأ بيتجاهل بصمت: الرقم ده مش مهم، و`/groups/alerts`
+   * بيرجّع 403 لموظف الاستقبال أصلاً. ما ينفعش طلب بيفشل يبقى
+   * سبب إنه يفضل يطلب كل ثانية.
+   */
+  const [groupAlerts, setGroupAlerts] = useState(0);
+
+  // مين داخل؟ المعلّم بياخد واجهة مختصرة بجدوله، وولي الأمر بصفحة أبناؤه
+  useEffect(() => {
+    fetchMe()
+      .then((u) => {
+        setUser(u);
+        // ⭐ بس لو ليه صلاحية — عشان ما نعملش طلبات 403 لكل موظف
+        if (u.permissions?.includes("groups.manage")) {
+          getGroupAlerts()
+            .then((r) => setGroupAlerts(r.count))
+            .catch(() => setGroupAlerts(0));
+        }
+      })
+      .catch(() => setUser(null));
+  }, []);
+
+  /**
+   * ⭐ إعادة الحساب أول ما تفتح «إدارة المجموعات».
+   *
+   * السبب: لولا كده، لو دخّلت حد، الجرس هيفضل بالرقم القديم لحد
+   * ما تعمل تحديث للصفحة كلها.
+   */
+  useEffect(() => {
+    if (!user?.permissions?.includes("groups.manage")) return;
+    if (pathname !== "/groups/manage") return;
+
+    getGroupAlerts()
+      .then((r) => setGroupAlerts(r.count))
+      .catch(() => setGroupAlerts(0));
+  }, [pathname, user]);
 
   // مين داخل؟ المعلّم بياخد واجهة مختصرة بجدوله، وولي الأمر بصفحة أبناؤه
   useEffect(() => {
@@ -153,7 +197,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
               >
                 <span>{group.icon} {group.label}</span>
-                <span className="text-xs">{expandedGroups[group.label] ? "▼" : "▶"}</span>
+                <span className="flex items-center gap-1.5">
+                  {/* ⭐ الجرس كمان على **المجموعة المطوية**.
+                      غير كده الجرس مخفي لحد ما تفتح «التشغيل» —
+                      يعني هو مش بيلفّت نظرك زي ما المفروض. */}
+                  {group.label === "التشغيل" && groupAlerts > 0 && (
+                    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                      {num(groupAlerts, 0)}
+                    </span>
+                  )}
+                  <span className="text-xs">{expandedGroups[group.label] ? "▼" : "▶"}</span>
+                </span>
               </button>
               {expandedGroups[group.label] && (
                 <div className="mr-4 space-y-0.5 border-r border-slate-200 pr-2">
@@ -169,6 +223,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                             : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                         }`}
                       >
+                        {/* ⭐ الجرس: «فيه ناس مستنية وفيه مقعد فاضي» */}
+                        {item.href === "/groups/manage" && groupAlerts > 0 && (
+                          <span className="mr-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                            {/* ⭐ `num` مش الرقم الخام — التطبيق كله عربي */}
+                            {num(groupAlerts, 0)}
+                          </span>
+                        )}
                         {item.icon} {item.label}
                       </Link>
                     );

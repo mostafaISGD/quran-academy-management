@@ -526,13 +526,21 @@ class GroupWaitingListTest extends TestCase
         $this->assertSame(2, $data['waiting_count']);
         $this->assertSame(5, $data['seats_left']);
         $this->assertTrue($data['has_space']);
-        $this->assertTrue($data['needs_attention']);
     }
 
-    /** ⭐ ⚠️ الرد العام **مافيش فيه** أسماء طلاب ولا موبايلات */
+    /**
+     * ⭐ ⚠️ الرد العام **مافيش فيه** أسماء طلاب ولا موبايلات.
+     *
+     * وأهم من كده: مافيش `needs_attention`. «فيه ناس مستنية وفيه
+     * مقعد فاضي» **إشارة شغل داخلية** — بتقول لموظف الاستقبال
+     * «المجموعة دي محتاجة قرار دلوقتي». دي مش بتتنشر.
+     *
+     * اللي بيتعرض عام: `waiting_count`. رقم بلا أسماء، وهو اللي
+     * بيخلّي الأهل يستنّوا بدل ما يمشوا.
+     */
     public function test_the_public_response_leaks_no_student_data(): void
     {
-        $group = $this->makeGroup(['capacity' => 2]);
+        $group = $this->makeGroup(['capacity' => 4]);
         $this->fillGroup($group, 1);
         $entry = $this->makeWaitingEntry($group, ['name' => 'أحمد محمد', 'phone' => '01001234567']);
 
@@ -543,6 +551,22 @@ class GroupWaitingListTest extends TestCase
         $this->assertStringNotContainsString('أحمد محمد', $body, 'مفيش أسماء في الرد العام');
         $this->assertStringNotContainsString('01001234567', $body, 'مفيش أرقام موبايل');
         $this->assertStringNotContainsString($entry->phone, $body);
+
+        // ⭐ ⭐ الإشارة الداخلية مالهاش مكان في الرد العام
+        $this->assertArrayNotHasKey(
+            'needs_attention',
+            $r->json('data.0'),
+            '«فيه شغل» ده للاستخدام الداخلي بس'
+        );
+
+        // ⭐ والرقم نفسه كمان `null` مش رقم
+        $this->assertNull(
+            $r->json('meta.alerts'),
+            'الرد العام مش هيقول كام مجموعة محتاجة شغل'
+        );
+
+        // ⭐ بس عدد المنتظرين **بيتعرض** — رقم بلا أسماء
+        $this->assertSame(1, $r->json('data.0.waiting_count'));
     }
 
     // ============================================================
@@ -1017,18 +1041,30 @@ class GroupWaitingListTest extends TestCase
     // ⑪ الميعاد
     // ============================================================
 
-    public function test_the_schedule_label_reads_the_weekday_and_time(): void
+    /**
+     * ⭐ الميعاد **خام** — «الخميس 18:00».
+     *
+     * ⚠️ مش «الخميس ٧:٠٠ م» — الـ `PM` الإنجليزي كان بيطلع من
+     * Carbon وبيبوّظ كل الجدول. التنسيق بقى في الواجهة
+     * (`scheduleLine()`)، والمتصفح عنده البيانات الصح مضمونة.
+     */
+    public function test_the_schedule_label_stays_raw_for_the_frontend_to_format(): void
     {
         $group = $this->makeGroup([
             'weekday' => 4,
-            'start_time' => '16:00',
-            'end_time' => '17:00',
+            'start_time' => '18:00',
+            'end_time' => '19:00',
         ]);
 
         $label = $group->scheduleLabel();
 
         $this->assertStringContainsString('الخميس', $label);
-        $this->assertMatchesRegularExpression('/\d{1,2}:\d{2}/', $label);
+        $this->assertStringContainsString('18:00', $label);
+        $this->assertStringContainsString('19:00', $label);
+
+        // ⭐ مافيش إنجليزي
+        $this->assertStringNotContainsStringIgnoringCase('pm', $label);
+        $this->assertStringNotContainsStringIgnoringCase('am', $label);
     }
 
     public function test_no_schedule_label_when_there_is_no_schedule(): void

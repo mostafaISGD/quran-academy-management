@@ -1553,6 +1553,242 @@ export function getPricingCsvUrl(): string {
 }
 
 // ============================================================
+// المجموعات الأونلاين + قائمة الانتظار
+// ============================================================
+
+/**
+ * ⭐ أرقام المجموعة — **كلها مجمّعة في مفتاح واحد**.
+ *
+ * السبب: السيرفر بيحسبها في `GroupClass::occupancy()` — مكان واحد
+ * بس. لو الواجهة حسبت `capacity - members` من عندها، هنشوف رقمين
+ * مختلفين أول ما حد يدخل أو يخرج.
+ */
+export type GroupOccupancy = {
+  /** `null` = مفيش حد أقصى — مش صفر */
+  capacity: number | null;
+  /** عدد الداخلين دلوقتي */
+  members: number;
+  /** عدد المنتظرين في الطابور */
+  waiting: number;
+  /** `null` = مفتوحة من غير حد */
+  seats_left: number | null;
+  is_full: boolean;
+  has_space: boolean;
+};
+
+export type GroupRow = {
+  id: number;
+  name: string;
+  description: string | null;
+  status: "active" | "paused" | "archived";
+
+  program: { id: number; name: string } | null;
+  level: { id: number; name: string } | null;
+  teacher: { id: number; name: string } | null;
+
+  /** المجموعات أونلاين — اللينك الأساس */
+  meeting_url: string | null;
+  weekday: number | null;
+  weekday_label: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  /** «الخميس ٤:٠٠ م — ٥:٠٠ م» جاهز للعرض */
+  schedule_label: string | null;
+
+  occupancy: GroupOccupancy;
+
+  // ⭐ مكرّرة في الأعلى للعرض السريع — نفس المصدر
+  capacity: number | null;
+  members_count: number;
+  waiting_count: number;
+  seats_left: number | null;
+  is_full: boolean;
+  has_space: boolean;
+
+  /**
+   * ⚠️ مافيش `needs_attention` في الرد العام.
+   *
+   * السبب: «فيه ناس مستنية وفيه مقعد فاضي» إشارة شغل **داخلية**.
+   * لو حطيناها هنا، كل زائر للصفحة العامة (وكل موظف استقبال)
+   * هيشوف «المجموعة دي محتاجة قرار دلوقتي».
+   *
+   * الإشارة جاية من `/groups/alerts` — المحمي بـ `groups.manage`.
+   */
+
+  /** ⭐ حتى لو ممتلئة بتستقبل طلبات — ده معنى الانتظار */
+  accepts_waitlist: boolean;
+};
+
+export type GroupListResponse = {
+  data: GroupRow[];
+  meta: {
+    total: number;
+    /** ⭐ `null` في الرد العام — الخلاصة الداخلية من `/groups/alerts` */
+    alerts: number | null;
+  };
+};
+
+export type WaitingEntry = {
+  id: number;
+  name: string;
+  phone: string;
+  notes: string | null;
+  status: "waiting" | "joined" | "declined";
+  /** ⭐ رقمه في الطابور — بيتحسب في السيرفر */
+  position: number;
+  entered_at: string | null;
+  joined_at: string | null;
+  student_id: number | null;
+  /** ⭐ مربوط بحساب ولا لأ — بيحدد الشغل اللي بعد «ادخل» */
+  linked_student: boolean;
+};
+
+export type GroupMemberRow = {
+  id: number;
+  status: "active" | "left";
+  source: "manual" | "waitlist";
+  joined_at: string | null;
+  left_at: string | null;
+  notes: string | null;
+  student: { id: number; code: string; name: string; status: string } | null;
+};
+
+export type GroupAlert = {
+  id: number;
+  name: string;
+  waiting: number;
+  seats_left: number | null;
+};
+
+/** ⭐ **عام** — زي الأسعار، مفيش تسجيل دخول */
+export function getGroups() {
+  return apiFetch<GroupListResponse>("/groups");
+}
+
+export function getGroup(id: number) {
+  return apiFetch<{ data: GroupRow }>(`/groups/${id}`);
+}
+
+/**
+ * ⭐ **أي حد** — من غير حساب.
+ *
+ * السبب: أكتر الناس اللي بتطلب في المجموعات هم اللي لسه ما
+ * عندهمش اشتراك. لو ربطناها بحساب، اللي عايزينه هو اللي مش
+ * هيقدر يسجّل.
+ */
+export function joinWaitingList(
+  groupId: number,
+  payload: { name: string; phone: string; notes?: string },
+) {
+  return apiFetch<{ message: string; position: number; waiting_count: number }>(
+    `/groups/${groupId}/waitlist`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+/**
+ * ⭐ رقم الجرس — محمي بـ `groups.manage`.
+ *
+ * ⚠️ **ده المصدر الوحيد** لـ«فيه ناس مستنية وفيه مقعد فاضي».
+ * الرد العام مافيش فيه — عن قصد. ولو حسبناها في الواجهة من
+ * `waiting_count` و `has_space`، هنرجّعها للعموم بالغلط.
+ */
+export function getGroupAlerts() {
+  return apiFetch<{ count: number; groups: GroupAlert[] }>("/groups/alerts");
+}
+
+/** الطابور — محمي. كل سطر برقمه */
+export function getGroupWaiting(groupId: number) {
+  return apiFetch<{ data: WaitingEntry[]; occupancy: GroupOccupancy }>(
+    `/groups/${groupId}/waiting`,
+  );
+}
+
+export function getGroupMembers(groupId: number) {
+  return apiFetch<{ data: GroupMemberRow[] }>(`/groups/${groupId}/members`);
+}
+
+/**
+ * ⭐ «ادخل» — بيعلّم السطر بس، **مش** بيعمل طالب ولا اشتراك.
+ *
+ * ⚠️ `nextStep` و `needsMember` موجودين عشان الواجهة تقول
+ * «لسه مش داخل المجموعة فعليًا» بدل ما المستخدم يفتكر إنه خلص.
+ */
+export function admitFromWaitingList(groupId: number, entryId: number) {
+  return apiFetch<{
+    message: string;
+    next_step: string;
+    needs_member: boolean;
+    occupancy: GroupOccupancy;
+  }>(`/groups/${groupId}/waiting/${entryId}/admit`, { method: "POST" });
+}
+
+export function declineFromWaitingList(groupId: number, entryId: number, reason?: string) {
+  return apiFetch<{ message: string; occupancy: GroupOccupancy }>(
+    `/groups/${groupId}/waiting/${entryId}/decline`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
+}
+
+export function addGroupMember(groupId: number, studentId: number, notes?: string) {
+  return apiFetch<{ message: string; occupancy: GroupOccupancy }>(`/groups/${groupId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ student_id: studentId, notes }),
+  });
+}
+
+/** ⭐ الشيل بيغيّر الحالة — مش بيمسح السطر */
+export function removeGroupMember(groupId: number, memberId: number, reason?: string) {
+  return apiFetch<{ message: string; occupancy: GroupOccupancy }>(
+    `/groups/${groupId}/members/${memberId}`,
+    { method: "DELETE", body: JSON.stringify({ reason }) },
+  );
+}
+
+/**
+ * ⭐ دوال الإدارة بتبعت `program_id` **رقم**، مش كائن `program`.
+ *
+ * السبب: الـ API بيستقبل `program_id` (عمود في القاعدة)، و
+ * `GroupRow.program` هو الكائن اللي **بيرجع** في الرد. لو خلطنا
+ * بين الاتنين، التايبس مش هيلمي حد، وهيبعت كائن مكان رقم.
+ */
+export type GroupPayload = {
+  program_id: number;
+  level_id?: number | null;
+  teacher_id?: number | null;
+  name: string;
+  /** ⭐ `null` = مفيش حد أقصى — مش صفر (الصفر معناه «مفيش حد يدخل») */
+  capacity?: number | null;
+  meeting_url?: string | null;
+  meeting_provider?: string | null;
+  weekday?: number | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  status?: "active" | "paused" | "archived";
+  sort_order?: number | null;
+  description?: string | null;
+};
+
+export function createGroup(payload: GroupPayload) {
+  return apiFetch<{ message: string; data: GroupRow }>("/groups", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateGroup(id: number, payload: Partial<GroupPayload>) {
+  return apiFetch<{ message: string; data: GroupRow }>(`/groups/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** ⭐ حذف = **أرشفة** — عشان السجل يفضل */
+export function archiveGroup(id: number) {
+  return apiFetch<{ message: string; waiting_left: number }>(`/groups/${id}`, { method: "DELETE" });
+}
+
+// ============================================================
 // مرتبات المعلمين
 // ============================================================
 // ============================================================

@@ -42,6 +42,17 @@ class GroupController extends Controller
      *
      * ⚠️ الأرقام من `occupancy()` — **مكان واحد** في النظام.
      * لو حسبناها هنا تاني، الشاشة والـ API هياخدوا رقمين.
+     *
+     * ⭐⚠️ **الرد العام مافيش فيه `needs_attention`.**
+     *
+     * السبب: «فيه ناس مستنية وفيه مقعد فاضي» **إشارة شغل داخلية** —
+     * بتقول لموظف الاستقبال «المجموعة دي محتاجة قرار دلوقتي».
+     * دي مش معلومة بتتنشر للعموم.
+     *
+     * اللي **بيتعرض** عام: `waiting_count`. لأنه رقم بلا أسماء،
+     * وهو اللي بيخلّي الأهل يستنّوا بدل ما يمشوا.
+     *
+     * الإشارة الداخلية جاية من `/groups/alerts` — المحمي.
      */
     public function index(Request $request)
     {
@@ -56,8 +67,9 @@ class GroupController extends Controller
             'data' => $groups->map(fn (GroupClass $g) => $this->present($g))->all(),
             'meta' => [
                 'total' => $groups->count(),
-                // ⭐ «فيه حد مستني وفيه مقعد فاضي» — ده رقم الجرس
-                'alerts' => $groups->filter(fn (GroupClass $g) => $g->hasWaitingAndSpace())->count(),
+                // ⭐ `null` مش رقم — عشان الواجهة ما تلبسش الصفر
+                // على «مفيش تنبيه» لو الرد اتغيّر
+                'alerts' => null,
             ],
         ]);
     }
@@ -526,8 +538,9 @@ class GroupController extends Controller
             'seats_left' => $o['seats_left'],
             'is_full' => $o['is_full'],
             'has_space' => $o['has_space'],
-            // ⭐ «فيه ناس مستنية وفيه مكان» — ده اللي بيولّع الجرس
-            'needs_attention' => $g->hasWaitingAndSpace(),
+
+            // ⚠️ `needs_attention` **مش** هنا — شوف `index()`.
+            // «فيه شغل» إشارة داخلية، مالهاش لازمة في الرد العام.
 
             'accepts_waitlist' => $g->isOpenForWaitlist(),
         ];

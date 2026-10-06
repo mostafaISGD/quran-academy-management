@@ -179,27 +179,36 @@ class GroupClass extends Model
     // الاسم على الشاشة
     // ============================================================
 
-    /** «الأحد ٤:٠٠ م — ٥:٠٠ م» أو «الأحد ٤:٠٠ م» */
+    /**
+     * ⭐ سطر الميعاد **خام** — «الخميس 18:00 — 19:00».
+     *
+     * ⚠️ ليه خام ومش «الخميس ٧:٠٠ م»؟
+     *
+     * كان بنعمله بـ Carbon و`->locale('ar')`، وطلع «6:00 PM» —
+     * إنجليزي. السبب إن Carbon محتاج بيانات اللغة محمّلة، وده
+     * بيختلف من بيئة لأخرى.
+     *
+     * ⭐ **الواجهة هي اللي بتعمل التنسيق** (`scheduleLine()` في
+     * `lib/format.ts`) — عندها المتصفح فيه البيانات الصح مضمونة.
+     *
+     * الـ `weekday_label` فاضل عربي عادي، وده مش بيحتاج تنسيق.
+     */
     public function scheduleLabel(): ?string
     {
         if ($this->weekday === null && ! $this->start_time) {
             return null;
         }
 
-        $day = self::WEEKDAYS[$this->weekday] ?? null;
+        $day = $this->weekday !== null
+            ? (self::WEEKDAYS[$this->weekday] ?? null)
+            : null;
 
-        $time = null;
-        if ($this->start_time) {
-            $time = \Illuminate\Support\Carbon::parse($this->start_time)
-                ->locale('ar')->format('g:i A');
+        $from = $this->start_time ? substr($this->start_time, 0, 5) : null;
+        $to = $this->end_time ? substr($this->end_time, 0, 5) : null;
 
-            if ($this->end_time) {
-                $time .= ' — '.\Illuminate\Support\Carbon::parse($this->end_time)
-                    ->locale('ar')->format('g:i A');
-            }
-        }
+        $range = $from ? ($to ? "{$from} — {$to}" : $from) : null;
 
-        return collect([$day, $time])->filter()->implode(' ');
+        return collect([$day, $range])->filter()->implode(' ');
     }
 
     /** بتستقبل طلبات انضمام جديدة ولا لأ — للعرض العام */

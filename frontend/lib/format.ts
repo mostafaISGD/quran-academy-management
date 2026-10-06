@@ -84,6 +84,66 @@ export function time(value: string | Date | null | undefined): string {
   return d.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
 }
 
+/**
+ * ⭐ وقت من نص `HH:MM` — زي ميعاد المجموعة.
+ *
+ * ⚠️ ليه مش `time()` العادي؟
+ *
+ * `new Date("18:00")` بيرجّع `Invalid Date` في معظم المتصفحات
+ * (ساعة من غير تاريخ مش مقبولة). فالوقت بيبقى «—» والميعاد
+ * بيختفي من الشاشة.
+ *
+ * ⭐ وبنطبّع `PM`/`AM` قبل التحويل، لأن `18:00` و`6:00 PM` نفس
+ * الوقت بأرقام مختلفة — واللي جاي من السيرفر ممكن يكون بأي شكل.
+ */
+export function timeOnly(hhmm: string | null | undefined): string {
+  if (!hhmm) return "—";
+
+  // «6:00 PM» → «18:00»
+  const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i.exec(hhmm.trim());
+  if (!m) return time(hhmm);
+
+  let hours = Number(m[1]);
+  const meridiem = m[3]?.toUpperCase();
+
+  if (meridiem === "PM" && hours < 12) hours += 12;
+  if (meridiem === "AM" && hours === 12) hours = 0;
+
+  const d = new Date(2000, 0, 1, hours, Number(m[2]));
+  if (Number.isNaN(d.getTime())) return "—";
+
+  return d.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
+}
+
+/**
+ * ⭐ سطر الميعاد: «الخميس ٧:٠٠ م — ٨:٠٠ م».
+ *
+ * ⭐ **التركيب في الواجهة مش في السيرفر** — عن قصد.
+ *
+ * السبب: السيرفر كنا بنعمله بـ Carbon و`->locale('ar')`، وطلع
+ * «6:00 PM» — إنجليزي. لأن Carbon محتاج بيانات اللغة متحمّلة،
+ * وده بيختلف من بيئة لأخرى.
+ *
+ * التوقيت **عرض** — فلو السيرفر رجّع رقم غلط، الأرقام في الشاشة
+ * هتبقى غلط برضه. كل الـ formats في مكان واحد عشان لو غيرنا
+ * مرة واحدة.
+ */
+export function scheduleLine(
+  weekday: string | null,
+  start: string | null,
+  end: string | null,
+): string | null {
+  const day = weekday?.trim();
+  const from = start ? timeOnly(start) : null;
+
+  if (!day && !from) return null;
+
+  const to = end ? timeOnly(end) : null;
+  const range = from ? (to && to !== "—" ? `${from} — ${to}` : from) : null;
+
+  return [day, range].filter(Boolean).join(" ");
+}
+
 /** يوم في الأسبوع: الست */
 export function weekday(value: string | Date | null | undefined): string {
   if (!value) return "—";
