@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\GroupClass;
 use App\Models\GroupMember;
 use App\Models\Student;
+use App\Models\Subscription;
 use App\Models\WaitingListEntry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -417,6 +418,23 @@ class GroupController extends Controller
      * ⚠️ **مش** بيعمل طالب ولا اشتراك. الأدمن يكمّل بنفسه.
      * وده اللي `$test admitting_someone_only_marks_the_row` بيحميه.
      */
+    /**
+     * ⭐ ⭐ «ادخل» الزرار الكامل.
+     *
+     * دلوقتي بقي مش مجرد تعليم للسطر — بيعمل المطلوب كله دفعة:
+     *
+     *  1. نعلّم السطر إنه دخل.
+     *  2. نجيب/نعمل الطالب في جدول `students`:
+     *     - لو السطر مربوط بطالب، نستخدمه.
+     *     - لو لأ، ندوّر عليه بالموبايل.
+     *     - لو مش موجود، نعمل حساب جديد له.
+     *  3. ندخله عضو في المجموعة (`group_members`) — ده اللي بيخليه
+     *     يبان «طالب مجموعة».
+     *  4. نعمل له اشتراك شهري مرتبط ببرنامج المجموعة — عشان الحصص
+     *     بتُحتسب عليه في النظام.
+     *
+     * ⚠️ كل ده في transaction واحدة — لو فشل جزء، ما بيتحفظش حاجة.
+     */
     public function admit(Request $request, GroupClass $group, WaitingListEntry $entry)
     {
         abort_if($entry->group_class_id !== $group->id, 404);
@@ -427,34 +445,101 @@ class GroupController extends Controller
             ], 422);
         }
 
-        // ⚠️ **مش** بنرفض لو المجموعة امتلأت. الأدمن هو اللي شاف.
-        $entry->markJoined($request->user());
+        $orgId = $entry->organization_id ?? $group->organization_id;
 
-        // ⭐ لو السطر مرتبط بطالب في النظام، نضيفه عضو كمان؟
-        // لا — القرار «الأدمن يكمّل بنفسه». بنقوله بس.
-        $studentId = $entry->student_id;
+        return DB::transaction(function () use ($request, $group, $entry, $orgId) {
+            $entry->markJoined($request->user());
 
-        app(\App\Services\AuditLogService::class)->log(
-            'update', 'waiting_list_entry', $entry->id,
-            ['status' => 'waiting'],
-            ['status' => 'joined', 'group' => $group->name],
-            $request,
-        );
+            // ===== 1) نجيب/نعمل الطالب =====
+            $student = null;
+            if ($entry->student_id) {
+                $student = Student::find($entry->student_id);
+            }
 
-        $group->loadCount([
-            'activeMembers as activeMembers_count',
-            'waiting as waiting_count',
-        ]);
+            if (! $student) {
+                // ندوّر عليه بالموبايل قبل ما نعمل حساب جديد
+                $student = Student::where('organization_id', $orgId)
+                    ->where('phone', $entry->phone)
+                    ->first();
+            }
 
-        return response()->json([
-            'message' => 'اتعلّم إنه داخل',
-            // ⭐ تذكير: اللي فاضل شغل
-            'next_step' => $studentId
-                ? 'ضيف الطالب للقائمة الفعلية لو هو مرتبط بحساب'
-                : 'السجل ده مربوطش بحساب — اعمل للطالب حساب واشتراك',
-            'occupancy' => $group->occupancy(),
-            'needs_member' => $studentId === null,
-        ]);
+            if (! $student) {
+                // نفصل الاسم — أول كلمة first_name، والباقي last_name
+                $parts = preg_split('/\s+/u', trim($entry->name), 2);
+                $student = Student::create([
+                    'organization_id' => $orgId,
+                    'student_code' => 'STU-' . strtoupper(uniqid()),
+                    'first_name' => $parts[0] ?? $entry->name,
+                    'last_name' => $parts[1] ?? '',
+                    'phone' => $entry->phone,
+                    'status' => 'active',
+                ]);
+            }
+
+            // نربط السطر بالطالب عشان نُعاصروه بعدين
+            $entry->update(['student_id' => $student->id]);
+
+            // ===== 2) ندخله عضو في المجموعة =====
+            $member = GroupMember::admit($group, $student, 'waitlist', $entry->notes);
+
+            // ===== 3) اشتراك شهري لبرنامج المجموعة =====
+            $subscription = null;
+            if ($group->program_id) {
+                // ما نعملش اشتراك لو الطالب عنده واحد لسه نشط لنفس البرنامج
+                $subscription = Subscription::where('student_id', $student->id)
+                    ->where('program_id', $group->program_id)
+                    ->whereIn('status', ['active', 'paused'])
+                    ->first();
+
+                if (! $subscription) {
+                    // نجيب الباقة المناسبة للبرنامج — الشهرية هي الافتراضية
+                    $plan = \App\Models\SubscriptionPlan::where('program_id', $group->program_id)
+                        ->where('billing_type', 'monthly')
+                        ->where('status', 'active')
+                        ->first()
+                        ?? \App\Models\SubscriptionPlan::whereNull('program_id')
+                            ->where('billing_type', 'monthly')
+                            ->where('status', 'active')
+                            ->first();
+
+                    $subscription = Subscription::create([
+                        'organization_id' => $orgId,
+                        'student_id' => $student->id,
+                        'plan_id' => $plan?->id,
+                        'program_id' => $group->program_id,
+                        'teacher_id' => $group->teacher_id,
+                        'start_date' => now()->toDateString(),
+                        'end_date' => now()->addMonth()->toDateString(),
+                        'billing_type' => 'monthly',
+                        'price' => $plan?->price ?? 0,
+                        'currency' => $plan?->currency ?? 'EGP',
+                        'lesson_duration_minutes' => $plan?->lesson_duration_minutes,
+                        'lessons_included' => $plan?->lessons_count,
+                        'status' => 'active',
+                    ]);
+                }
+            }
+
+            app(\App\Services\AuditLogService::class)->log(
+                'update', 'waiting_list_entry', $entry->id,
+                ['status' => 'waiting'],
+                ['status' => 'joined', 'group' => $group->name, 'student_id' => $student->id],
+                $request,
+            );
+
+            $group->loadCount([
+                'activeMembers as activeMembers_count',
+                'waiting as waiting_count',
+            ]);
+
+            return response()->json([
+                'message' => 'اتضاف الطالب للمجموعة واتعامل اشتراكه',
+                'student_id' => $student->id,
+                'member_id' => $member->id,
+                'subscription_id' => $subscription?->id,
+                'occupancy' => $group->occupancy(),
+            ], 201);
+        });
     }
 
     /** ⭐ رفض — السطر بيفضل (عشان محدش يسجّل تاني على طول) */

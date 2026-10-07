@@ -1709,16 +1709,15 @@ export function getGroupMembers(groupId: number) {
 }
 
 /**
- * ⭐ «ادخل» — بيعلّم السطر بس، **مش** بيعمل طالب ولا اشتراك.
- *
- * ⚠️ `nextStep` و `needsMember` موجودين عشان الواجهة تقول
- * «لسه مش داخل المجموعة فعليًا» بدل ما المستخدم يفتكر إنه خلص.
+ * ⭐ «ادخل» — بيكمّل الشغل كله: بيحدد الطالب (أو بيعمله لو لسه
+ * جديد)، وبييضيفه عضو في المجموعة، وبيعمله اشتراك شهري.
  */
 export function admitFromWaitingList(groupId: number, entryId: number) {
   return apiFetch<{
     message: string;
-    next_step: string;
-    needs_member: boolean;
+    student_id: number;
+    member_id: number;
+    subscription_id: number | null;
     occupancy: GroupOccupancy;
   }>(`/groups/${groupId}/waiting/${entryId}/admit`, { method: "POST" });
 }

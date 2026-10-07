@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\GroupClass;
 use App\Models\GroupMember;
+use App\Models\Student;
 use App\Models\WaitingListEntry;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -780,12 +781,12 @@ class GroupWaitingListTest extends TestCase
 
         $entry = WaitingListEntry::where('group_class_id', $groupId)->firstOrFail();
 
-        // ③ يدخله
+        // ③ يدخله — دلوقتي بيرجّع 201 وبيعمل عضوية + اشتراك
         $this->postJson(
             "/api/groups/{$groupId}/waiting/{$entry->id}/admit",
             [],
             $this->authHeaders($admin)
-        )->assertOk();
+        )->assertCreated();
 
         $this->assertSame('joined', $entry->fresh()->status);
 
@@ -840,8 +841,8 @@ class GroupWaitingListTest extends TestCase
         $this->assertSame(2, $r->json('groups.0.seats_left'));
     }
 
-    /** ⭐ ⭐ «ادخل» بيعلّم السطر وخلاص — مافيش طالب ولا اشتراك */
-    public function test_admitting_over_the_api_creates_no_student_or_subscription(): void
+    /** ⭐ ⭐ «ادخل» دلوقتي بيكمّل الشغل كله: طالب + عضوية + اشتراك شهري */
+    public function test_admitting_over_the_api_creates_student_membership_and_monthly_subscription(): void
     {
         $admin = $this->makeUserWithRole('admin', ['groups.manage']);
         $group = $this->makeGroup(['capacity' => 2]);
@@ -858,51 +859,56 @@ class GroupWaitingListTest extends TestCase
             "/api/groups/{$group->id}/waiting/{$entry->id}/admit",
             [],
             $this->authHeaders($admin)
-        )->assertOk();
+        )->assertCreated()
+            ->assertJsonStructure(['student_id', 'member_id', 'subscription_id', 'occupancy']);
 
-        $this->assertSame($before['students'], DB::table('students')->count());
-        $this->assertSame($before['subscriptions'], DB::table('subscriptions')->count());
-        $this->assertSame($before['members'], GroupMember::count(), 'لسه في المجموعة فعلاً واحد');
+        $this->assertSame($before['students'] + 1, DB::table('students')->count());
+        $this->assertSame($before['members'] + 1, GroupMember::count(), 'اتضاف عضو فعلاً');
+        $this->assertSame($before['subscriptions'] + 1, DB::table('subscriptions')->count());
     }
 
-    /** ⭐ ⭐ ⚠️ «ادخل» **مش** بيعمل عضو من لوحده — يقولك تعمل إيه */
-    public function test_admitting_tells_the_admin_the_student_is_not_in_the_group_yet(): void
+    /** ⭐ لو السطر مش مربوط بحساب، «ادخل» بينشئ الطالب ويدخله */
+    public function test_admitting_an_unlinked_entry_creates_the_student(): void
     {
         $admin = $this->makeUserWithRole('admin', ['groups.manage']);
         $group = $this->makeGroup(['capacity' => 2]);
-        $entry = $this->makeWaitingEntry($group);
+        $entry = $this->makeWaitingEntry($group, ['name' => 'أحمد محمد', 'phone' => '0555111222']);
 
         $r = $this->postJson(
             "/api/groups/{$group->id}/waiting/{$entry->id}/admit",
             [],
             $this->authHeaders($admin)
-        )->assertOk();
+        )->assertCreated();
 
-        // ⭐ السطر مربوطش بحساب ⇒ لازم الشغل التاني
-        $this->assertTrue($r->json('needs_member'));
-        $this->assertStringContainsString(
-            'اعمل للطالب حساب',
-            $r->json('next_step')
-        );
+        $this->assertNotNull($r->json('student_id'));
+        $this->assertSame('أحمد', Student::find($r->json('student_id'))->first_name);
+        // ⭐ السطر اتصلّح ربطه بالطالب
+        $this->assertSame($r->json('student_id'), $entry->fresh()->student_id);
     }
 
-    /** ⭐ مرتبط بحساب ⇒ الرد بيقول «ضيفه للقائمة» */
-    public function test_admitting_a_linked_student_says_add_them_to_the_roster(): void
+    /** ⭐ مرتبط بحساب ⇒ «ادخل» بيستخدم الطالب الموجود مش بينشئ جديد */
+    public function test_admitting_a_linked_student_reuses_the_student(): void
     {
         $admin = $this->makeUserWithRole('admin', ['groups.manage']);
         $group = $this->makeGroup(['capacity' => 2]);
+        $student = $this->makeStudent();
         $entry = $this->makeWaitingEntry($group, [
-            'student_id' => $this->makeStudent()->id,
+            'student_id' => $student->id,
         ]);
 
+        $beforeStudents = DB::table('students')->count();
+
         $r = $this->postJson(
             "/api/groups/{$group->id}/waiting/{$entry->id}/admit",
             [],
             $this->authHeaders($admin)
-        )->assertOk();
+        )->assertCreated();
 
-        $this->assertFalse($r->json('needs_member'));
-        $this->assertStringContainsString('ضيف الطالب', $r->json('next_step'));
+        // ⭐ ما اتعملش طالب جديد
+        $this->assertSame($beforeStudents, DB::table('students')->count());
+        $this->assertSame($student->id, $r->json('student_id'));
+        // ⭐ وعضوية المجموعة اتضافت
+        $this->assertSame(1, GroupMember::where('student_id', $student->id)->count());
     }
 
     /** ⭐ ⭐ الشيل بيغيّر الحالة — مش بيمسح السطر */

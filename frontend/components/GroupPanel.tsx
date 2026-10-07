@@ -102,8 +102,8 @@ export default function GroupPanel({
       const r = await admitFromWaitingList(group.id, entry.id);
       toast.success(r.message);
 
-      // ⭐ التذكير: «ادخل» مش معناها «داخل المجموعة فعليًا»
-      toast.info("الخطوة الجاية", r.next_step, 9000);
+      // ⭐ «ادخل» بقي بيعمل الشغل كله — الطالب بقى عضو + اشتراكه شهري
+      toast.info("الخطوة الجاية", "تقدر تشوف الطالب في جدول الطلاب وحصص المجموعة هتتحسب عليه", 9000);
 
       await load();
     } catch (e) {
