@@ -50,7 +50,6 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/schedule", label: "جدول الحصص", icon: "📅" },
       { href: "/attendance", label: "تسجيل الحضور", icon: "🕐" },
       { href: "/groups", label: "المجموعات", icon: "👥" },
-      { href: "/groups/manage", label: "إدارة المجموعات", icon: "🧑‍🏫" },
       { href: "/pricing", label: "جدول الأسعار", icon: "💲" },
     ],
   },
@@ -131,14 +130,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, []);
 
   /**
-   * ⭐ إعادة الحساب أول ما تفتح «إدارة المجموعات».
+   * ⭐ إعادة الحساب أول ما تفتح «المجموعات».
    *
    * السبب: لولا كده، لو دخّلت حد، الجرس هيفضل بالرقم القديم لحد
    * ما تعمل تحديث للصفحة كلها.
    */
   useEffect(() => {
     if (!user?.permissions?.includes("groups.manage")) return;
-    if (pathname !== "/groups/manage") return;
+    if (pathname !== "/groups") return;
 
     getGroupAlerts()
       .then((r) => setGroupAlerts(r.count))
@@ -224,7 +223,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                         }`}
                       >
                         {/* ⭐ الجرس: «فيه ناس مستنية وفيه مقعد فاضي» */}
-                        {item.href === "/groups/manage" && groupAlerts > 0 && (
+                        {item.href === "/groups" && groupAlerts > 0 && (
                           <span className="mr-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
                             {/* ⭐ `num` مش الرقم الخام — التطبيق كله عربي */}
                             {num(groupAlerts, 0)}
