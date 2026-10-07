@@ -333,6 +333,32 @@ export function scheduleLine(
 // ============================================================
 
 /**
+ * ⭐⭐ الأرقام العربية → لاتينية.
+ *
+ * للأدمن اللي بيكتب على **لوحة عربية**: لو كتب `٤٠٠` في خانة
+ * السعر، `parseFloat` مش هيعرفها (بترجّع `NaN`) والرقم هيروح
+ * للسيرفر فاضي.
+ *
+ * ⭐ ده **مدخل** مش **عرض** — العرض دايماً لاتيني زي ما
+ * `LOCALE` بيقول. الفاوت هنا إن **الإدخال** يتسامح.
+ *
+ * بنغطي ٠-٩ (العربية) و ۰-۹ (الفارسية)، وكمان الفاصلة
+ * العربية `٫` عشان لوحة keyboards تطلعها كده أحياناً.
+ */
+const DIGIT_MAP: Record<string, string> = {
+  "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4",
+  "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9",
+  "۰": "0", "۱": "1", "۲": "2", "۳": "3", "۴": "4",
+  "۵": "5", "۶": "6", "۷": "7", "۸": "8", "۹": "9",
+  "٫": ".", // الفاصلة العشرية العربية
+  "٬": ",", // فاصلة الآلاف العربية
+};
+
+function latinizeDigits(text: string): string {
+  return text.replace(/[٠-٩۰-۹٫٬]/g, (d) => DIGIT_MAP[d] ?? d);
+}
+
+/**
  * ⭐ تحويل لرقم صالح واحد — بتقرأ `null` و`undefined` و`""`.
  *
  * ⚠️ ليه مش `parseFloat` لوحدها؟
@@ -341,11 +367,16 @@ export function scheduleLine(
  * بترجّع `0` مش `NaN`! فلو دالة اتنادىت بنص فاضي (الحقل اتسيب
  * فاضي)، كانت هتعرض `0` بدل «—». و`0` معناها «فعلاً صفر» —
  * فبتكسر الأرقام بشكل صامت.
+ *
+ * ⭐ وبتتقبل الأرقام العربية كمان — شوف `latinizeDigits`.
+ *
+ * ⭐ وبترجّع `null` مش `NaN` — عشان `null` معناها «مفيش رقم»،
+ * و`NaN` كرقم بيلبس أي حساب بعدين.
  */
-function toNumber(value: number | string | null | undefined): number | null {
+export function toNumber(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined || value === "") return null;
 
-  const n = typeof value === "string" ? parseFloat(value) : value;
+  const n = typeof value === "string" ? parseFloat(latinizeDigits(value)) : value;
 
   return typeof n === "number" && Number.isFinite(n) ? n : null;
 }

@@ -12,7 +12,7 @@ import {
   type PricingPlan,
   type PricingResponse,
 } from "@/lib/api";
-import { egp, num } from "@/lib/format";
+import { egp, num, toNumber } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
 /**
@@ -305,7 +305,10 @@ function PriceCell({
   }
 
   async function commit() {
-    const value = Number(draft.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660)));
+    // ⭐ `toNumber` بتتقبل الأرقام العربية كمان — فلو الأدمن كتب
+    //   «٤٠٠» على لوحة عربية، الرقم هيوصل للسيرفر صح.
+    const parsed = toNumber(draft);
+    const value = parsed ?? Number.NaN;
 
     if (!Number.isFinite(value) || value < 0) {
       cancel();
