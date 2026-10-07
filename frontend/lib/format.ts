@@ -175,6 +175,38 @@ export function monthYear(value: string | Date | null | undefined): string {
 }
 
 /**
+ * ⭐⭐ اسم فترة الرواتب: `رواتب أكتوبر 2026`
+ *
+ * ⚠️ **ليه الدالة دي موجودة أصلاً؟**
+ *
+ * لأن الـ seeder كان بيخزّن الاسم جاهز:
+ *
+ *     'name' => 'رواتب ' . $start->format('F Y')
+ *
+ * و`Carbon::format('F')` بيشتغل **بالإنجليزي** — فالداتابيز
+ * اتخزّنت فيها `رواتب October 2026`، والمستخدم العربي شايف
+ * اسم شهر إنجليزي في زرار الفترة.
+ *
+ * ⚠️ ليه هنصلّحها في الواجهة مش في السيرفر؟
+ *
+ * لأن الاسم ده **نص** مش تاريخ. فلو صلّحناه في الـ seeder،
+ * أي فترة تنشأ بعد كده من الواجهة هترجع إنجليزي تاني — لأن
+ * الأدمن بيكتب الاسم بإيده.
+ *
+ * فالحل الصح إننا **نتجاهل النص المخزّن** ونبني الاسم من
+ * `start_date` — اللي تاريخ حقيقي، متاح في كل رد، ومش قابل
+ * للخطأ.
+ */
+export function payrollPeriodName(
+  startDate: string | Date | null | undefined,
+  prefix = "رواتب",
+): string {
+  const d = toDate(startDate);
+  if (!d) return "—";
+  return `${prefix} ${monthYear(d)}`;
+}
+
+/**
  * شهر بس: `أكتوبر`
  *
  * ⭐ للشبكة اللي بتورّي الشهر في أول عمود (تقويم الـ اشتراك).
@@ -359,6 +391,32 @@ function latinizeDigits(text: string): string {
 }
 
 /**
+ * ⭐ رقم من نص المستخدم — بيتعامل مع كل الأرقام العربية.
+ *
+ * ⚠️ ليه مش `latinizeDigits` لوحدها؟
+ *
+ * لأن `parseFloat("1,200")` بترجّع `1` — **مش** 1200. الـ
+ * `parseFloat` بتقف عند أول فاصلة. فمهما حوّلنا الأرقام
+ * العربية، لو المستخدم كتب فاصلة آلاف هتبوظ الرقم.
+ *
+ * ⭐ فبنشيل الفواصل (عادية `,` وعربية `٬`) قبل التحويل:
+ *
+ *     "١٬٢٠٠"  →  "1200"   →  1200  ✅
+ *     "٤٠٠"    →  "400"    →  400   ✅
+ *     "1,234"  →  "1234"   →  1234  ✅
+ *
+ * بعد `toNumber` بتعمل `format` تاني — فالفاصلة هترجع
+ * بالشكل الصح.
+ */
+function userNumber(text: string): number | null {
+  const cleaned = latinizeDigits(text).replace(/[,٬\s]/g, "");
+  if (cleaned === "") return null;
+
+  const n = parseFloat(cleaned);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
  * ⭐ تحويل لرقم صالح واحد — بتقرأ `null` و`undefined` و`""`.
  *
  * ⚠️ ليه مش `parseFloat` لوحدها؟
@@ -376,7 +434,7 @@ function latinizeDigits(text: string): string {
 export function toNumber(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined || value === "") return null;
 
-  const n = typeof value === "string" ? parseFloat(latinizeDigits(value)) : value;
+  const n = typeof value === "string" ? userNumber(value) : value;
 
   return typeof n === "number" && Number.isFinite(n) ? n : null;
 }
@@ -387,4 +445,31 @@ function toDate(value: string | Date | null | undefined): Date | null {
 
   const d = value instanceof Date ? value : new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/**
+ * ⭐ نص نضيف للعرض — بيرجّع «—» بدل `null` أو `undefined`.
+ *
+ * ⚠️ ليه مش `value ?? "—"`؟
+ *
+ * لأن المشكلة الحقيقية مش `null` — هي إن الـ API بيرجّع
+ * **نص فيه كلمة `null` حروفها**. يعني الحقل اتخزّن فاضي في
+ * الداتابيز وطلع للمستخدم كـ:
+ *
+ *     Lead null
+ *
+ * و`??` مش بيلمسها لأنها string مش null. فبدنا نمسح الـ
+ * النص اللي هو حرفياً «null» كمان.
+ *
+ * ⭐ وكمان بتشيل المسافات — الاسم اللي فيه مسافات بس بيبان
+ * فاضي قدام المستخدم.
+ */
+export function text(value: string | number | null | undefined, fallback = "—"): string {
+  if (value === null || value === undefined) return fallback;
+
+  const trimmed = String(value).trim();
+
+  if (/^(null|undefined|NaN)$/i.test(trimmed)) return fallback;
+
+  return trimmed === "" ? fallback : trimmed;
 }

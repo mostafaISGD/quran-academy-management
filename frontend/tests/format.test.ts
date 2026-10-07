@@ -127,6 +127,8 @@ describe("حارس التنسيق", () => {
       "monthYear", "monthName", "weekday",
       // الأوقات
       "time", "clock", "timeOnly", "scheduleLine",
+      // أسماء مُركّبة ونصوص
+      "payrollPeriodName", "text",
     ];
 
     const missing = REQUIRED.filter(

@@ -98,6 +98,22 @@ export const RULES: readonly Rule[] = [
     pattern: /text-align\s*:\s*(?:left|right)\b/g,
     hint: "استخدم `text-align: start` / `end`",
   },
+  {
+    name: "اسم شهر أو يوم إنجليزي",
+    // ⭐ الكود فوق مالوشColon بعده بيلتحم بالنص العربي.
+    //   والكلمات دي في الكود **الإنجليزي** جوا تعليقات أو نصوص
+    //   عارضة — مش في نصوص المستخدم.
+    pattern:
+      /["'`][^"'`]*\b(?:January|February|March|April|May|June|July|August|September|October|November|December|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\b/g,
+    hint: "الشهر واليوم لازم ييجوا من `monthYear` / `weekday` في `lib/format`",
+  },
+  {
+    name: "`AM` / `PM` إنجليزية",
+    // ⭐ `TIME_OPTS` بيستخدم `hour12: true` فالوقت بيطلع «م» عربي.
+    //   لو `AM`/`PM` ظهرت في النص، يبقى حد نسي `hour12`.
+    pattern: /["'`][^"'`]*\b(?:AM|PM)\b[^"'`]*["'`]/g,
+    hint: "استخدم `time()` من `lib/format` — بتطلع «7:05 م»",
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────

@@ -36,6 +36,8 @@ const VIOLATION: Record<string, string> = {
   "رقم من ٠-٩ أو ۰-۹": 'const label = "الفاتورة ٤٠٠ جنيه";\n',
   "`text-left` أو `text-right`": '<td className="px-4 text-left">السعر</td>\n',
   "محاذاة فيزيائية جوا CSS": "<style>th { text-align: right; }</style>\n",
+  "اسم شهر أو يوم إنجليزي": 'const p = "رواتب October 2026";\n',
+  "`AM` / `PM` إنجليزية": 'const t = "الحصة 6:00 PM";\n',
 };
 
 /** ⭐ كود نضيف تمامًا — لازم يعدّي من غير أي ملاحظة */

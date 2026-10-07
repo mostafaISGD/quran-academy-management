@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getAssessments, createAssessment, updateAssessmentResult, type Assessment } from "@/lib/api";
-import { dateSmart } from "@/lib/format";
+import { dateSmart, text } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
 const RESULT_LABEL: Record<string, string> = {
@@ -121,10 +121,14 @@ export default function AssessmentsPage() {
             <div key={a.id} className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium text-slate-800">{a.lead?.full_name ?? `Lead ${a.lead_id}`}</p>
+                  {/* ⭐ `text` — كان بيطلع «Lead null» لأن
+                      `a.lead_id` نفسه null من السيرفر */}
+                  <p className="font-medium text-slate-800">
+                    {text(a.lead?.full_name) ?? (a.lead_id ? `Lead ${a.lead_id}` : "بدون اسم")}
+                  </p>
                   {/* ⭐ `dateSmart` — كان السطر الطويل بالثواني */}
                   <p className="text-sm text-slate-500">
-                    المعلم: {a.teacher?.full_name ?? a.teacher_id} — {dateSmart(a.scheduled_at)}
+                    المعلم: {text(a.teacher?.full_name, `#${a.teacher_id}`)} — {dateSmart(a.scheduled_at)}
                   </p>
                   <div className="mt-1 flex gap-3 text-xs text-slate-500">
                     <span>قراءة: {a.reading_score ?? "—"}</span>

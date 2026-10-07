@@ -15,7 +15,7 @@ import {
   type PayrollLinesResponse,
   type PayrollPeriodsResponse,
 } from "@/lib/api";
-import { num } from "@/lib/format";
+import { egp, num, payrollPeriodName } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
 /**
@@ -47,10 +47,13 @@ const PERIOD_LABEL: Record<string, string> = {
 };
 
 /**
- * ⭐ المبلغ — **أرقام لاتينية** من `lib/format`.
+ * ⭐ المبلغ بلا عملة — **أرقام لاتينية** من `lib/format`.
  *
  * ⚠️ كان `new Intl.NumberFormat("ar-EG")` — ودي بتطلع أرقام
  * عربية (`٩٬١٠٨٫٣٥`) — وده اللي شفناه في المتصفح.
+ *
+ * ⭐ اسموها `money` بس هي بترجّع **رقم** — العملة بتتضاف في
+ * العرض. لو محتاج مبلغ **كامل** بكلمة «ج.م»، استخدم `egp`.
  */
 const money = (n: number) => num(n);
 
@@ -162,7 +165,7 @@ export default function PayrollPage() {
     const ok = await confirm({
       title: "اعتماد المسودّات",
       message:
-        `هيتعمّد ${drafts - zeroCount} سطر بإجمالي ${money(sum)} ج.م.\n\n` +
+        `هيتعمّد ${drafts - zeroCount} سطر بإجمالي ${egp(sum)}.\n\n` +
         (zeroCount ? `• ${zeroCount} سطر راتبه 0 هيتخطّى.\n` : "") +
         "• بعد الاعتماد مش هيقدر تتعدّل.",
       confirmLabel: "اعتمد",
@@ -204,7 +207,7 @@ export default function PayrollPage() {
       message:
         "الأرقام هتتقفل ومش هينفع تتعدّل تاني.\n\n" +
         (unpaid.length > 0
-          ? `• ${unpaid.length} سطر لسه مدفوعش (${money(unpaidSum)} ج.م) — هتقدر تصرفهم بعد الإقفال.`
+          ? `• ${unpaid.length} سطر لسه مدفوعش (${egp(unpaidSum)}) — هتقدر تصرفهم بعد الإقفال.`
           : "• كل المستحق اتصرف.") +
         "\n\nلو اتقفلت بالغلط، تقدر تفتحها تاني.",
       confirmLabel: "اقفل",
@@ -272,7 +275,7 @@ export default function PayrollPage() {
   async function handlePay(line: PayrollLine) {
     const ok = await confirm({
       title: "تسجيل دفع",
-      message: `هتدفع ${money(line.amount)} ج.م لـ ${line.employee.name}؟\n\n• ${hours(line.hours)} ساعة × ${money(line.hourly_rate ?? 0)} ج/ساعة\n• السطر مش هيقدر يتعدّل بعدها.`,
+      message: `هتدفع ${egp(line.amount)} لـ ${line.employee.name}؟\n\n• ${hours(line.hours)} ساعة × ${money(line.hourly_rate ?? 0)} ج/ساعة\n• السطر مش هيقدر يتعدّل بعدها.`,
       confirmLabel: "سجّل الدفع",
     });
     if (!ok) return;
@@ -297,7 +300,7 @@ export default function PayrollPage() {
     if (!lines) return null;
     return [
       { label: "الساعات", value: hours(lines.totals.hours), tone: "text-slate-800" },
-      { label: "إجمالي المستحق", value: `${money(lines.totals.amount)} ج.م`, tone: "text-emerald-700" },
+      { label: "إجمالي المستحق", value: egp(lines.totals.amount), tone: "text-emerald-700" },
       { label: "مسودّات", value: String(lines.totals.draft), tone: "text-amber-700" },
       { label: "معتمد", value: String(lines.totals.approved), tone: "text-blue-700" },
       { label: "مدفوع", value: String(lines.totals.paid), tone: "text-emerald-700" },
@@ -330,9 +333,16 @@ export default function PayrollPage() {
                 : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             }`}
           >
-            {p.name}
-            <span className="mr-1.5 opacity-70">
-              {money(p.total_amount)} ج
+            {/* ⭐ `payrollPeriodName` — الاسم المخزّن كان إنجليزي
+                («رواتب October 2026») لأن الـ seeder استخدم
+                `format('F')`. دلوقتي نبنيه من `start_date`. */}
+            {payrollPeriodName(p.start_date)}
+            {/* ⭐ مسافة **بعد** الاسم — من غيرها المتصفح يلصق
+                المبلغ في السنة: «أكتوبر 20269,108.35». والـ
+                margin لوحده مش كفاية لأن النص بيبدأ برقم. */}
+            {" "}
+            <span className="opacity-70">
+              {egp(p.total_amount)}
               {p.lines_count > 0 ? ` · ${p.lines_count}` : ""}
             </span>
           </button>
@@ -357,7 +367,7 @@ export default function PayrollPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold text-slate-800">{period.name}</h2>
+                  <h2 className="text-sm font-semibold text-slate-800">{payrollPeriodName(period.start_date)}</h2>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
                       PERIOD_TONE[period.status] ?? "bg-slate-50 text-slate-600 ring-slate-200"
@@ -505,7 +515,7 @@ export default function PayrollPage() {
                     key={m.employee.id}
                     className="rounded-lg bg-white px-2.5 py-1 text-xs text-slate-700 ring-1 ring-amber-200"
                   >
-                    {m.employee.name} · {money(m.employee.hourly_rate)} ج/ساعة
+                    {m.employee.name} · {money(m.employee.hourly_rate)}\u00A0ج/ساعة
                   </span>
                 ))}
               </div>

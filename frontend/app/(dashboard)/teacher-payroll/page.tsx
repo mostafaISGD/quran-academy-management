@@ -15,7 +15,7 @@ import {
   type TeacherPayrollLinesResponse,
   type TeacherPayrollPeriodsResponse,
 } from "@/lib/api";
-import { egp, num } from "@/lib/format";
+import { egp, num, payrollPeriodName } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
 /**
@@ -328,8 +328,12 @@ export default function TeacherPayrollPage() {
                 : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             }`}
           >
-            {p.name}
-            <span className="mr-1.5 opacity-70">
+            {/* ⭐ `payrollPeriodName` — الاسم المخزّن كان إنجليزي */}
+            {payrollPeriodName(p.start_date)}
+            {/* ⭐ مسافة **بعد** الاسم — من غيرها المتصفح يلصق
+                المبلغ في السنة: «أكتوبر 20269,108.35» */}
+            {" "}
+            <span className="opacity-70">
               {egp(p.total_amount)}
               {p.lines_count > 0 ? ` · ${p.lines_count}` : ""}
             </span>
@@ -355,7 +359,7 @@ export default function TeacherPayrollPage() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold text-slate-800">{period.name}</h2>
+                  <h2 className="text-sm font-semibold text-slate-800">{payrollPeriodName(period.start_date)}</h2>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${
                       PERIOD_TONE[period.status] ?? "bg-slate-50 text-slate-600 ring-slate-200"
