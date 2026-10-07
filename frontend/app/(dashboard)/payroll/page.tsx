@@ -15,6 +15,7 @@ import {
   type PayrollLinesResponse,
   type PayrollPeriodsResponse,
 } from "@/lib/api";
+import { num } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
 /**
@@ -45,12 +46,16 @@ const PERIOD_LABEL: Record<string, string> = {
   paid: "مدفوعة",
 };
 
-/** تنسيق المبلغ — الأرقام العربية مع فاصلة آلاف */
-const money = (n: number) =>
-  new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(n);
+/**
+ * ⭐ المبلغ — **أرقام لاتينية** من `lib/format`.
+ *
+ * ⚠️ كان `new Intl.NumberFormat("ar-EG")` — ودي بتطلع أرقام
+ * عربية (`٩٬١٠٨٫٣٥`) — وده اللي شفناه في المتصفح.
+ */
+const money = (n: number) => num(n);
 
-const hours = (n: number) =>
-  new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(n);
+/** عدد الساعات — نفس الرقم، بس بتقص الكسور */
+const hours = (n: number) => num(n, 2);
 
 /** `2026-10-01T00:00:00.000000Z` → `2026-10-01` */
 const isoDate = (s: string) => s.slice(0, 10);
@@ -158,7 +163,7 @@ export default function PayrollPage() {
       title: "اعتماد المسودّات",
       message:
         `هيتعمّد ${drafts - zeroCount} سطر بإجمالي ${money(sum)} ج.م.\n\n` +
-        (zeroCount ? `• ${zeroCount} سطر راتبه ٠ هيتخطّى.\n` : "") +
+        (zeroCount ? `• ${zeroCount} سطر راتبه 0 هيتخطّى.\n` : "") +
         "• بعد الاعتماد مش هيقدر تتعدّل.",
       confirmLabel: "اعتمد",
     });
@@ -451,7 +456,7 @@ export default function PayrollPage() {
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
-                    <th className="px-4 py-3 text-right font-medium">الموظف</th>
+                    <th className="px-4 py-3 text-start font-medium">الموظف</th>
                     <th className="px-3 py-3 text-center font-medium">
                       أيام
                       <span className="block text-[10px] font-normal text-slate-400">بالحضور</span>
@@ -609,7 +614,7 @@ function LineRow({
             {busy ? "…" : "سجّل الدفع"}
           </button>
         ) : line.status === "draft" && line.amount === 0 ? (
-          <span className="text-[10px] text-slate-400">راتبه ٠</span>
+          <span className="text-[10px] text-slate-400">راتبه 0</span>
         ) : (
           <span className="text-xs text-slate-300">—</span>
         )}

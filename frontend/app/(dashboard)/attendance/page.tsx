@@ -8,6 +8,7 @@ import {
   type AttendanceDayRow,
   type AttendanceStatus,
 } from "@/lib/api";
+import { num } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
 /**
@@ -337,7 +338,7 @@ export default function AttendancePage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-right font-medium">الموظف</th>
+                <th className="px-4 py-3 text-start font-medium">الموظف</th>
                 <th className="px-3 py-3 text-center font-medium">الحالة</th>
                 <th className="px-3 py-3 text-center font-medium">
                   الساعات
@@ -416,7 +417,7 @@ export default function AttendancePage() {
                         />
                       ) : (
                         <span className="text-xs text-slate-300">
-                          {record ? "٠" : "—"}
+                          {record ? "0" : "—"}
                         </span>
                       )}
                     </td>
@@ -425,7 +426,9 @@ export default function AttendancePage() {
                     <td className="px-3 py-2.5 text-center text-xs tabular-nums">
                       {payout !== null && payout > 0 ? (
                         <span className="font-medium text-slate-700">
-                          {new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 0 }).format(payout)}
+                          {/* ⭐ من `lib/format` — الرقم القديم كان
+                              أرقام عربية `ar-EG` */}
+                          {num(payout, 0)}
                         </span>
                       ) : row.employee.hourly_rate === null ? (
                         <span className="text-slate-300" title="مش متسجّل سعر ساعة لهذا الموظف">
@@ -463,7 +466,7 @@ export default function AttendancePage() {
           </span>
         ))}
         <span className="mr-auto text-slate-400">
-          الساعات هي مصدر الأجر · غائب وإجازة = ٠ أياً ما كتبت
+          الساعات هي مصدر الأجر · غائب وإجازة = 0 أياً ما كتبت
         </span>
       </div>
     </div>

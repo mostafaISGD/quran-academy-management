@@ -275,14 +275,14 @@ export default function EmployeesPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-right font-medium">الموظف</th>
-                <th className="px-3 py-3 text-right font-medium">الوظيفة</th>
-                <th className="hidden px-3 py-3 text-right font-medium md:table-cell">القسم</th>
-                <th className="hidden px-3 py-3 text-right font-medium lg:table-cell">الدور</th>
-                <th className="hidden px-3 py-3 text-right font-medium lg:table-cell">المدير</th>
-                <th className="hidden px-3 py-3 text-right font-medium sm:table-cell">تاريخ الانضمام</th>
+                <th className="px-4 py-3 text-start font-medium">الموظف</th>
+                <th className="px-3 py-3 text-start font-medium">الوظيفة</th>
+                <th className="hidden px-3 py-3 text-start font-medium md:table-cell">القسم</th>
+                <th className="hidden px-3 py-3 text-start font-medium lg:table-cell">الدور</th>
+                <th className="hidden px-3 py-3 text-start font-medium lg:table-cell">المدير</th>
+                <th className="hidden px-3 py-3 text-start font-medium sm:table-cell">تاريخ الانضمام</th>
                 <th className="px-3 py-3 text-center font-medium">الحالة</th>
-                <th className="px-3 py-3 text-left font-medium">إجراءات</th>
+                <th className="px-3 py-3 text-end font-medium">إجراءات</th>
               </tr>
             </thead>
             <tbody>
@@ -291,7 +291,7 @@ export default function EmployeesPage() {
                   <td className="px-4 py-3">
                     <button
                       onClick={() => setSelectedId(e.id)}
-                      className="flex items-center gap-2.5 text-right"
+                      className="flex items-center gap-2.5 text-start"
                     >
                       <Avatar name={e.name} url={e.photo_url} size="sm" />
                       <span>

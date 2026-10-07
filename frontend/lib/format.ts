@@ -55,6 +55,55 @@ export function num(value: number | string | null | undefined, maxFrac = 2): str
 }
 
 /**
+ * ⭐ المسافة اللي **ما بتكسرش السطر** (`U+00A0`).
+ *
+ * من غيرها، المتصفح بيعتبر المسافة بين الرقم و«ج.م» فرصة كسر،
+ * فالكارت الصغير بيقسّم الرقم عن العملة:
+ *
+ *     59,932        ← سطر
+ *     ج.م           ← سطر تاني
+ *
+ * ونفس الكارت في كارت تاني بيطلع `59,932 ج.م` في سطر واحد —
+ * حسب عرض المكان. الحيلة دي بتخلي الشكل **واحد** في كل مكان.
+ *
+ * ⚠️ الـ NBSP بتفضل مسافة عادية في الـ bidi — يعني الرقم لسه
+ * على يمين «ج.م» في النص العربي زي ما هو.
+ */
+const NBSP = "\u00A0";
+
+/**
+ * ⭐ أسماء العملات بالعربي.
+ *
+ * البيانات كلها `EGP` حالياً، بس `database/data/countries.php`
+ * بيعرف عملات تانية — فلازم ما نعرضش كود زي `SAR` للمستخدم
+ * العربي لو وصلنا عملة مش معروفة.
+ */
+const CURRENCY_LABEL: Record<string, string> = {
+  EGP: "ج.م",
+  SAR: "ر.س",
+  AED: "د.إ",
+  KWD: "د.ك",
+  QAR: "ر.ق",
+  BHD: "د.ب",
+  OMR: "ر.ع",
+  JOD: "د.أ",
+  MAD: "د.م",
+  TND: "د.ت",
+  DZD: "د.ج",
+  SDG: "ج.س",
+  LYD: "د.ل",
+  IQD: "د.ع",
+  USD: "$",
+  EUR: "€",
+};
+
+/** ⭐ اسم العملة بالعربي، ويرجع الكود نفسه لو مش معروف */
+export function currencyLabel(currency: string | null | undefined): string {
+  const code = (currency || "EGP").trim().toUpperCase();
+  return CURRENCY_LABEL[code] ?? code;
+}
+
+/**
  * جنيه مصري: `400 ج.م` أو `1,234.5 ج.م`
  *
  * ⭐ من غير `minimumFractionDigits` — يعني `400` بتبقى `400`
@@ -63,7 +112,31 @@ export function num(value: number | string | null | undefined, maxFrac = 2): str
 export function egp(value: number | string | null | undefined, maxFrac = 2): string {
   const n = toNumber(value);
   if (n === null) return "—";
-  return `${n.toLocaleString(LOCALE, { maximumFractionDigits: maxFrac })} ج.م`;
+  return `${n.toLocaleString(LOCALE, { maximumFractionDigits: maxFrac })}${NBSP}ج.م`;
+}
+
+/**
+ * ⭐ مبلغ **بأي عملة**: `money(400, "EGP")` → `400 ج.م`
+ *
+ * ⭐ دي الدالة اللي كل صفحات الجداول لازم تستخدمها بدل
+ * `` `${x.price} ${x.currency}` `` — للأسباب دي:
+ *
+ *   1. الشكل القديم كان بيطبع `EGP` إنجليزي للمستخدم العربي.
+ *   2. الرقم الخام كان بيطلع `4000` من غير فاصلة آلاف،
+ *      بينما نفس الرقم في صفحة تانية بيطلع `4,000`.
+ *   3. لو الحقل فاضي، الشكل القديم كان بيطبع `null EGP`.
+ *
+ *قبل كده كان في ٣ ملفات بتكرّر نفس الشرط
+ *(`currency === "EGP" ? egp(n) : ...`) — دلوقتي سطر واحد.
+ */
+export function money(
+  value: number | string | null | undefined,
+  currency: string | null | undefined = "EGP",
+  maxFrac = 2,
+): string {
+  const n = toNumber(value);
+  if (n === null) return "—";
+  return `${n.toLocaleString(LOCALE, { maximumFractionDigits: maxFrac })}${NBSP}${currencyLabel(currency)}`;
 }
 
 /** تاريخ بس: `7 أكتوبر 2026` */

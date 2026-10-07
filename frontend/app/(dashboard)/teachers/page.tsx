@@ -10,7 +10,7 @@ import {
   type TeacherFinancialSummary, type Lesson,
   type TeacherScheduleBlock, type ScheduleKind,
 } from "@/lib/api";
-import { date, dateSmart, egp, num } from "@/lib/format";
+import { date, dateSmart, money, num } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 import { useUI, Modal, IconTrash, IconPencil, IconCheck, IconAlert } from "@/components/ui";
 
@@ -97,11 +97,8 @@ const SORT_OPTIONS = [
 const fmtDate = date;
 const fmtDateTime = dateSmart;
 
-/** ⭐ `egp` بتعمل التحويل لـ«ج.م» جواها — بس لو العملة EGP */
-function fmtMoney(amount: string | number | null | undefined, currency = "EGP"): string {
-  if (currency === "EGP") return egp(amount);
-  return `${num(amount)} ${currency}`;
-}
+/** ⭐ alias — `money` من `lib/format` (عملة + «ج.م» + أرقام لاتينية) */
+const fmtMoney = money;
 
 function fullPhone(teacher: Pick<Teacher, "phone" | "country_code">): string {
   return `${teacher.country_code ?? ""} ${teacher.phone}`.trim();
@@ -362,11 +359,11 @@ function StudentsTab({ teacherId }: { teacherId: number }) {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-xs text-slate-500">
               <tr>
-                <th className="px-3 py-2.5 text-right font-medium">الطالب</th>
+                <th className="px-3 py-2.5 text-start font-medium">الطالب</th>
                 <th className="px-2 py-2.5 text-center font-medium">الحصص</th>
                 <th className="px-2 py-2.5 text-center font-medium">مكتملة</th>
                 <th className="px-2 py-2.5 text-center font-medium">قادمة</th>
-                <th className="hidden px-3 py-2.5 text-right font-medium sm:table-cell">آخر حصة</th>
+                <th className="hidden px-3 py-2.5 text-start font-medium sm:table-cell">آخر حصة</th>
               </tr>
             </thead>
             <tbody>
@@ -407,7 +404,9 @@ function LessonRow({ lesson, isPast }: { lesson: Lesson; isPast?: boolean }) {
           {` • ${LESSON_TYPE_LABEL[lesson.lesson_type] ?? lesson.lesson_type}`}
         </p>
       </div>
-      <div className="shrink-0 text-left">
+      {/* ⭐ `text-start` — التاريخ والوقت فيه أرقام، والمفروض
+          الأرقام تفضل على يمين الكلام العربي */}
+      <div className="shrink-0 text-start">
         <p className="text-xs font-medium text-slate-700">{fmtDateTime(lesson.scheduled_start_at)}</p>
         <span className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[11px] ${LESSON_STATUS_COLORS[lesson.status] ?? "bg-slate-100 text-slate-600"}`}>
           {LESSON_STATUS_LABEL[lesson.status] ?? lesson.status}
@@ -1380,14 +1379,14 @@ export default function TeachersPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-right font-medium">المعلم</th>
-                <th className="px-3 py-3 text-right font-medium">التخصص</th>
-                <th className="hidden px-3 py-3 text-right font-medium lg:table-cell">البرامج</th>
+                <th className="px-4 py-3 text-start font-medium">المعلم</th>
+                <th className="px-3 py-3 text-start font-medium">التخصص</th>
+                <th className="hidden px-3 py-3 text-start font-medium lg:table-cell">البرامج</th>
                 <th className="px-2 py-3 text-center font-medium">الطلاب</th>
                 <th className="px-2 py-3 text-center font-medium">الحصص</th>
                 <th className="hidden px-3 py-3 text-center font-medium sm:table-cell">التقييم</th>
                 <th className="px-3 py-3 text-center font-medium">الحالة</th>
-                <th className="px-3 py-3 text-left font-medium">إجراءات</th>
+                <th className="px-3 py-3 text-end font-medium">إجراءات</th>
               </tr>
             </thead>
             <tbody>

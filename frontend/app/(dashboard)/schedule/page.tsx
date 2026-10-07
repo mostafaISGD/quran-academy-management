@@ -371,7 +371,7 @@ export default function SchedulePage() {
               const hourLessons = lessonsByHour[hour] ?? [];
               return (
                 <div key={hour} className="flex gap-2">
-                  <div className="w-16 shrink-0 pt-2 text-right text-xs text-slate-400">
+                  <div className="w-16 shrink-0 pt-2 text-start text-xs text-slate-400">
                     {hour.toString().padStart(2, "0")}:00
                   </div>
                   <div className="flex-1">
@@ -408,7 +408,7 @@ export default function SchedulePage() {
                   ))}
                   {HOURS.map((hour) => (
                     <>
-                      <div key={`time-${hour}`} className="p-2 text-right text-xs text-slate-400">
+                      <div key={`time-${hour}`} className="p-2 text-start text-xs text-slate-400">
                         {hour.toString().padStart(2, "0")}:00
                       </div>
                       {DAYS_AR.map((_, dayIndex) => {

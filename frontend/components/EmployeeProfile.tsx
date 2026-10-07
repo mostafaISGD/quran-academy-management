@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { date, dateTime } from "@/lib/format";
+import { date, dateTime, egp } from "@/lib/format";
 import {
   getEmployee,
   getEmployeeActivity,
@@ -278,10 +278,7 @@ export default function EmployeeProfile({
                     { label: "نوع التوظيف", value: EMPLOYMENT_LABEL[employee.employment_type] ?? employee.employment_type },
                     {
                       label: "سعر الساعة",
-                      value:
-                        employee.hourly_rate !== null
-                          ? `${new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(employee.hourly_rate)} ج.م`
-                          : "مش متسجّل",
+                      value: employee.hourly_rate !== null ? egp(employee.hourly_rate) : "مش متسجّل",
                       tone: employee.hourly_rate !== null ? undefined : "muted",
                     },
                     { label: "الحالة", value: STATUS_LABEL[employee.status] },
@@ -309,9 +306,7 @@ export default function EmployeeProfile({
                       <p className="text-[11px] text-slate-400">الأجر التقديري</p>
                       <p className="text-base font-bold tabular-nums text-emerald-700">
                         {employee.hourly_rate !== null
-                          ? new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 0 }).format(
-                              stats.worked_hours * employee.hourly_rate,
-                            )
+                          ? egp(stats.worked_hours * employee.hourly_rate, 0)
                           : "—"}
                       </p>
                     </div>
@@ -375,7 +370,7 @@ export default function EmployeeProfile({
 
               {/* ===== الحضور (آخر شهر) ===== */}
               {employee.employment_type !== "volunteer" && (
-                <Section title="الحضور — آخر ٣٠ يوم" icon="🕐"
+                <Section title="الحضور — آخر 30 يوم" icon="🕐"
                   action={
                     stats?.attendance_rate !== null && stats?.attendance_rate !== undefined ? (
                       <span className="text-xs font-medium text-slate-600">نسبة الحضور {stats.attendance_rate}%</span>

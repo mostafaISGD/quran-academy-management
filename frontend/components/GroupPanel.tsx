@@ -240,19 +240,19 @@ export default function GroupPanel({
                 <th className="w-12 px-3 py-2 text-center text-[11px] font-medium text-slate-500">
                   #
                 </th>
-                <th className="px-3 py-2 text-right text-[11px] font-medium text-slate-500">
+                <th className="px-3 py-2 text-start text-[11px] font-medium text-slate-500">
                   الاسم
                 </th>
-                <th className="px-3 py-2 text-right text-[11px] font-medium text-slate-500">
+                <th className="px-3 py-2 text-start text-[11px] font-medium text-slate-500">
                   الموبايل
                 </th>
-                <th className="px-3 py-2 text-right text-[11px] font-medium text-slate-500">
+                <th className="px-3 py-2 text-start text-[11px] font-medium text-slate-500">
                   وقت التسجيل
                 </th>
-                <th className="px-3 py-2 text-right text-[11px] font-medium text-slate-500">
+                <th className="px-3 py-2 text-start text-[11px] font-medium text-slate-500">
                   الحالة
                 </th>
-                <th className="px-3 py-2 text-left text-[11px] font-medium text-slate-500">
+                <th className="px-3 py-2 text-end text-[11px] font-medium text-slate-500">
                   إجراء
                 </th>
               </tr>
@@ -294,7 +294,7 @@ export default function GroupPanel({
                     </td>
 
                     <td className="px-3 py-2 text-slate-600" dir="ltr">
-                      <span className="inline-block text-right">{e.phone}</span>
+                      <span className="inline-block text-start">{e.phone}</span>
                     </td>
 
                     <td className="px-3 py-2 text-xs text-slate-500">
@@ -364,19 +364,19 @@ export default function GroupPanel({
           <table className="w-full text-sm">
             <thead className="bg-slate-50">
               <tr>
-                <th className="px-3 py-2 text-right text-[11px] font-medium text-slate-500">
+                <th className="px-3 py-2 text-start text-[11px] font-medium text-slate-500">
                   الطالب
                 </th>
-                <th className="px-3 py-2 text-right text-[11px] font-medium text-slate-500">
+                <th className="px-3 py-2 text-start text-[11px] font-medium text-slate-500">
                   الكود
                 </th>
-                <th className="px-3 py-2 text-right text-[11px] font-medium text-slate-500">
+                <th className="px-3 py-2 text-start text-[11px] font-medium text-slate-500">
                   دخل من
                 </th>
-                <th className="px-3 py-2 text-right text-[11px] font-medium text-slate-500">
+                <th className="px-3 py-2 text-start text-[11px] font-medium text-slate-500">
                   وقت الدخول
                 </th>
-                <th className="px-3 py-2 text-left text-[11px] font-medium text-slate-500">
+                <th className="px-3 py-2 text-end text-[11px] font-medium text-slate-500">
                   إجراء
                 </th>
               </tr>
@@ -388,7 +388,7 @@ export default function GroupPanel({
                     {m.student?.name ?? "—"}
                   </td>
                   <td className="px-3 py-2 text-xs text-slate-500" dir="ltr">
-                    <span className="inline-block text-right">{m.student?.code ?? "—"}</span>
+                    <span className="inline-block text-start">{m.student?.code ?? "—"}</span>
                   </td>
                   <td className="px-3 py-2">
                     <span

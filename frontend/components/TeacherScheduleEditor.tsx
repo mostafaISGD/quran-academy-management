@@ -392,7 +392,7 @@ export default function TeacherScheduleEditor({
                     <>
                       <p
                         dir="ltr"
-                        className="text-left text-xs font-medium tabular-nums text-slate-700"
+                        className="text-end text-xs font-medium tabular-nums text-slate-700"
                       >
                         {first.starts_at.slice(0, 5)} → {last.ends_at.slice(0, 5)}
                       </p>

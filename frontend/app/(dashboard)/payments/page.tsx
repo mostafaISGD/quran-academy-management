@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getPayments, createPayment, refundPayment, type Payment } from "@/lib/api";
-import { date, egp } from "@/lib/format";
+import { date, egp, money } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
 const STATUS_LABEL: Record<Payment["status"], string> = {
@@ -124,7 +124,11 @@ export default function PaymentsPage() {
             <input placeholder="معرّف الفاتورة (اختياري)" value={form.invoice_id} onChange={(e) => setForm({ ...form, invoice_id: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             <input type="number" step="0.01" placeholder="المبلغ" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" required />
             <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value as string })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
-              <option value="EGP">EGP</option><option value="SAR">SAR</option><option value="AED">AED</option><option value="USD">USD</option>
+              {/* ⭐ `currencyLabel` — الكود الإنجليزي كان بيظهر للمستخدم */}
+              <option value="EGP">جنيه مصري</option>
+              <option value="SAR">ريال سعودي</option>
+              <option value="AED">درهم إماراتي</option>
+              <option value="USD">دولار أمريكي</option>
             </select>
             <select value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value as Payment["payment_method"] })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
               {Object.entries(METHOD_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
@@ -139,13 +143,13 @@ export default function PaymentsPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-right">الطالب</th>
-                <th className="px-4 py-3 text-right">المبلغ</th>
-                <th className="px-4 py-3 text-right">الطريقة</th>
-                <th className="px-4 py-3 text-right">المرجع</th>
-                <th className="px-4 py-3 text-right">الحالة</th>
-                <th className="px-4 py-3 text-right">التاريخ</th>
-                <th className="px-4 py-3 text-right">إجراءات</th>
+                <th className="px-4 py-3 text-start">الطالب</th>
+                <th className="px-4 py-3 text-start">المبلغ</th>
+                <th className="px-4 py-3 text-start">الطريقة</th>
+                <th className="px-4 py-3 text-start">المرجع</th>
+                <th className="px-4 py-3 text-start">الحالة</th>
+                <th className="px-4 py-3 text-start">التاريخ</th>
+                <th className="px-4 py-3 text-start">إجراءات</th>
               </tr>
             </thead>
             <tbody>
@@ -153,7 +157,8 @@ export default function PaymentsPage() {
               {payments.map((p) => (
                 <tr key={p.id} className="border-b border-slate-100 last:border-0">
                   <td className="px-4 py-3 font-medium text-slate-800">{p.student?.full_name ?? `طالب ${p.student_id}`}</td>
-                  <td className="px-4 py-3 font-medium text-slate-800">{p.amount} {p.currency}</td>
+                  {/* ⭐ `money` — كان بيطبع `EGP` إنجليزي */}
+                  <td className="px-4 py-3 font-medium text-slate-800">{money(p.amount, p.currency)}</td>
                   <td className="px-4 py-3 text-slate-600">{METHOD_LABEL[p.payment_method]}</td>
                   <td className="px-4 py-3 text-slate-600">{p.transaction_reference ?? "—"}</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${p.status === "completed" ? "bg-green-100 text-green-700" : p.status === "pending" ? "bg-amber-100 text-amber-700" : p.status === "failed" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500"}`}>{STATUS_LABEL[p.status]}</span></td>

@@ -15,6 +15,7 @@ import {
   type TeacherPayrollLinesResponse,
   type TeacherPayrollPeriodsResponse,
 } from "@/lib/api";
+import { egp, num } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
 /**
@@ -51,12 +52,6 @@ const PERIOD_LABEL: Record<string, string> = {
   finalized: "مقفولة",
   paid: "مدفوعة",
 };
-
-const money = (n: number) =>
-  new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(n);
-
-const num = (n: number) =>
-  new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 2 }).format(n);
 
 /** `2026-10-01T00:00:00.000000Z` → `2026-10-01` */
 const isoDate = (s: string) => s.slice(0, 10);
@@ -131,7 +126,7 @@ export default function TeacherPayrollPage() {
     const ok = await confirm({
       title: "احتساب مرتبات المعلمين",
       message:
-        `هيتحسب المرتب من المستحق المسجّل (${money(harvested)} ج.م) ` +
+        `هيتحسب المرتب من المستحق المسجّل (${egp(harvested)}) ` +
         `من ${prettyDate(period.start_date)} لـ ${prettyDate(period.end_date)}.\n\n` +
         (willReplace
           ? "• المسودّات هتتحدّث.\n• المعتمد والمدفوع مش هيتلمسوا."
@@ -164,8 +159,8 @@ export default function TeacherPayrollPage() {
     const ok = await confirm({
       title: "اعتماد المسودّات",
       message:
-        `هيتعمّد ${drafts - zeroCount} سطر بإجمالي ${money(sum)} ج.م.\n\n` +
-        (zeroCount ? `• ${zeroCount} سطر راتبه ٠ هيتخطّى.\n` : "") +
+        `هيتعمّد ${drafts - zeroCount} سطر بإجمالي ${egp(sum)}.\n\n` +
+        (zeroCount ? `• ${zeroCount} سطر راتبه 0 هيتخطّى.\n` : "") +
         "• بعد الاعتماد مش هيقدر تتعدّل.",
       confirmLabel: "اعتمد",
     });
@@ -198,7 +193,7 @@ export default function TeacherPayrollPage() {
       message:
         "الأرقام هتتقفل ومش هينفع تتعدّل تاني.\n\n" +
         (unpaid.length > 0
-          ? `• ${unpaid.length} سطر لسه مدفوعش (${money(unpaidSum)} ج.م) — هتقدر تصرفهم بعد الإقفال.`
+          ? `• ${unpaid.length} سطر لسه مدفوعش (${egp(unpaidSum)}) — هتقدر تصرفهم بعد الإقفال.`
           : "• كل المستحق اتصرف.") +
         "\n\nلو اتقفلت بالغلط، تقدر تفتحها تاني.",
       confirmLabel: "اقفل",
@@ -269,9 +264,9 @@ export default function TeacherPayrollPage() {
     const ok = await confirm({
       title: "تسجيل دفع",
       message:
-        `هتدفع ${money(line.amount)} ج.م لـ ${line.teacher.name}؟\n\n` +
+        `هتدفع ${egp(line.amount)} لـ ${line.teacher.name}؟\n\n` +
         `• ${num(line.lessons_count)} حصة` +
-        (line.rate_snapshot !== null ? ` × ${money(line.rate_snapshot)} ج` : "") +
+        (line.rate_snapshot !== null ? ` × ${egp(line.rate_snapshot)}` : "") +
         "\n• السطر مش هيقدر يتعدّل بعدها.",
       confirmLabel: "سجّل الدفع",
     });
@@ -297,7 +292,7 @@ export default function TeacherPayrollPage() {
     if (!lines) return null;
     return [
       { label: "الحصص", value: num(lines.totals.lessons), tone: "text-slate-800" },
-      { label: "إجمالي المستحق", value: `${money(lines.totals.amount)} ج.م`, tone: "text-emerald-700" },
+      { label: "إجمالي المستحق", value: `${egp(lines.totals.amount)}`, tone: "text-emerald-700" },
       { label: "مسودّات", value: String(lines.totals.draft), tone: "text-amber-700" },
       { label: "معتمد", value: String(lines.totals.approved), tone: "text-blue-700" },
       { label: "مدفوع", value: String(lines.totals.paid), tone: "text-emerald-700" },
@@ -335,7 +330,7 @@ export default function TeacherPayrollPage() {
           >
             {p.name}
             <span className="mr-1.5 opacity-70">
-              {money(p.total_amount)} ج
+              {egp(p.total_amount)}
               {p.lines_count > 0 ? ` · ${p.lines_count}` : ""}
             </span>
           </button>
@@ -455,8 +450,8 @@ export default function TeacherPayrollPage() {
               */}
             {drift > 0.01 && lines && lines.totals.lines > 0 && (
               <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                الفرق بين المحسوب ({money(lines.totals.amount)}) والمستحق المسجّل (
-                {money(lines.harvested_total)}) = {money(drift)}.
+                الفرق بين المحسوب ({num(lines.totals.amount)}) والمستحق المسجّل (
+                {num(lines.harvested_total)}) = {num(drift)}.
                 {lines.missing.length > 0
                   ? ` محسوب على ${lines.missing.length} معلم مش فيهم سطر — شوف «مستحقين مش محتسبين» تحت.`
                   : lines.totals.draft > 0
@@ -479,7 +474,7 @@ export default function TeacherPayrollPage() {
               <table className="w-full text-sm">
                 <thead className="border-b border-slate-200 bg-slate-50">
                   <tr>
-                    <th className="px-4 py-3 text-right font-medium">المعلم</th>
+                    <th className="px-4 py-3 text-start font-medium">المعلم</th>
                     <th className="px-3 py-3 text-center font-medium">
                       حصص
                       <span className="block text-[10px] font-normal text-slate-400">مكتملة</span>
@@ -524,7 +519,7 @@ export default function TeacherPayrollPage() {
                     key={m.teacher.id}
                     className="rounded-lg bg-white px-2.5 py-1 text-xs text-slate-700 ring-1 ring-amber-200"
                   >
-                    {m.teacher.name} · {money(m.harvested)} ج
+                    {m.teacher.name} · {egp(m.harvested)}
                   </span>
                 ))}
               </div>
@@ -586,7 +581,7 @@ function LineRow({
           />
         ) : (
           <span className="text-xs tabular-nums text-slate-600">
-            {line.rate_snapshot === null ? "—" : money(line.rate_snapshot)}
+            {line.rate_snapshot === null ? "—" : num(line.rate_snapshot)}
           </span>
         )}
       </td>
@@ -594,9 +589,8 @@ function LineRow({
       {/* ⭐ الرقم من السيرفر — مفيش حساب هنا */}
       <td className="px-3 py-2.5 text-center">
         <span className="text-sm font-bold tabular-nums text-slate-800">
-          {money(line.amount)}
+          {egp(line.amount)}
         </span>
-        <span className="mr-1 text-[10px] text-slate-400">ج</span>
       </td>
 
       <td className="px-3 py-2.5 text-center">
@@ -622,7 +616,7 @@ function LineRow({
             {busy ? "…" : "سجّل الدفع"}
           </button>
         ) : line.status === "draft" && line.amount === 0 ? (
-          <span className="text-[10px] text-slate-400">مستحقه ٠</span>
+          <span className="text-[10px] text-slate-400">مستحقه 0</span>
         ) : (
           <span className="text-xs text-slate-300">—</span>
         )}

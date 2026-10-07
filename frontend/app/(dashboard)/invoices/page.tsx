@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getInvoices, createInvoice, deleteInvoice, type Invoice } from "@/lib/api";
-import { egp } from "@/lib/format";
+import { egp, money } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 import { useUI } from "@/components/ui";
 
@@ -142,13 +142,13 @@ export default function InvoicesPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-right">الرقم</th>
-                <th className="px-4 py-3 text-right">الطالب</th>
-                <th className="px-4 py-3 text-right">الإجمالي</th>
-                <th className="px-4 py-3 text-right">المدفوع</th>
-                <th className="px-4 py-3 text-right">المتبقي</th>
-                <th className="px-4 py-3 text-right">الحالة</th>
-                <th className="px-4 py-3 text-right">إجراءات</th>
+                <th className="px-4 py-3 text-start">الرقم</th>
+                <th className="px-4 py-3 text-start">الطالب</th>
+                <th className="px-4 py-3 text-start">الإجمالي</th>
+                <th className="px-4 py-3 text-start">المدفوع</th>
+                <th className="px-4 py-3 text-start">المتبقي</th>
+                <th className="px-4 py-3 text-start">الحالة</th>
+                <th className="px-4 py-3 text-start">إجراءات</th>
               </tr>
             </thead>
             <tbody>
@@ -157,9 +157,11 @@ export default function InvoicesPage() {
                 <tr key={inv.id} className="border-b border-slate-100 last:border-0">
                   <td className="px-4 py-3 text-slate-500">{inv.invoice_number}</td>
                   <td className="px-4 py-3 font-medium text-slate-800">{inv.student?.full_name ?? `طالب ${inv.student_id}`}</td>
-                  <td className="px-4 py-3 font-medium text-slate-800">{inv.total} {inv.currency}</td>
-                  <td className="px-4 py-3 text-green-600">{inv.paid_amount}</td>
-                  <td className="px-4 py-3 text-red-600">{inv.balance_due}</td>
+                  {/* ⭐ `money` — الشكل القديم كان بيطبع `EGP`
+                      إنجليزي ورقم من غير فاصلة آلاف */}
+                  <td className="px-4 py-3 font-medium text-slate-800">{money(inv.total, inv.currency)}</td>
+                  <td className="px-4 py-3 text-green-600">{money(inv.paid_amount, inv.currency)}</td>
+                  <td className="px-4 py-3 text-red-600">{money(inv.balance_due, inv.currency)}</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${inv.status === "paid" ? "bg-green-100 text-green-700" : inv.status === "overdue" ? "bg-red-100 text-red-700" : inv.status === "partially_paid" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{STATUS_LABEL[inv.status]}</span></td>
                   <td className="px-4 py-3"><button onClick={() => handleDelete(inv.id, inv.invoice_number, inv.student?.full_name ?? "—")} className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">حذف</button></td>
                 </tr>

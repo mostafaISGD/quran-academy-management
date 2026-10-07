@@ -205,7 +205,7 @@ export default function GroupsManagePage() {
         {canManage && alerts.length > 0 && (
           <button
             onClick={() => setOpenId(alerts[0].id)}
-            className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-left transition hover:bg-amber-100"
+            className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-start transition hover:bg-amber-100"
           >
             <span className="text-lg leading-none">🔔</span>
             <span>

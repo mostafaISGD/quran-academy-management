@@ -249,11 +249,11 @@ export default function ExpensesPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-right font-medium">الوصف</th>
-                <th className="px-3 py-3 text-right font-medium">الفئة</th>
+                <th className="px-4 py-3 text-start font-medium">الوصف</th>
+                <th className="px-3 py-3 text-start font-medium">الفئة</th>
                 <th className="px-3 py-3 text-center font-medium">المبلغ</th>
-                <th className="hidden px-3 py-3 text-right font-medium sm:table-cell">التاريخ</th>
-                <th className="hidden px-3 py-3 text-right font-medium md:table-cell">الطريقة</th>
+                <th className="hidden px-3 py-3 text-start font-medium sm:table-cell">التاريخ</th>
+                <th className="hidden px-3 py-3 text-start font-medium md:table-cell">الطريقة</th>
                 <th className="px-3 py-3 text-center font-medium">الحالة</th>
               </tr>
             </thead>

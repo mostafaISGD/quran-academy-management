@@ -155,10 +155,10 @@ export default function TeacherEarningsPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-right font-medium">المعلم</th>
-                <th className="px-3 py-3 text-right font-medium">النوع</th>
+                <th className="px-4 py-3 text-start font-medium">المعلم</th>
+                <th className="px-3 py-3 text-start font-medium">النوع</th>
                 <th className="px-3 py-3 text-center font-medium">المبلغ</th>
-                <th className="px-3 py-3 text-right font-medium">التاريخ</th>
+                <th className="px-3 py-3 text-start font-medium">التاريخ</th>
                 <th className="px-3 py-3 text-center font-medium">الحالة</th>
               </tr>
             </thead>

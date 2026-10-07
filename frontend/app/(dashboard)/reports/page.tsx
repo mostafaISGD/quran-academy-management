@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getDashboardSummary, getFinancialReport, getAcademicReport, getSalesReport } from "@/lib/api";
-import { egp, num } from "@/lib/format";
+import { currencyLabel, egp, money, num } from "@/lib/format";
 
 type Tab = "dashboard" | "financial" | "academic" | "sales";
 
@@ -73,10 +73,12 @@ export default function ReportsPage() {
         <div className="space-y-6">
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
             {Object.entries(financial.revenue.by_currency).map(([currency, data]) => (
+              // ⭐ `money` + `currencyLabel` — الكود `EGP` كان بيظهر
+              // للمستخدم العربي في عنوان الكارت نفسه
               <StatCard
                 key={currency}
-                label={`الإيرادات (${currency})`}
-                value={currency === "EGP" ? egp(data.total) : `${num(data.total)} ${currency}`}
+                label={`الإيرادات (${currencyLabel(currency)})`}
+                value={money(data.total, currency)}
                 sub={`${num(data.count, 0)} دفعة`}
               />
             ))}

@@ -164,13 +164,13 @@ export default function LeadsPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-right">الاسم</th>
-                <th className="px-4 py-3 text-right">الهاتف</th>
-                <th className="px-4 py-3 text-right">البريد</th>
-                <th className="px-4 py-3 text-right">البرنامج</th>
-                <th className="px-4 py-3 text-right">المصدر</th>
-                <th className="px-4 py-3 text-right">الحالة</th>
-                <th className="px-4 py-3 text-right">إجراءات</th>
+                <th className="px-4 py-3 text-start">الاسم</th>
+                <th className="px-4 py-3 text-start">الهاتف</th>
+                <th className="px-4 py-3 text-start">البريد</th>
+                <th className="px-4 py-3 text-start">البرنامج</th>
+                <th className="px-4 py-3 text-start">المصدر</th>
+                <th className="px-4 py-3 text-start">الحالة</th>
+                <th className="px-4 py-3 text-start">إجراءات</th>
               </tr>
             </thead>
             <tbody>

@@ -164,10 +164,10 @@ export default function PricingPage() {
       {/* ===== ملاحظة ===== */}
       <p className="mt-6 rounded-lg bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-500">
         الأسعار اللي فوق <b className="text-slate-700">للباقة كاملة</b> — مش للحصة
-        الواحدة. مثال: «٣٠ دقيقة - ٨ حصص» معناها ٣٥٠ ج.م بالثمانية.
+        الواحدة. مثال: «30 دقيقة - 8 حصص» معناها 350 ج.م بالثمانية.
         <br />
         <span className="text-emerald-700">
-          «٦٠ دقيقة - ١٦ حصة (مجموعات)» أرخص لأنها حصة جماعية — مش لأن المدة أطول.
+          «60 دقيقة - 16 حصة (مجموعات)» أرخص لأنها حصة جماعية — مش لأن المدة أطول.
         </span>
       </p>
     </div>
@@ -221,13 +221,15 @@ function GroupCard({
       <table className="w-full text-sm">
         <thead className="bg-slate-50">
           <tr>
-            <th className="px-4 py-2 text-right text-[11px] font-medium text-slate-500">
+            <th className="px-4 py-2 text-start text-[11px] font-medium text-slate-500">
               المدة
             </th>
             <th className="px-2 py-2 text-center text-[11px] font-medium text-slate-500">
               الحصص
             </th>
-            <th className="px-4 py-2 text-left text-[11px] font-medium text-slate-500">
+            {/* ⭐ `text-start` مش `text-end` — السعر فيه رقم + «ج.م»،
+                والمفروض الرقم يبقى على يمين الكلام العربي */}
+            <th className="px-4 py-2 text-start text-[11px] font-medium text-slate-500">
               السعر
             </th>
           </tr>
@@ -247,7 +249,9 @@ function GroupCard({
                 <td className="px-2 py-2 text-center text-xs tabular-nums text-slate-600">
                   {p.lessons_count === null ? "—" : num(p.lessons_count, 0)}
                 </td>
-                <td className="px-4 py-2 text-left">
+                {/* ⭐ `text-start` — السعر فيه رقم + «ج.م»، والمفروض
+                    الرقم يبقى على يمين الكلام العربي */}
+                <td className="px-4 py-2 text-start">
                   <PriceCell plan={p} canEdit={canEdit} onSave={onSave} />
                 </td>
               </tr>
@@ -346,7 +350,7 @@ function PriceCell({
           if (e.key === "Escape") cancel();
         }}
         onBlur={() => void commit()}
-        className="w-24 rounded-md border border-slate-300 px-2 py-1 text-left text-sm font-bold tabular-nums text-slate-900 focus:border-slate-500 focus:outline-none"
+        className="w-24 rounded-md border border-slate-300 px-2 py-1 text-end text-sm font-bold tabular-nums text-slate-900 focus:border-slate-500 focus:outline-none"
       />
     );
   }

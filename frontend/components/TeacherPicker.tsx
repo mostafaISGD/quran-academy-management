@@ -160,7 +160,7 @@ export default function TeacherPicker({
                       type="button"
                       disabled={disabled}
                       onClick={() => onChange(String(t.id))}
-                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-right text-sm transition disabled:opacity-50 ${
+                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-start text-sm transition disabled:opacity-50 ${
                         active
                           ? "bg-slate-800 text-white"
                           : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"

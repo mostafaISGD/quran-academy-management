@@ -8,7 +8,7 @@ import {
   type Subscription,
   type ProcessDayResult,
 } from "@/lib/api";
-import { egp, num } from "@/lib/format";
+import { money } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 import { useUI, IconRefresh } from "@/components/ui";
 
@@ -29,14 +29,8 @@ const STATUS_TONE: Record<Subscription["status"], string> = {
 
 const PAGE_SIZE = 100;
 
-/**
- * ⭐ alias — التنسيق في `lib/format`.
- *
- * ⭐ `egp` بتعمل التحويل لـ«ج.م» جواها، فلو العملة `EGP` بناديها
- * على طول. للعملة التانية بنكتبها بنفس الشكل القديم.
- */
-const fmtMoney = (n: number | undefined, currency = "EGP"): string =>
-  currency === "EGP" ? egp(n) : `${num(n)} ${currency}`;
+/** ⭐ alias — `money` من `lib/format` بتعمل كل ده (ج.م + التحويل) */
+const fmtMoney = money;
 
 export default function SubscriptionsPage() {
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -121,7 +115,7 @@ export default function SubscriptionsPage() {
       message:
         "هيتعمل الآتي:\n" +
         "• تجديد الاشتراكات اللي عليها تجديد تلقاعي ووصلت لنهايتها\n" +
-        "• إشعار بالأشتركات اللي هتنتهي خلال ٣ أيام\n" +
+        "• إشعار بالأشتركات اللي هتنتهي خلال 3 أيام\n" +
         "• إقفال الاشتراكات اللي انتهت فعلاً (وحصصها المجدولة بتتغيّ)\n\n" +
         "تقدر تضغط الزرار أكتر من مرة — مش هيكرّر حاجة.",
       confirmLabel: "ابدأ المعالجة",
@@ -163,7 +157,7 @@ export default function SubscriptionsPage() {
         <div>
           <h1 className="text-lg font-semibold text-slate-800">الاشتراكات</h1>
           <p className="text-xs text-slate-500">
-            المعالجة اليومية بتشتغل لوحدها كل يوم ٠١:١٥
+            المعالجة اليومية بتشتغل لوحدها كل يوم 1:15 فجراً
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -237,14 +231,14 @@ export default function SubscriptionsPage() {
           <table className="w-full text-sm">
             <thead className="border-b border-slate-200 bg-slate-50 text-xs text-slate-500">
               <tr>
-                <th className="px-4 py-3 text-right font-medium">الطالب</th>
-                <th className="px-3 py-3 text-right font-medium">البرنامج</th>
-                <th className="px-3 py-3 text-right font-medium">المعلم</th>
-                <th className="hidden px-3 py-3 text-right font-medium lg:table-cell">الفترة</th>
+                <th className="px-4 py-3 text-start font-medium">الطالب</th>
+                <th className="px-3 py-3 text-start font-medium">البرنامج</th>
+                <th className="px-3 py-3 text-start font-medium">المعلم</th>
+                <th className="hidden px-3 py-3 text-start font-medium lg:table-cell">الفترة</th>
                 <th className="px-2 py-3 text-center font-medium">الفوترة</th>
                 <th className="px-3 py-3 text-center font-medium">السعر</th>
                 <th className="px-3 py-3 text-center font-medium">الحالة</th>
-                <th className="px-3 py-3 text-left font-medium">إجراءات</th>
+                <th className="px-3 py-3 text-end font-medium">إجراءات</th>
               </tr>
             </thead>
             <tbody>
@@ -270,7 +264,7 @@ export default function SubscriptionsPage() {
                       {STATUS_LABEL[s.status]}
                     </span>
                   </td>
-                  <td className="px-3 py-3 text-left">
+                  <td className="px-3 py-3 text-end">
                     <button
                       onClick={() => handleDelete(s.id, s.student?.full_name ?? `اشتراك #${s.id}`)}
                       className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100"
@@ -317,7 +311,7 @@ function ProcessDaySummary({ result }: { result: ProcessDayResult }) {
           معالجة {result.date} — كل الاشتراكات مظبوطة
         </p>
         <p className="mt-0.5 text-xs text-emerald-700">
-          مفيش تجديدات مستحقة، ومفيش اشتراكات هتنتهي خلال ٣ أيام،
+          مفيش تجديدات مستحقة، ومفيش اشتراكات هتنتهي خلال 3 أيام،
           ومفيش اشتراكات اتقفلت.
         </p>
       </div>

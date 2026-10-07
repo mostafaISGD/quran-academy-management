@@ -9,7 +9,7 @@ import {
   logout,
   type ParentChildView,
 } from "@/lib/api";
-import { date, egp, num, time, weekday } from "@/lib/format";
+import { date, money, num, time, weekday } from "@/lib/format";
 
 /**
  * صفحة ولي الأمر.
@@ -234,12 +234,9 @@ function ChildCard({ child }: { child: ParentChildView }) {
         {outstanding.invoices > 0 && (
           <div className="rounded-lg bg-amber-50 p-3 ring-1 ring-amber-200">
             <p className="text-sm text-amber-900">
-              {/* ⭐ `egp` بتعمل التحويل لـ«ج.م» جواها. لو العملة
-                  `EGP` بناديها على طول — غير كده بنكتبها بنفس الشكل */}
+              {/* ⭐ `money` بتعمل التحويل لـ«ج.م» جواها */}
               <strong className="tabular-nums">
-                {outstanding.currency === "EGP"
-                  ? egp(outstanding.total)
-                  : `${num(outstanding.total)} ${outstanding.currency}`}
+                {money(outstanding.total, outstanding.currency)}
               </strong>{" "}
               مستحق على {num(outstanding.invoices, 0)}{" "}
               {outstanding.invoices === 1 ? "فاتورة" : "فواتير"}.

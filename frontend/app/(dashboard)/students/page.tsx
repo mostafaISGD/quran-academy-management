@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo, useCallback, useRef, memo } from "react";
-import { date, dateNoYear, dateSmart, egp, monthYear, num, time, weekday } from "@/lib/format";
+import { currencyLabel, date, dateNoYear, dateSmart, egp, money, monthYear, num, time, weekday } from "@/lib/format";
 import {
   apiFetch, getStudents, createStudent, updateStudent, deleteStudent,
   getTeachers, getPrograms, getSubscriptions, getSchedule, getStudent,
@@ -579,7 +579,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                       <button
                         type="button"
                         onClick={() => applySuggestion(s)}
-                        className="flex w-full items-center justify-between px-3 py-2 text-right text-sm hover:bg-slate-50"
+                        className="flex w-full items-center justify-between px-3 py-2 text-start text-sm hover:bg-slate-50"
                       >
                         <span>
                           <span className="font-medium text-slate-800">{s.name}</span>
@@ -1543,7 +1543,9 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
           .filters { background: #f9fafb; padding: 12px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; }
           .filters strong { color: #374151; }
           table { width: 100%; border-collapse: collapse; font-size: 12px; }
-          th, td { border: 1px solid #d1d5db; padding: 8px 6px; text-align: right; }
+          /* ⭐ start مش right — عشان لو الورقة اتقلبتلهوش RTL
+             الأرقام تفصل عن الكلام العربي */
+          th, td { border: 1px solid #d1d5db; padding: 8px 6px; text-align: start; }
           th { background: #f3f4f6; font-weight: 600; color: #374151; }
           tr:nth-child(even) td { background: #f9fafb; }
           .status-badge { display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 500; }
@@ -1554,7 +1556,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
           .status-graduated { background: #f3e8ff; color: #7e22ce; }
           .status-archived { background: #fecaca; color: #991b1b; }
           .text-center { text-align: center; }
-          .text-left { text-align: left; }
+          .text-end { text-align: end; }
           @media print { body { margin: 0; } .no-print { display: none; } }
         </style>
       </head>
@@ -1612,7 +1614,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                         cellContent = String((s as StudentWithRelations).lessons_count ?? 0);
                         break;
                       case "finance":
-                        cellContent = sub ? `${sub.price} ${sub.currency}` : "—";
+                        cellContent = sub ? money(sub.price, sub.currency) : "—";
                         break;
                       case "status":
                         const statusLabels: Record<string, string> = { lead: "Lead", active: "نشط", paused: "متوقف", inactive: "غير نشط", graduated: "تخرج", archived: "مؤرشف" };
@@ -1823,8 +1825,8 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
             <thead className="border-b border-slate-200 bg-slate-50 text-slate-500">
               <tr>
                 <th className="px-3 py-3"><input type="checkbox" checked={selectedIds.length === filteredStudents.length && filteredStudents.length > 0} onChange={toggleSelectAll} className="rounded" /></th>
-                {visibleColumns.filter((c) => c.visible).map((col) => <th key={col.key} className="px-4 py-3 text-right">{col.label}</th>)}
-                <th className="px-4 py-3 text-right">إجراءات</th>
+                {visibleColumns.filter((c) => c.visible).map((col) => <th key={col.key} className="px-4 py-3 text-start">{col.label}</th>)}
+                <th className="px-4 py-3 text-start">إجراءات</th>
               </tr>
             </thead>
             <tbody>
@@ -1842,7 +1844,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                         {col.key === "teacher" && <span className="text-slate-600">{sub ? teachers.find((t) => t.id === sub.teacher_id)?.full_name ?? "—" : "—"}</span>}
                         {col.key === "subscription" && sub && renderSubscriptionColumn(sub)}
                         {col.key === "lessons" && <span className="text-slate-600">{(s as StudentWithRelations).lessons_count ?? 0}</span>}
-                        {col.key === "finance" && <span className="text-slate-600">{sub ? `${sub.price} ${sub.currency}` : "—"}</span>}
+                        {col.key === "finance" && <span className="text-slate-600">{sub ? money(sub.price, sub.currency) : "—"}</span>}
                         {col.key === "status" && <span className={`rounded-full px-2 py-1 text-xs ${STATUS_COLORS[s.status]}`}>{STATUS_LABEL[s.status]}</span>}
                         {col.key === "country" && <span className="text-slate-600">{country ? `${country.flag} ${country.name}` : "—"}</span>}
                         {col.key === "whatsapp" && renderPhoneColumn(s)}
@@ -2121,7 +2123,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     <div className="rounded-xl bg-green-50 p-3 text-center"><p className="text-xs text-green-600">الاشتراك</p><p className="mt-1 text-lg font-bold text-green-800">{studentSub?.status === "active" ? "نشط" : studentSub?.status ?? "لا يوجد"}</p></div>
                     <div className="rounded-xl bg-blue-50 p-3 text-center"><p className="text-xs text-blue-600">الحصص</p><p className="mt-1 text-lg font-bold text-blue-800">{studentDetail?.lessons.length ?? 0}</p></div>
                     <div className="rounded-xl bg-purple-50 p-3 text-center"><p className="text-xs text-purple-600">الحضور</p><p className="mt-1 text-lg font-bold text-purple-800">{studentDetail?.attendance.length ?? 0}</p></div>
-                    <div className="rounded-xl bg-amber-50 p-3 text-center"><p className="text-xs text-amber-600">الرصيد</p><p className="mt-1 text-lg font-bold text-amber-800">{studentSub ? `${studentSub.price} ${studentSub.currency}` : "—"}</p></div>
+                    <div className="rounded-xl bg-amber-50 p-3 text-center"><p className="text-xs text-amber-600">الرصيد</p><p className="mt-1 text-lg font-bold text-amber-800">{studentSub ? money(studentSub.price, studentSub.currency) : "—"}</p></div>
                   </div>
                 </div>
               )}
@@ -2187,7 +2189,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                         <p>بدأ: {studentSub.start_date}</p>
                         <p>ينتهي: {studentSub.end_date ?? "—"}</p>
                         <p>الحصص: {studentSub.lessons_included ?? "∞"}</p>
-                        <p>القيمة: {studentSub.price} {studentSub.currency}</p>
+                        <p>القيمة: {money(studentSub.price, studentSub.currency)}</p>
                         <p>الحالة: {studentSub.status}</p>
                       </div>
                     ) : <p className="text-sm text-slate-400">لا يوجد اشتراك</p>}
@@ -2270,7 +2272,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                 <div className="space-y-4">
                   <div className="rounded-xl border border-slate-200 p-4">
                     <h3 className="mb-2 text-sm font-semibold text-slate-800">الرصيد الحالي</h3>
-                    <p className="text-2xl font-bold text-slate-800">{studentSub ? `${studentSub.price} ${studentSub.currency}` : "—"}</p>
+                    <p className="text-2xl font-bold text-slate-800">{studentSub ? money(studentSub.price, studentSub.currency) : "—"}</p>
                   </div>
                   <div className="rounded-xl border border-slate-200 p-4">
                     <h3 className="mb-2 text-sm font-semibold text-slate-800">الأشهر السابقة</h3>
@@ -2526,8 +2528,8 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     <table className="w-full text-sm">
                       <thead className="bg-slate-50">
                         <tr>
-                          <th className="px-4 py-2 text-right">الطالب</th>
-                          <th className="px-4 py-2 text-right">الكود</th>
+                          <th className="px-4 py-2 text-start">الطالب</th>
+                          <th className="px-4 py-2 text-start">الكود</th>
                           <th className="px-4 py-2 text-center">إجمالي</th>
                           <th className="px-4 py-2 text-center">حاضر</th>
                           <th className="px-4 py-2 text-center">غائب</th>
@@ -2559,7 +2561,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     <table className="w-full text-sm">
                       <thead className="bg-slate-50">
                         <tr>
-                          <th className="px-4 py-2 text-right">التاريخ</th>
+                          <th className="px-4 py-2 text-start">التاريخ</th>
                           <th className="px-4 py-2 text-center">إجمالي</th>
                           <th className="px-4 py-2 text-center">حاضر</th>
                           <th className="px-4 py-2 text-center">غائب</th>
@@ -2626,10 +2628,10 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {Object.entries(subscriptionReport.revenue_by_currency || {}).map(([currency, data]: [string, { total: number; count: number }]) => (
                       <div key={currency} className="rounded-lg bg-slate-50 p-3 text-center">
-                        <p className="text-xs text-slate-500">{currency}</p>
+                        {/* ⭐ `currencyLabel` — الكود `EGP` كان بيبان للمستخدم */}
+                        <p className="text-xs text-slate-500">{currencyLabel(currency)}</p>
                         <p className="text-lg font-bold text-slate-800">
-                          {/* ⭐ `egp` بتعمل التحويل لـ«ج.م» جواها */}
-                          {currency === "EGP" ? egp(data.total) : `${num(data.total)} ${currency}`}
+                          {money(data.total, currency)}
                         </p>
                         <p className="text-xs text-slate-500">{num(data.count, 0)} اشتراك</p>
                       </div>
@@ -2644,11 +2646,11 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     <table className="w-full text-sm">
                       <thead className="bg-slate-50">
                         <tr>
-                          <th className="px-4 py-2 text-right">البرنامج</th>
+                          <th className="px-4 py-2 text-start">البرنامج</th>
                           <th className="px-4 py-2 text-center">إجمالي</th>
                           <th className="px-4 py-2 text-center">نشط</th>
                           <th className="px-4 py-2 text-center">منتهي</th>
-                          <th className="px-4 py-2 text-right">الإيرادات</th>
+                          <th className="px-4 py-2 text-start">الإيرادات</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -2658,7 +2660,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                             <td className="px-4 py-2 text-center">{num(p.total, 0)}</td>
                             <td className="px-4 py-2 text-center text-green-600">{num(p.active, 0)}</td>
                             <td className="px-4 py-2 text-center text-red-600">{num(p.expired, 0)}</td>
-                            <td className="px-4 py-2 text-right font-medium">{egp(p.revenue)}</td>
+                            <td className="px-4 py-2 text-start font-medium">{egp(p.revenue)}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -2673,7 +2675,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     <table className="w-full text-sm">
                       <thead className="bg-slate-50">
                         <tr>
-                          <th className="px-4 py-2 text-right">المدرس</th>
+                          <th className="px-4 py-2 text-start">المدرس</th>
                           <th className="px-4 py-2 text-center">إجمالي الطلاب</th>
                           <th className="px-4 py-2 text-center">نشط</th>
                           <th className="px-4 py-2 text-center">منتهي</th>
@@ -2700,12 +2702,12 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     <table className="w-full text-sm">
                       <thead className="bg-slate-50">
                         <tr>
-                          <th className="px-4 py-2 text-right">الطالب</th>
-                          <th className="px-4 py-2 text-right">البرنامج</th>
-                          <th className="px-4 py-2 text-right">المدرس</th>
+                          <th className="px-4 py-2 text-start">الطالب</th>
+                          <th className="px-4 py-2 text-start">البرنامج</th>
+                          <th className="px-4 py-2 text-start">المدرس</th>
                           <th className="px-4 py-2 text-center">الحالة</th>
                           <th className="px-4 py-2 text-center">أيام متبقية</th>
-                          <th className="px-4 py-2 text-right">القيمة</th>
+                          <th className="px-4 py-2 text-start">القيمة</th>
                           <th className="px-4 py-2 text-center">نوع الفوترة</th>
                         </tr>
                       </thead>
@@ -2736,7 +2738,7 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                                 s.days_left >= 0 ? `${s.days_left} يوم` : <span className="text-red-600">منتهي منذ {Math.abs(s.days_left)} يوم</span>
                               ) : '—'}
                             </td>
-                            <td className="px-4 py-2 text-right font-medium">{num(s.price)} {s.currency}</td>
+                            <td className="px-4 py-2 text-start font-medium">{money(s.price, s.currency)}</td>
                             <td className="px-4 py-2 text-center">{s.billing_type === 'monthly' ? 'شهري' : s.billing_type === 'per_lesson' ? 'لكل حصة' : 'مخصص'}</td>
                           </tr>
                         ))}

@@ -1,7 +1,7 @@
 "use client";
 
 
-import { date } from "@/lib/format";
+import { date, money } from "@/lib/format";
 /**
  * عناصر صغيرة مشتركة بين شاشة البرامج ومُلَف البرنامج.
  *
@@ -135,12 +135,14 @@ export const fmtDate = (v?: string | null): string => {
     : date(d);
 };
 
-export const fmtMoney = (amount?: number | string | null, currency = "EGP"): string => {
-  if (amount === null || amount === undefined || amount === "") return "—";
-  const n = typeof amount === "string" ? parseFloat(amount) : amount;
-  if (Number.isNaN(n)) return "—";
-  return `${new Intl.NumberFormat("ar-EG", { maximumFractionDigits: 0 }).format(n)} ${currency}`;
-};
+/**
+ * ⭐ المبلغ بأي عملة — **من `lib/format`**.
+ *
+ * ⚠️ هنا كان `new Intl.NumberFormat("ar-EG")` — ودي بتطلع أرقام
+ * عربية، وبتطبع كود العملة `EGP` إنجليزي للمستخدم العربي.
+ */
+export const fmtMoney = (amount?: number | string | null, currency = "EGP"): string =>
+  money(amount, currency, 0);
 
 /** لون شفاف من لون hex — للخلفيات الفاتحة */
 export const alpha = (hex: string, a: number): string => {

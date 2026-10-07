@@ -706,7 +706,7 @@ export default function ProgramProfile({
                     </ul>
                     {students.total > 5 && (
                       <p className="mt-3 border-t border-dashed border-slate-100 pt-2 text-center text-xs text-slate-400">
-                       عرض ٥ من {students.total} — إدارة الاشتراكات من قسم «الاشتراكات»
+                       عرض 5 من {students.total} — إدارة الاشتراكات من قسم «الاشتراكات»
                       </p>
                     )}
                   </>
