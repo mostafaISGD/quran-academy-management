@@ -220,32 +220,47 @@ function GroupCard({
           </div>
         ) : canJoin ? (
           open ? (
-            <form onSubmit={submit} className="space-y-2 px-4 py-3">
-              {/* ⭐ التسمية بتقول «مين» مش «إيه اسمك» — لأن اللي
-                  بيكتب ممكن يكون وليّ الأمر مش الطالب نفسه */}
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="اسم الطالب (أو اسم وليّ الأمر)"
-                className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-slate-400 focus:outline-none"
-                required
-              />
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="رقم الموبايل"
-                dir="ltr"
-                inputMode="tel"
-                className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-slate-400 focus:outline-none"
-                required
-              />
-              <textarea
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="ملاحظة (اختياري) — مثلاً: المستوى"
-                rows={2}
-                className="w-full resize-none rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-slate-400 focus:outline-none"
-              />
+            <form onSubmit={submit} className="space-y-3 px-4 py-3">
+              {/* ⭐ بدل placeholders بيضيعوا، كل حقل بقى عليه علامة ظاهرة
+                  وفوقها مثال واضح — عشان اللي بيسجّل يعرف يكتب إيه */}
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-slate-600">
+                  اسم الطالب (أو وليّ الأمر)
+                </label>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="مثال: أحمد محمد"
+                  className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-slate-400 focus:outline-none"
+                  required
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-slate-600">
+                  رقم الموبايل
+                </label>
+                <input
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="مثال: 01001234567"
+                  dir="ltr"
+                  inputMode="tel"
+                  className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-slate-400 focus:outline-none"
+                  required
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-slate-600">
+                  ملاحظة (اختياري)
+                </label>
+                <textarea
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="مثال: المستوى المطلوب — تحفيظ ولا تجويد"
+                  rows={2}
+                  className="w-full resize-none rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-slate-400 focus:outline-none"
+                />
+              </div>
               <div className="flex gap-2">
                 <button
                   type="submit"
