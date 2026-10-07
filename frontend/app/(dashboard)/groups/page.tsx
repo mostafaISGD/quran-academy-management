@@ -15,6 +15,7 @@ import {
 } from "@/lib/api";
 import { num, scheduleLine } from "@/lib/format";
 import { useUI } from "@/components/ui";
+import Modal from "@/components/ui/Modal";
 import GroupPanel from "@/components/GroupPanel";
 
 /**
@@ -281,11 +282,18 @@ function GroupCard({
         )}
       </div>
 
-      {/* ⭐ لوحة الإدارة بتنزل جوّه نفس الكارت — accordion */}
-      {canManage && manageOpen && (
-        <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-4">
-          <GroupPanel group={group} onChanged={(o) => onChanged?.(o)} />
-        </div>
+      {/* ⭐ لوحة الإدارة في نافذة وسطية — مش داخل الكارت */}
+      {canManage && (
+        <Modal
+          open={manageOpen}
+          onClose={() => setManageOpen(false)}
+          title={`إدارة ${group.name}`}
+          width="max-w-2xl"
+        >
+          <div className="max-h-[70vh] overflow-y-auto">
+            <GroupPanel group={group} onChanged={(o) => onChanged?.(o)} />
+          </div>
+        </Modal>
       )}
     </article>
   );
