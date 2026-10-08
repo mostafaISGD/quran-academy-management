@@ -173,14 +173,34 @@ class WaitingListEntry extends Model
             return 0;
         }
 
-        return static::where('group_class_id', $this->group_class_id)
-            ->where('status', 'waiting')
+        $queue = static::where('group_class_id', $this->group_class_id)
+            ->where('status', 'waiting');
+
+        // ⚠️ `entered_at` ممكن يبقى **null** في سطور قديمة اتعملت قبل
+        // ما نتأكد إن الحقل ده بيتملا. المقارنة `<` مع `null` بترمي
+        // `Illegal operator and value combination` (500 في الصفحة كلها).
+        //
+        // القاعدة: السطر اللي مالوش وقت دخول بنعتبره **الأقدم** —
+        // وكل السطور ليها وقت بعده. وترتيبهم amongst بعضهم بـ `id`.
+        if ($this->entered_at === null) {
+            return (clone $queue)
+                ->whereNull('entered_at')
+                ->where('id', '<', $this->id)
+                ->count() + 1;
+        }
+
+        $enteredAt = $this->entered_at;
+        $id = $this->id;
+
+        return $queue
             ->where(fn (Builder $q) => $q
-                ->where('entered_at', '<', $this->entered_at)
-                // ⭐ نفس الوقت ⇒ الأصغر `id` هو اللي قبل
-                ->orWhere(fn (Builder $same) => $same
-                    ->where('entered_at', $this->entered_at)
-                    ->where('id', '<', $this->id)))
+                ->whereNull('entered_at')
+                ->orWhere(fn (Builder $before) => $before
+                    ->where('entered_at', '<', $enteredAt)
+                    // ⭐ نفس الوقت ⇒ الأصغر `id` هو اللي قبل
+                    ->orWhere(fn (Builder $same) => $same
+                        ->where('entered_at', $enteredAt)
+                        ->where('id', '<', $id))))
             ->count() + 1;
     }
 }

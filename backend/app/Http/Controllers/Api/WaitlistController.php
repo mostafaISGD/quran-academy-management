@@ -3,11 +3,15 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\GroupClass;
+use App\Models\GroupMember;
+use App\Models\Student;
+use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\WaitingListEntry;
+use App\Services\AuditLogService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 
 /**
  * ⭐ إدارة قائمة الانتظار — صفحة مستقلة للأدمن.
@@ -18,7 +22,11 @@ use Illuminate\Validation\Rule;
  *  - `DELETE /waitlist/{entry}`       → حذف طلب انتظار (حذف فعلي — مش علامات)
  *  - `POST /waitlist/{entry}/admit`   → قبول/إدخال (من إدارة الانتظار)
  *
- * صلاحية: `groups.manage` لكل العمليات.
+ * ⚠️ **الصلاحية مش هنا** — كل الراوتات في `routes/api.php` عليها
+ * `permission:groups.manage`. هنا متنسجلوش تاني:
+ * الـ `Controller` الأساس في المشروع **مش** فيه trait
+ * `AuthorizesRequests`، فـ `$this->authorize()` مش موجودة أصلاً
+ * لو ناديناها كانت هترمي 500.
  */
 class WaitlistController extends Controller
 {
@@ -29,12 +37,22 @@ class WaitlistController extends Controller
      *  - status: waiting|joined|declined
      *  - group_id: فلتر بمجموعة معينة
      *  - package_id: فلتر بباقة معينة
-     *  - search: بحث في الاسم/الموبايل/المستوى
+     *  - search: بحث في الاسم/الموبايل/هاتف الولي/المستوى
      *  - per_page: تعداد (افتراضي 50، حد 200)
      */
     public function index(Request $request)
     {
-        $this->authorize('manage', GroupClass::class);
+        /**
+         * ⚠️⚠️ **`when()` بيبعت الشرط نفسه كـ argument تاني — مش القيمة!**
+         *
+         * يعني `->when($request->filled('search'), fn ($q, $search) => ...)`
+         * كانت `$search` فيها `true` مش النص اللي اليوزر كتبه،
+         * فكل بحث كان بيتحوّل لـ `%1%` — وأي سطر فيه `1` في
+         * الموبايل كان بيطلع. مفيش فلترة خالص عمليًا.
+         *
+         * الحل: بنقرا النص **بره** وبنclosure، مش من `when`.
+         */
+        $search = trim((string) $request->input('search', ''));
 
         $query = WaitingListEntry::with([
             'student:id,student_code,first_name,last_name,status',
@@ -42,10 +60,10 @@ class WaitlistController extends Controller
             'proposedGroup:id,name',
             'groupClass:id,name',
         ])
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
+            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->input('status')))
             ->when($request->filled('group_id'), fn ($q) => $q->where('group_class_id', $request->integer('group_id')))
             ->when($request->filled('package_id'), fn ($q) => $q->where('package_id', $request->integer('package_id')))
-            ->when($request->filled('search'), function ($q, $search) {
+            ->when($search !== '', function ($q) use ($search) {
                 $q->where(function ($q) use ($search) {
                     $q->where('name', 'like', "%{$search}%")
                         ->orWhere('phone', 'like', "%{$search}%")
@@ -55,12 +73,16 @@ class WaitlistController extends Controller
             })
             ->waitingOrder();
 
-        $perPage = min((int) ($request->integer('per_page') ?? 50), 200);
+        // ⚠️ `integer()` بترجع 0 لو الـ param مش موجود — فـ `??` مش هتشتغل
+        $perPage = min($request->integer('per_page') ?: 50, 200);
 
         $entries = $query->paginate($perPage);
 
         return response()->json([
-            'data' => $entries->items()->map(fn ($e) => $this->presentEntry($e))->all(),
+            // ⚠️ في Laravel 11 `items()` بترجع **array** مش Collection،
+            // فـ `->map()` عليها كان بيرمي 500. `getCollection()` هي
+            // اللي بترجع Collection زي أول.
+            'data' => $entries->getCollection()->map(fn ($e) => $this->presentEntry($e))->all(),
             'meta' => [
                 'current_page' => $entries->currentPage(),
                 'last_page' => $entries->lastPage(),
@@ -73,16 +95,18 @@ class WaitlistController extends Controller
     /**
      * ⭐ إضافة طلب انتظار جديد — بكل الحقول.
      *
-     * ⚠️ الطلب **محميّ** بـ `groups.manage` — مش عام زي `/groups/{g}/waitlist`.
+     * ⚠️ الطلب **محميّ** بـ `groups.manage` من الراوت — مش عام
+     * زي `/groups/{g}/waitlist`.
      */
     public function store(Request $request)
     {
-        $this->authorize('manage', GroupClass::class);
-
         $data = $request->validate([
             'name' => 'required|string|max:255',
-            'phone' => 'required|string|max:30',
-            'parent_phone' => 'nullable|string|max:30',
+            // ⚠️ نفس قاعدة `/groups/{g}/waitlist` بالظبط — رقم ناقص
+            // (أقل من ٦) مش موبايل، ومينفعش نخزّنه ونلاقي نفسنا
+            // بنتصل برقم غلط بعد شهر.
+            'phone' => 'required|string|min:6|max:30',
+            'parent_phone' => 'nullable|string|min:6|max:30',
             'current_level' => 'nullable|string|max:255',
             'package_id' => 'nullable|exists:subscription_plans,id',
             'proposed_group_id' => 'nullable|exists:group_classes,id',
@@ -93,8 +117,13 @@ class WaitlistController extends Controller
         $data['organization_id'] = $request->user()->organization_id;
         $data['status'] = 'waiting';
 
+        // ⚠️ `entered_at` هو اللي بيحدد **ترتيب الطابور** — من غيره
+        // `positionInLine()` بترمي 500 (المقارنة `<` مع null).
+        // لازم يتحط هنا زي ما `/groups/{g}/waitlist` بيعمل.
+        $data['entered_at'] = now();
+
         // ⭐ نفس الموبايل ما يسجّلش مرتين لنفس المجموعة (لو مجموعة محددة)
-        if ($data['group_class_id']) {
+        if (! empty($data['group_class_id'])) {
             $exists = WaitingListEntry::where('group_class_id', $data['group_class_id'])
                 ->where('phone', $data['phone'])
                 ->where('status', 'waiting')
@@ -109,6 +138,13 @@ class WaitlistController extends Controller
 
         $entry = WaitingListEntry::create($data);
 
+        app(AuditLogService::class)->logCreate(
+            'waiting_list_entry',
+            $entry->id,
+            ['name' => $entry->name, 'group' => $entry->group_class_id],
+            $request,
+        );
+
         return response()->json([
             'message' => 'تم إضافة طلب الانتظار',
             'data' => $this->presentEntry($entry->load(['package', 'proposedGroup', 'groupClass'])),
@@ -120,12 +156,10 @@ class WaitlistController extends Controller
      */
     public function update(Request $request, WaitingListEntry $entry)
     {
-        $this->authorize('manage', GroupClass::class);
-
         $data = $request->validate([
             'name' => 'sometimes|required|string|max:255',
-            'phone' => 'sometimes|required|string|max:30',
-            'parent_phone' => 'nullable|string|max:30',
+            'phone' => 'sometimes|required|string|min:6|max:30',
+            'parent_phone' => 'nullable|string|min:6|max:30',
             'current_level' => 'nullable|string|max:255',
             'package_id' => 'nullable|exists:subscription_plans,id',
             'proposed_group_id' => 'nullable|exists:group_classes,id',
@@ -148,9 +182,14 @@ class WaitlistController extends Controller
      * ⚠️ مش زي `markDeclined` اللي بتبقى السطر للمراجعة.
      * ده حذف كامل — مش محتاجه في السجلات.
      */
-    public function destroy(WaitingListEntry $entry)
+    public function destroy(Request $request, WaitingListEntry $entry)
     {
-        $this->authorize('manage', GroupClass::class);
+        app(AuditLogService::class)->logDelete(
+            'waiting_list_entry',
+            $entry->id,
+            ['name' => $entry->name, 'phone' => $entry->phone],
+            $request,
+        );
 
         $entry->delete();
 
@@ -166,22 +205,45 @@ class WaitlistController extends Controller
      *  1. يعلم السطر `joined`
      *  2. يبني/يلاقي الطالب
      *  3. يدخله عضو في المجموعة
-     *  3. يعمل اشتراك شهري بالباقة
+     *  4. يعمل اشتراك شهري بالباقة
      */
     public function admit(Request $request, WaitingListEntry $entry)
     {
-        $this->authorize('manage', GroupClass::class);
-
         if (! $entry->isWaiting()) {
             return response()->json([
                 'message' => 'السجل ده مش في الطابور أصلاً',
             ], 422);
         }
 
+        // ⚠️ بنتحقق **بره** الـ transaction — لو رمينا جوّاها الـ rollback
+        // هيلغي كل حاجة عملناها قبل ما الـ exception يطلع.
+        $groupId = $entry->group_class_id ?? $entry->proposed_group_id;
+
+        if (! $groupId) {
+            return response()->json([
+                'message' => 'مفيش مجموعة محددة للسطر — اختار مجموعة قبل ما تدخله',
+            ], 422);
+        }
+
         $orgId = $entry->organization_id;
 
-        return DB::transaction(function () use ($request, $entry, $orgId) {
+        return DB::transaction(function () use ($request, $entry, $orgId, $groupId) {
             $entry->markJoined($request->user());
+
+            /**
+             * ⭐ **نثبّت المجموعة اللي دخلها فعلاً.**
+             *
+             * فوقه جبنا `$groupId` من `group_class_id ?? proposed_group_id`.
+             * فلو جابها من **المقترحة**، الـ `group_class_id` بيفضل
+             * فاضي — والسطر في الصفحة بيقول «مش مربوط بأي مجموعة»
+             * رغم إنه داخل واحدة! يعني بعد أسبوعين من admissions
+             * مش هعرف راح فين.
+             *
+             * فنثبّت هنا: المجموعة اللي دخلها **هي** المجموعة المربوطة.
+             */
+            if (! $entry->group_class_id) {
+                $entry->update(['group_class_id' => $groupId]);
+            }
 
             // ===== 1) الطالب =====
             $student = null;
@@ -210,33 +272,29 @@ class WaitlistController extends Controller
             $entry->update(['student_id' => $student->id]);
 
             // ===== 2) العضوية =====
-            // نحتاج نحدد المجموعة — إما اللي في السطر، أو المقترحة
-            $groupId = $entry->group_class_id ?? $entry->proposed_group_id;
-            abort_if(! $groupId, 422, 'مفيش مجموعة محددة للسطر');
+            $group = GroupClass::findOrFail($groupId);
 
-            $group = \App\Models\GroupClass::findOrFail($groupId);
-
-            $member = \App\Models\GroupMember::admit($group, $student, 'waitlist', $entry->notes);
+            $member = GroupMember::admit($group, $student, 'waitlist', $entry->notes);
 
             // ===== 3) الاشتراك الشهري =====
             $subscription = null;
             if ($group->program_id) {
-                $subscription = \App\Models\Subscription::where('student_id', $student->id)
+                $subscription = Subscription::where('student_id', $student->id)
                     ->where('program_id', $group->program_id)
                     ->whereIn('status', ['active', 'paused'])
                     ->first();
 
                 if (! $subscription) {
-                    $plan = \App\Models\SubscriptionPlan::where('program_id', $group->program_id)
+                    $plan = SubscriptionPlan::where('program_id', $group->program_id)
                         ->where('billing_type', 'monthly')
                         ->where('status', 'active')
                         ->first()
-                        ?? \App\Models\SubscriptionPlan::whereNull('program_id')
+                        ?? SubscriptionPlan::whereNull('program_id')
                             ->where('billing_type', 'monthly')
                             ->where('status', 'active')
                             ->first();
 
-                    $subscription = \App\Models\Subscription::create([
+                    $subscription = Subscription::create([
                         'organization_id' => $orgId,
                         'student_id' => $student->id,
                         'plan_id' => $plan?->id,
@@ -254,17 +312,12 @@ class WaitlistController extends Controller
                 }
             }
 
-            \App\Services\AuditLogService::class->log(
+            app(AuditLogService::class)->log(
                 'update', 'waiting_list_entry', $entry->id,
                 ['status' => 'waiting'],
                 ['status' => 'joined', 'group' => $group->name, 'student_id' => $student->id],
                 $request,
             );
-
-            $group->loadCount([
-                'activeMembers as activeMembers_count',
-                'waiting as waiting_count',
-            ]);
 
             return response()->json([
                 'message' => 'اتضاف الطالب للمجموعة واتعامل اشتراكه',

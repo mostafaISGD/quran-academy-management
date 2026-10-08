@@ -33,6 +33,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/teachers", label: "المعلمين", icon: "👨‍🏫" },
       { href: "/employees", label: "الموظفين", icon: "👤" },
       { href: "/parents", label: "أولياء الأمور", icon: "👨‍👩‍👧" },
+      { href: "/waitlist", label: "قائمة الانتظار", icon: "⏳" },
+      { href: "/groups", label: "إدارة المجموعات", icon: "👥" },
     ],
   },
   {
@@ -49,7 +51,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/schedule", label: "جدول الحصص", icon: "📅" },
       { href: "/attendance", label: "تسجيل الحضور", icon: "🕐" },
-      { href: "/groups", label: "المجموعات", icon: "👥" },
       { href: "/pricing", label: "جدول الأسعار", icon: "💲" },
     ],
   },
@@ -190,7 +191,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <aside className="w-60 shrink-0 border-l border-slate-200 bg-white p-3">
         <p className="mb-4 px-2 text-sm font-bold text-slate-800">أكاديمية القرآن</p>
         <nav className="space-y-1">
-          {NAV_GROUPS.map((group) => (
+          {NAV_GROUPS.map((group) => {
+            /* ⭐ القسم اللي فيه رابط المجموعات — عشان الجرس يفضل معاه */
+            const hasGroupsLink = group.items.some((i) => i.href === "/groups");
+            return (
             <div key={group.label}>
               <button
                 onClick={() => toggleGroup(group.label)}
@@ -198,10 +202,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               >
                 <span>{group.icon} {group.label}</span>
                 <span className="flex items-center gap-1.5">
-                  {/* ⭐ الجرس كمان على **المجموعة المطوية**.
-                      غير كده الجرس مخفي لحد ما تفتح «التشغيل» —
-                      يعني هو مش بيلفّت نظرك زي ما المفروض. */}
-                  {group.label === "التشغيل" && groupAlerts > 0 && (
+                  {/* ⭐ الجرس كمان على **القسم المطوي**.
+                      غير كده الجرس مخفي لحد ما تفتح القسم —
+                      يعني هو مش بيلفّت نظرك زي ما المفروض.
+
+                      ⭐ وبيتبني على «فيه رابط المجموعات» مش على اسم القسم،
+                      عشان لو نقلنا رابط المجموعات لقسم تاني الجرس يروح معاه. */}
+                  {hasGroupsLink && groupAlerts > 0 && (
                     <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
                       {num(groupAlerts, 0)}
                     </span>
@@ -237,7 +244,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </nav>
         <button
           onClick={handleLogout}
