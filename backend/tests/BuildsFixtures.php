@@ -2,6 +2,8 @@
 
 namespace Tests;
 
+use App\Models\AccountMovement;
+use App\Models\FinancialAccount;
 use App\Models\GroupClass;
 use App\Models\GroupMember;
 use App\Models\WaitingListEntry;
@@ -9,6 +11,7 @@ use App\Models\Branch;
 use App\Models\Lesson;
 use App\Models\Level;
 use App\Models\Organization;
+use App\Models\PeriodLock;
 use App\Models\Program;
 use App\Models\Student;
 use App\Models\Subscription;
@@ -56,6 +59,63 @@ trait BuildsFixtures
             'currency' => 'EGP',
             'status' => 'active',
         ]);
+    }
+
+    // ============================================================
+    // ⭐ الأساس المالي — الخزائن والحسابات
+    // ============================================================
+
+    /**
+     * خزينة أو حساب.
+     *
+     * ⭐ `openingBalance` **رصيد افتتاحي** مش رصيد حالي — الرصيد
+     * الحالي بيتحسب من الحركات. الاختبارات اللي بتفصل بين
+     * الاتنين دي اللي بتقفل قاعدة «الرصيد محسوب».
+     */
+    protected function makeAccount(array $attrs = []): FinancialAccount
+    {
+        static $seq = 0;
+        $seq++;
+
+        return FinancialAccount::create(array_merge([
+            'organization_id' => $this->org->id,
+            'name' => 'حساب '.($seq),
+            'type' => 'cash',
+            'currency' => 'EGP',
+            'opening_balance' => 0,
+            'status' => 'active',
+        ], $attrs));
+    }
+
+    /** ⭐ حركة واحدة — لتجربة الرصيد والقفل */
+    protected function makeMovement(
+        FinancialAccount $account,
+        array $attrs = [],
+    ): AccountMovement {
+        return AccountMovement::create(array_merge([
+            'organization_id' => $this->org->id,
+            'financial_account_id' => $account->id,
+            'direction' => 'in',
+            'category' => 'income',
+            'amount' => 100,
+            'currency' => $account->currency,
+            'movement_date' => now()->toDateString(),
+            'status' => 'posted',
+        ], $attrs));
+    }
+
+    /** ⭐ قفل فترة */
+    protected function makeLock(array $attrs = []): PeriodLock
+    {
+        [$start, $end] = PeriodLock::monthRange(now()->format('Y-m'));
+
+        return PeriodLock::create(array_merge([
+            'organization_id' => $this->org->id,
+            'scope' => 'all',
+            'period_start' => $start,
+            'period_end' => $end,
+            'locked_at' => now(),
+        ], $attrs));
     }
 
     protected function makeUser(string $name = 'مستخدم', ?string $email = null): User

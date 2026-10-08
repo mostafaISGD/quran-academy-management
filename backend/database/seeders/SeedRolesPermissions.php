@@ -64,6 +64,27 @@ class SeedRolesPermissions extends Seeder
         // يشوف ده. الاستقبال بياخد الطلب ويحطّه في الطابور بس.
         ['name' => 'groups.manage', 'module' => 'groups'],
         ['name' => 'settings.manage', 'module' => 'settings'],
+
+        // ===== الخزائن والحسابات (الأساس المالي) =====
+        //
+        // ⭐ الفصل بين **التسجيل** و**العكس/القفل** مقصود:
+        //
+        //   • `finance.view`       — يشوف الأرصدة والحركات
+        //   • `finance.accounts`    — يعمل ويعدّل خزينة/حساب
+        //   • `finance.movements`   — يسجّل حركة (تحصيل/مصروف)
+        //   • `finance.reverse`     — **يعكس** حركة أو فاتورة
+        //   • `finance.periods.lock`   — يقفل فترة
+        //   • `finance.periods.unlock` — يفتح فترة مقفولة
+        //
+        // قرار الإدارة: **فتح الفترات المقفلة للمدير بس** — فبنتخلى
+        // `finance.periods.unlock` من أي دور غير `admin`.
+        ['name' => 'finance.view', 'module' => 'finance'],
+        ['name' => 'finance.accounts', 'module' => 'finance'],
+        ['name' => 'finance.movements', 'module' => 'finance'],
+        ['name' => 'finance.reverse', 'module' => 'finance'],
+        ['name' => 'finance.periods.lock', 'module' => 'finance'],
+        ['name' => 'finance.periods.unlock', 'module' => 'finance'],
+        ['name' => 'finance.exchange_rates', 'module' => 'finance'],
     ];
 
     public function run(): void
@@ -121,10 +142,70 @@ class SeedRolesPermissions extends Seeder
         }
 
         $this->grantTeacherAndParentRoles();
+        $this->grantAccountantRole();
 
         $this->command?->info(
             '   → ' . count(self::PERMISSIONS) . ' صلاحية · دور admin · '
             . $admins->count() . ' حساب إداري'
+        );
+    }
+
+    /**
+     * ⭐ دور المحاسب.
+     *
+     * ⭐⭐ **القرار اللي بيمثّل الفصل في الخطة:**
+     *
+     * الخطة بتقول الصلاحيات منفصلة: «تسجيل دفعة» ≠ «عكس سجل» ≠
+     * «اعتماد كشف مرتبات أو فتح فترة مقفلة». وده **عشان** لو
+     * المحاسب قدر يعكس أي دفعة، الأرقام اللي الإدارة وقّعت عليها
+     * تبقى قابلة للتغيير بإيد حد في التحصيل — وده بالظبط اللي
+     * الأرقام المالية كلها مبنية عشان تمنعه.
+     *
+     * فالمحاسب بياخد:
+     *   ✅ `finance.view`        يشوف الأرصدة والحركات
+     *   ✅ `finance.accounts`    Excerpt ينشئ خزينة
+     *   ✅ `finance.movements`    يسجّل تحصيل ومصروف
+     *   ❌ `finance.reverse`     **ممنوع** — محتاج مدير
+     *   ❌ `finance.periods.unlock` **ممنوع** — قرار الإدارة: المدير بس
+     *
+     * @see \App\Models\AccountMovement::reversalOf
+     */
+    private function grantAccountantRole(): void
+    {
+        $accountantRole = Role::firstOrCreate(
+            ['name' => 'accountant', 'guard_name' => 'web'],
+            ['slug' => 'accountant', 'guard_name' => 'web', 'is_system' => false],
+        );
+
+        /**
+         * ⭐ القائمة **مكتوبة بنصها** مش بـ `whereNotIn`.
+         *
+         * السبب: لو ضفنا صلاحية مالية جديدة بعد كده، ولو الـكود
+         * كان «كل حاجة ما عدا X»، كانت هتاخدها المحاسب **من غير
+         * قصد**. هنا كل صلاحية لازم تتكتب بإيدها — عشان لو
+         * حد أضاف صلاحية قوية، صلاحية المحاسب ماتتغيّرتش.
+         */
+        $accountantRole->syncPermissions(
+            Permission::whereIn('name', [
+                // ============ الحسابات
+                'finance.view',
+                'finance.accounts',
+                'finance.movements',
+                'finance.exchange_rates',
+
+                // ⭐ عشان يشوف الطلاب واشتراكاتهم
+                'students.view',
+
+                // ⭐ الفواتير والمدفوعات — صلاحياتها موجودة فعلاً في
+                // الراوتات (`invoices` بيستخدم `payments.*`)
+                'payments.view',
+                'payments.create',
+                'teachers.view',
+            ])->get()
+        );
+
+        $this->command?->info(
+            '   → دور accountant ('.$accountantRole->permissions()->count().' صلاحية — بدون reverse/unlock)'
         );
     }
 

@@ -87,7 +87,24 @@ class SeedAttendance extends Seeder
                         'status' => $status,
                         'check_in' => $checkIn,
                         'check_out' => $checkOut,
-                        'late_minutes' => $lateMinutes,
+
+                        /**
+                         * ⭐⚠️ **مفيش `late_minutes` — والعمود اتشال.**
+                         *
+                         * `2026_10_04_000009_flexible_hourly_attendance` مسح
+                         * العمود **عن قصد**: مفيش وقت مرجعي نقيس بيه
+                         * التأخير، فكان بيتحسب +١٥ دقيقة تلقائياً وده
+                         * كذب.
+                         *
+                         * ⚠️ الـ seeder هنا كان لسه بيكتب العمود، فكان
+                         * بيرمي exception وبيوقّف **كل** الـ seeding. لأن
+                         * الـ migration دي اتنفّذت بعد آخر مرة شُغّل
+                         * فيها الـ seeder — فمحدش شاف إنهم بقوا مش
+                         * متوافقين لحد ما الـ schema اتعمل من الأول.
+                         *
+                         * `worked_hours` بقى **اللي الأدمن يكتبه** وهو
+                         * مصدر الأجر — مش مشتق من وقت الدخول.
+                         */
                         'worked_hours' => $workedHours,
                         'notes' => null,
                         'marked_by' => $adminId,
