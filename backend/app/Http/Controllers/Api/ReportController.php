@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Assessment;
+use App\Models\Invoice;
 use App\Models\Lead;
 use App\Models\Lesson;
 use App\Models\LessonAttendance;
@@ -56,9 +57,6 @@ class ReportController extends Controller
         $end = $request->filled('to') ? Carbon::parse($request->string('to')) : Carbon::now()->endOfMonth();
 
         $payments = Payment::query()->where('status', 'completed')->whereRange('paid_at', $start, $end)->get();
-        // ⭐ أرقام خام — `number_format` هنا كان بيرجّع نص
-        // `"1234.50"`، فالواجهة كانت بتشيل الفاصلة وترجع رقم
-        // (اقتباس مرتين: نص منسّق → رقم → نص منسّق).
         $byCurrency = $payments->groupBy('currency')
             ->map(fn ($group) => ['total' => $group->sum('amount'), 'count' => $group->count()]);
         $byMethod = $payments->groupBy('payment_method')
@@ -66,6 +64,40 @@ class ReportController extends Controller
         $refunds = Refund::query()->whereRange('processed_at', $start, $end)->get();
         $teacherEarnings = TeacherEarning::query()->whereRange('earning_date', $start, $end)->get();
         $teacherPaymentsMade = TeacherPayment::query()->whereRange('paid_at', $start, $end)->get();
+
+        // ⭐⭐ المفوتَر والمحصَّل منفصلين — من أول يوم
+        $invoices = Invoice::query()->whereRange('issue_date', $start, $end)->get();
+        $invoiced = $invoices->sum('total');
+        $collected = $payments->sum('amount');
+        $outstanding = $invoices->sum('balance_due');
+
+        // ⭐ المصروفات
+        $expenses = \App\Models\Expense::query()
+            ->whereRange('expense_date', $start, $end)
+            ->where('status', 'approved')
+            ->get();
+
+        // ⭐ صافي التشغيل = المحصّل - المصروفات - مستحقات المعلمين
+        $netOperating = $collected - $expenses->sum('amount') - $teacherEarnings->sum('amount');
+
+        // ⭐ مستحقات المعلمين اللي لم تُدفع
+        $unpaidTeacherDues = $teacherEarnings->sum('amount') - $teacherPaymentsMade->sum('amount');
+
+        // ⭐ التنبيهات
+        $alerts = [
+            'overdue_invoices' => Invoice::query()
+                ->where('status', '!=', 'paid')
+                ->where('due_date', '<', now()->toDateString())
+                ->count(),
+            'expiring_subscriptions' => Subscription::query()
+                ->where('status', 'active')
+                ->where('end_date', '<=', now()->addDays(7)->toDateString())
+                ->count(),
+            'unpaid_teacher_dues' => max(0, $unpaidTeacherDues),
+            'pending_expenses' => \App\Models\Expense::query()
+                ->where('status', 'pending')
+                ->count(),
+        ];
 
         return response()->json([
             'period' => ['from' => $start->toDateString(), 'to' => $end->toDateString()],
@@ -78,6 +110,23 @@ class ReportController extends Controller
                 'gross_earnings' => $teacherEarnings->sum('amount'),
                 'payments_made' => $teacherPaymentsMade->sum('amount'),
             ],
+            // ⭐⭐ المفوتَر والمحصَّل منفصلين
+            'invoiced_vs_collected' => [
+                'invoiced' => $invoiced,
+                'collected' => $collected,
+                'outstanding' => $outstanding,
+            ],
+            // ⭐ المصروفات
+            'expenses' => [
+                'total' => $expenses->sum('amount'),
+                'count' => $expenses->count(),
+            ],
+            // ⭐ صافي التشغيل
+            'net_operating' => $netOperating,
+            // ⭐ مستحقات المعلمين اللي لم تُدفع
+            'unpaid_teacher_dues' => max(0, $unpaidTeacherDues),
+            // ⭐ التنبيهات
+            'alerts' => $alerts,
         ]);
     }
 
