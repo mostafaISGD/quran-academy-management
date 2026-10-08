@@ -91,6 +91,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/pricing-admin", label: "إدارة الباقات", icon: "🏷️" },
       { href: "/student-credits", label: "الرصيد الدائن", icon: "💳" },
       { href: "/lesson-policy", label: "سياسات الحصة", icon: "📋" },
+      { href: "/reminder-settings", label: "إعدادات التذكيرات", icon: "⏰" },
       { href: "/notifications", label: "الإشعارات", icon: "🔔" },
       { href: "/audit-logs", label: "سجل العمليات", icon: "📝" },
       { href: "/settings", label: "الإعدادات", icon: "⚙️" },
