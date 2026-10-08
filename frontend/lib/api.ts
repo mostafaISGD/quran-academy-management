@@ -1856,6 +1856,44 @@ export function deletePricingPlan(id: number) {
 }
 
 // ============================================================
+// سياسات الحصة (Lesson Policy)
+// ============================================================
+
+export type LessonPolicy = {
+  id: number;
+  organization_id: number;
+  student_absence_consumes_lesson: boolean;
+  student_absence_teacher_paid: boolean;
+  teacher_absence_consumes_lesson: boolean;
+  teacher_absence_teacher_paid: boolean;
+  makeup_consumes_lesson: boolean;
+  makeup_teacher_paid: boolean;
+  max_makeup_per_month: number;
+  max_makeup_days: number;
+  makeup_deducts_from_package: boolean;
+};
+
+export function getLessonPolicy() {
+  return apiFetch<{ data: LessonPolicy }>("/lesson-policy");
+}
+
+export function updateLessonPolicy(payload: Partial<{
+  student_absence_consumes_lesson: boolean;
+  student_absence_teacher_paid: boolean;
+  teacher_absence_consumes_lesson: boolean;
+  teacher_absence_teacher_paid: boolean;
+  makeup_consumes_lesson: boolean;
+  makeup_teacher_paid: boolean;
+  max_makeup_per_month: number;
+  max_makeup_days: number;
+  makeup_deducts_from_package: boolean;
+}>) {
+  return apiFetch<{ message: string; data: LessonPolicy }>("/lesson-policy", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
 // ============================================================
 // الرصيد الدائن (Student Credits)
 // ============================================================
