@@ -1856,7 +1856,92 @@ export function deletePricingPlan(id: number) {
 }
 
 // ============================================================
-// المجموعات الأونلاين + قائمة الانتظار
+// ============================================================
+// الرصيد الدائن (Student Credits)
+// ============================================================
+
+export type StudentCredit = {
+  id: number;
+  student: { id: number; name: string } | null;
+  currency: string;
+  total: number;
+  used: number;
+  refunded: number;
+  balance: number;
+  reason: string;
+  source_type: string | null;
+  status: "active" | "depleted" | "refunded";
+  expires_at: string | null;
+  created_at: string;
+};
+
+export type CreditNoteApplication = {
+  id: number;
+  student_credit_id: number;
+  invoice_id: number;
+  amount: number;
+  status: "active" | "reversed";
+  created_at: string;
+  invoice?: { id: number; invoice_number: string; balance_due: number } | null;
+};
+
+export type StudentCreditsResponse = {
+  data: StudentCredit[];
+};
+
+export function getStudentCredits(params?: {
+  student_id?: number;
+  status?: string;
+}) {
+  const s = new URLSearchParams();
+  if (params?.student_id) s.set("student_id", String(params.student_id));
+  if (params?.status) s.set("status", params.status);
+  return apiFetch<StudentCreditsResponse>(`/student-credits?${s.toString()}`);
+}
+
+/**
+ * ⭐ إنشاء رصيد دائن جديد.
+ */
+export function createStudentCredit(payload: {
+  student_id: number;
+  currency: string;
+  total: number;
+  reason: string;
+  source_type?: string;
+  expires_at?: string;
+}) {
+  return apiFetch<{ message: string; data: StudentCredit }>("/student-credits", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * ⭐ تطبيق رصيد دائن على فاتورة.
+ */
+export function applyCreditNote(studentCreditId: number, payload: {
+  invoice_id: number;
+  amount: number;
+}) {
+  return apiFetch<{ message: string; data: { invoice_balance: number; credit_remaining: number } }>(
+    `/student-credits/${studentCreditId}/apply`,
+    { method: "POST", body: JSON.stringify(payload) }
+  );
+}
+
+/**
+ * ⭐ استرداد رصيد دائن نقدياً.
+ */
+export function refundStudentCredit(studentCreditId: number, payload: {
+  amount: number;
+  reason: string;
+}) {
+  return apiFetch<{ message: string; data: { remaining: number } }>(
+    `/student-credits/${studentCreditId}/refund`,
+    { method: "POST", body: JSON.stringify(payload) }
+  );
+}
+
 // ============================================================
 
 /**
