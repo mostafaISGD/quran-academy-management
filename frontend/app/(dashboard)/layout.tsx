@@ -122,7 +122,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         // ⭐ بس لو ليه صلاحية — عشان ما نعملش طلبات 403 لكل موظف
         if (u.permissions?.includes("groups.manage")) {
           getGroupAlerts()
-            .then((r) => setGroupAlerts(r.count))
+            // ⭐ حماية: لو الـtoken اتبطل، الـcount بيرجع undefined
+            .then((r) => setGroupAlerts(typeof r?.count === "number" ? r.count : 0))
             .catch(() => setGroupAlerts(0));
         }
       })
@@ -140,7 +141,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     if (pathname !== "/groups") return;
 
     getGroupAlerts()
-      .then((r) => setGroupAlerts(r.count))
+      .then((r) => setGroupAlerts(typeof r?.count === "number" ? r.count : 0))
       .catch(() => setGroupAlerts(0));
   }, [pathname, user]);
 

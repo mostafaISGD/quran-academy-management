@@ -1729,6 +1729,100 @@ export function declineFromWaitingList(groupId: number, entryId: number, reason?
   );
 }
 
+// ============================================================
+// قائمة الانتظار المستقلة (إدارة الأدمن)
+// ============================================================
+
+export type WaitlistEntry = {
+  id: number;
+  name: string;
+  phone: string;
+  parent_phone: string | null;
+  current_level: string | null;
+  notes: string | null;
+  status: "waiting" | "joined" | "declined";
+  position: number;
+  entered_at: string | null;
+  joined_at: string | null;
+  group: { id: number; name: string } | null;
+  proposed_group: { id: number; name: string } | null;
+  package: { id: number; name: string; price: string; lessons_count: number | null; lesson_duration_minutes: number } | null;
+};
+
+export type WaitlistPayload = {
+  name: string;
+  phone: string;
+  parent_phone?: string | null;
+  current_level?: string | null;
+  package_id?: number | null;
+  proposed_group_id?: number | null;
+  group_class_id?: number | null;
+  notes?: string | null;
+};
+
+export type WaitlistResponse = {
+  data: WaitlistEntry[];
+  meta: {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+  };
+};
+
+export type WaitlistAdmitResponse = {
+  message: string;
+  student_id: number;
+  member_id: number;
+  subscription_id: number | null;
+  occupancy: GroupOccupancy;
+};
+
+/** عرض كل طلبات الانتظار مع فلترة وبحث */
+export function getWaitlist(params?: {
+  status?: "waiting" | "joined" | "declined";
+  group_id?: number;
+  package_id?: number;
+  search?: string;
+  per_page?: number;
+  page?: number;
+}) {
+  const s = new URLSearchParams();
+  if (params?.status) s.set("status", params.status);
+  if (params?.group_id) s.set("group_id", String(params.group_id));
+  if (params?.package_id) s.set("package_id", String(params.package_id));
+  if (params?.search) s.set("search", params.search);
+  if (params?.per_page) s.set("per_page", String(params.per_page));
+  if (params?.page) s.set("page", String(params.page));
+  return apiFetch<{ data: WaitlistEntry[]; meta: WaitlistResponse["meta"] }>(`/waitlist?${s.toString()}`);
+}
+
+/** إضافة طلب انتظار جديد — بكل الحقول */
+export function createWaitlistEntry(payload: WaitlistPayload) {
+  return apiFetch<{ message: string; data: WaitlistEntry }>("/waitlist", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** تعديل بيانات طلب انتظار */
+export function updateWaitlistEntry(id: number, payload: Partial<WaitlistPayload>) {
+  return apiFetch<{ message: string; data: WaitlistEntry }>(`/waitlist/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** حذف طلب انتظار — حذف فعلي من قاعدة البيانات */
+export function deleteWaitlistEntry(id: number) {
+  return apiFetch<{ message: string }>(`/waitlist/${id}`, { method: "DELETE" });
+}
+
+/** «ادخل» من صفحة الانتظار — بيكمّل الشغل كله */
+export function admitFromWaitlist(entryId: number) {
+  return apiFetch<WaitlistAdmitResponse>(`/waitlist/${entryId}/admit`, { method: "POST" });
+}
+
 export function addGroupMember(groupId: number, studentId: number, notes?: string) {
   return apiFetch<{ message: string; occupancy: GroupOccupancy }>(`/groups/${groupId}/members`, {
     method: "POST",

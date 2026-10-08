@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\EmployeePayrollController;
 use App\Http\Controllers\Api\TeacherPayrollController;
 use App\Http\Controllers\Api\PricingController;
 use App\Http\Controllers\Api\GroupController;
+use App\Http\Controllers\Api\WaitlistController;
 use App\Http\Controllers\Api\ExpenseController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\LeadController;
@@ -115,6 +116,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/groups/{group}/waiting/{entry}/admit', [GroupController::class, 'admit'])
         ->middleware('permission:groups.manage');
     Route::post('/groups/{group}/waiting/{entry}/decline', [GroupController::class, 'decline'])
+        ->middleware('permission:groups.manage');
+
+    // ===== قائمة الانتظار — صفحة مستقلة للأدمن =====
+    Route::get('/waitlist', [WaitlistController::class, 'index'])
+        ->middleware('permission:groups.manage');
+    Route::post('/waitlist', [WaitlistController::class, 'store'])
+        ->middleware('permission:groups.manage');
+    Route::put('/waitlist/{entry}', [WaitlistController::class, 'update'])
+        ->middleware('permission:groups.manage');
+    Route::delete('/waitlist/{entry}', [WaitlistController::class, 'destroy'])
+        ->middleware('permission:groups.manage');
+    Route::post('/waitlist/{entry}/admit', [WaitlistController::class, 'admit'])
         ->middleware('permission:groups.manage');
 
     // Students

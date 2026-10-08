@@ -24,6 +24,7 @@ class WaitingListEntry extends Model
 {
     protected $fillable = [
         'organization_id', 'group_class_id', 'name', 'phone',
+        'parent_phone', 'current_level', 'package_id', 'proposed_group_id',
         'student_id', 'parent_id', 'status', 'notes',
         'entered_at', 'joined_at', 'admitted_by',
     ];
@@ -64,6 +65,18 @@ class WaitingListEntry extends Model
     public function parent(): BelongsTo
     {
         return $this->belongsTo(ParentModel::class);
+    }
+
+    /** الباقة المطلوبة */
+    public function package(): BelongsTo
+    {
+        return $this->belongsTo(SubscriptionPlan::class, 'package_id');
+    }
+
+    /** المجموعة المقترحة */
+    public function proposedGroup(): BelongsTo
+    {
+        return $this->belongsTo(GroupClass::class, 'proposed_group_id');
     }
 
     /** مين إدخله */

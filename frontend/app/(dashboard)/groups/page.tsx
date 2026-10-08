@@ -348,7 +348,11 @@ export default function GroupsPage() {
   function refreshAlerts() {
     if (!canManage) return;
     getGroupAlerts()
-      .then((r) => setAlerts(r.groups))
+      // ⭐ لو رد 401 (token اتبطل) ما بيكونش فيه `groups`:
+      //   `r.groups` هيبقى `undefined` والشاشة كانت بتكشّر.
+      //   فبنحميه — `Array.isArray` مش `?? []` عشان لو
+      //   ردت شي تاني (رمز، نص) ما ينفجرش.
+      .then((r) => setAlerts(Array.isArray(r?.groups) ? r.groups : []))
       .catch(() => setAlerts([]));
   }
 
