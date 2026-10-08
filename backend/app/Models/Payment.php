@@ -52,6 +52,27 @@ class Payment extends Model
     public function refunds() { return $this->hasMany(Refund::class); }
     public function receivedBy() { return $this->belongsTo(User::class, 'received_by'); }
 
+    /**
+     * ⭐ توزيعات الدفعة على الفواتير — المصدر الوحيد لمعرفة إيه
+     * اللي غطّته الدفعة وإيه لسه.
+     */
+    public function allocations()
+    {
+        return $this->hasMany(PaymentAllocation::class);
+    }
+
+    /**   مجموع ما اتوزّع من الدفعة (النشط فقط) */
+    public function allocatedAmount(): float
+    {
+        return (float) $this->allocations()->active()->sum('amount');
+    }
+
+    /**   المتبقي من الدفعة اللي لسه ما اتغطى على فاتورة */
+    public function unallocatedAmount(): float
+    {
+        return max(0, (float) $this->amount - $this->allocatedAmount());
+    }
+
     public function totalRefunded(): float
     {
         return (float) $this->refunds()->where('status', 'processed')->sum('amount');

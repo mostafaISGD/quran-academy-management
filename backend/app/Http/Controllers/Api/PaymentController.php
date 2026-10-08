@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Models\Payment;
+use App\Models\PaymentAllocation;
 use App\Models\Refund;
 use App\Models\StudentLedgerEntry;
 use Illuminate\Http\Request;
@@ -63,11 +64,35 @@ class PaymentController extends Controller
 
         if ($payment->invoice) {
             $invoice = $payment->invoice;
-            $newPaid = (float) $invoice->paid_amount + (float) $payment->amount;
-            $newBalance = max(0, (float) $invoice->total - $newPaid);
-            $status = $newBalance <= 0 ? 'paid' : 'partially_paid';
 
-            $invoice->update(['paid_amount' => $newPaid, 'balance_due' => $newBalance, 'status' => $status]);
+            /**
+             * ⭐⭐⭐ **هنا اللي بتتلعّب القاعدة 5.**
+             *
+             * بدل ما نعدّل `paid_amount` و `balance_due` مباشرةً
+             * كاأرقام مستقلة، بنعمل سطر توزيع في
+             * `payment_allocations` — وبعدين الفاتورة بتحسب
+             * المدفوع والمتبقي من التوزيعات دي.
+             *
+             * يعني:
+             *   - الدفعة الواحدة بدفعة 500 → سطر توزيع بمبلغ 500
+             *   - لو جت دفعة تانية بمبلغ 300 → سطر توزيع تاني 300
+             *   - المدفوع = 800، المتبقي = 1200 — **محسوب**
+             *
+             * ولو دفعة كبيرة انقسمت على فاتورتين، بنتكتب
+             * سطرين توزيع — وده بقى منفصل.
+             */
+            \App\Models\PaymentAllocation::create([
+                'organization_id' => $request->user()->organization_id,
+                'payment_id' => $payment->id,
+                'invoice_id' => $invoice->id,
+                'amount' => $payment->amount,
+                'status' => 'active',
+                'created_by' => $request->user()->id,
+            ]);
+
+            // ⭐ الفاتورة بتحسب المدفوع والمتبقي من التوزيعات
+            $invoice->recalculateFromAllocations();
+            $newBalance = (float) $invoice->fresh()->balance_due;
 
             StudentLedgerEntry::create([
                 'student_id' => $payment->student_id,
@@ -179,7 +204,90 @@ class PaymentController extends Controller
 
     public function show(Payment $payment)
     {
-        return response()->json($payment->load(['student', 'invoice', 'refunds', 'receivedBy']));
+        return response()->json($payment->load(['student', 'invoice', 'refunds', 'receivedBy', 'allocations.invoice']));
+    }
+
+    /**
+     * ⭐⭐ توزيع دفعة على فواتير.
+     *
+     * ⭐ **ليه الدالة دي موجودة؟**
+     *
+     * في الحياة الواقعية، الطالب ممكن يدفع مبلغ 1000 ومعاه
+     * فاتورتين: واحدة بتاعة يناير بـ 600 وواحدة بتاعة فبراير
+     * بـ 400. فبدل ما نسجل الدفعة على فاتورة واحدة، بنقسمها.
+     *
+     * ⚠️ **القاعدة:**
+     *
+     * مجموع التوزيعات النشطة **مش ممكن يزيد** عن مبلغ الدفعة.
+     * فلو الطالب دفع 1000 وبنقسمها على 600 + 600 = 1200، ده
+     * يعني فيه 200 مش ح grounded — فالطلب بيترفض.
+     *
+     * والتوزيع **المراجَع** (reversed) ما بيتحسبش في المبلغ
+     * المتوزع — بيتحسب من `active` فقط.
+     */
+    public function allocate(Request $request, Payment $payment)
+    {
+        $data = $request->validate([
+            'allocations' => 'required|array|min:1',
+            'allocations.*.invoice_id' => 'required|exists:invoices,id',
+            'allocations.*.amount' => 'required|numeric|min:0.01',
+        ], [
+            'allocations.required' => 'بعت توزيع الدفعة على إيه',
+            'allocations.min' => 'لازم يكون فيه توزيع واحد على الأقل',
+        ]);
+
+        $totalAllocated = collect($data['allocations'])->sum('amount');
+
+        // ⭐ المتوزع الفعال الحالي — لو الحساب ح grounded
+        $alreadyAllocated = $payment->allocatedAmount();
+
+        if ($alreadyAllocated + $totalAllocated > (float) $payment->amount) {
+            return response()->json([
+                'message' => "التوزيعات بتعدي مبلغ الدفعة: المتاح للتوزيع "
+                    . ($payment->amount - $alreadyAllocated),
+            ], 422);
+        }
+
+        $created = [];
+
+        foreach ($data['allocations'] as $row) {
+            $allocation = PaymentAllocation::create([
+                'organization_id' => $request->user()->organization_id,
+                'payment_id' => $payment->id,
+                'invoice_id' => $row['invoice_id'],
+                'amount' => $row['amount'],
+                'status' => 'active',
+                'created_by' => $request->user()->id,
+            ]);
+
+            // ⭐ الفاتورة بتحسب المدفوع/المتبقي من التوزيعات
+            Invoice::find($row['invoice_id'])->recalculateFromAllocations();
+
+            $created[] = $allocation;
+        }
+
+        app(\App\Services\AuditLogService::class)->log(
+            'allocate_payment',
+            'payment',
+            $payment->id,
+            null,
+            [
+                'allocations' => collect($data['allocations'])
+                    ->map(fn ($a) => ['invoice_id' => $a['invoice_id'], 'amount' => $a['amount']])
+                    ->toArray(),
+            ],
+            $request,
+        );
+
+        return response()->json([
+            'message' => 'اتسجل التوزيع',
+            'data' => [
+                'payment_id' => $payment->id,
+                'allocated' => $payment->allocatedAmount(),
+                'unallocated' => $payment->unallocatedAmount(),
+                'allocations' => $created,
+            ],
+        ], 201);
     }
 
     public function refund(Request $request, Payment $payment)
@@ -211,6 +319,18 @@ class PaymentController extends Controller
 
         if ($payment->isFullyRefunded()) {
             $payment->update(['status' => 'voided']);
+
+            // ⭐⭐ الاسترداد بيلغي التوزيعات — الفاتورة لازم تحسب
+            // من جديد إن المدفوع بتاعها قلّ.
+            //
+            // ⭐ **ما بنشطبش السطر** — بنعلّمه `reversed`، عشان
+            // نفضل نعرف التوزيع كان على أي فاتورة، ونسجل ليه
+            // اتلغي.
+            $payment->allocations()->update(['status' => 'reversed']);
+
+            if ($payment->invoice) {
+                $payment->invoice->recalculateFromAllocations();
+            }
         }
 
         app(\App\Services\AuditLogService::class)->log(

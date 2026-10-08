@@ -274,6 +274,8 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/payments/{payment}', [PaymentController::class, 'show'])->middleware('permission:payments.view');
     Route::post('/payments/{payment}/refund', [PaymentController::class, 'refund'])->middleware('permission:payments.refund');
     Route::get('/payments/{payment}/refunds', [PaymentController::class, 'refunds'])->middleware('permission:payments.view');
+    // ⭐ توزيع الدفعة على فواتير — القاعدة 5 من الخطة
+    Route::post('/payments/{payment}/allocate', [PaymentController::class, 'allocate'])->middleware('permission:payments.edit');
 
     // CRM — Leads
     Route::get('/leads', [LeadController::class, 'index'])->middleware('permission:leads.view');

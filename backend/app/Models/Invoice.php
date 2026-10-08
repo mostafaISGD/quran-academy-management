@@ -34,4 +34,49 @@ class Invoice extends Model
     public function subscription() { return $this->belongsTo(Subscription::class); }
     public function items() { return $this->hasMany(InvoiceItem::class); }
     public function payments() { return $this->hasMany(Payment::class); }
+
+    /**
+     * ⭐ توزيعات الدفعات النشطة على هذه الفاتورة.
+     *
+     * ⭐ دي اللي بتتحدد منها "إيه اللي اتدفع على هذه الفاتورة" —
+     * مش عمود `paid_amount`.
+     */
+    public function allocations()
+    {
+        return $this->hasMany(PaymentAllocation::class);
+    }
+
+    /**
+     * ⭐⭐ إعادة حساب المدفوع والمتبقي من التوزيعات النشطة.
+     *
+     * ⭐ **القاعدة 5 في الخطة:** «لا نخزّن المدفوع والمتبقي على
+     * الاشتراك أو الفاتورة كأرقام مستقلة».
+     */
+    public function recalculateFromAllocations(): self
+    {
+        $paid = (float) $this->allocations()->active()->sum('amount');
+
+        $total = (float) $this->total;
+        $balance = max(0, $total - $paid);
+
+        $status = match (true) {
+            $paid <= 0 => 'issued',
+            $balance <= 0 => 'paid',
+            default => 'partially_paid',
+        };
+
+        $this->update([
+            'paid_amount' => round($paid, 2),
+            'balance_due' => round($balance, 2),
+            'status' => $status,
+        ]);
+
+        return $this->fresh();
+    }
+
+    /**   كل ما اتدفع على هذه الفاتورة (مجموع التوزيعات النشطة) */
+    public function paidViaAllocations(): float
+    {
+        return (float) $this->allocations()->active()->sum('amount');
+    }
 }
