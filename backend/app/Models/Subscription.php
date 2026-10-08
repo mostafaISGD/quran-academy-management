@@ -11,6 +11,9 @@ class Subscription extends Model
         'start_date', 'end_date', 'billing_type', 'price', 'currency',
         'lesson_duration_minutes', 'lessons_included', 'status', 'auto_renew', 'notes',
         'schedule_weekdays', 'schedule_start_time',
+        // ⭐ ربط مباشر بالمجموعة — فيخلي استعلام «اشتراكات
+        // مجموعة X» بـ where واحد بدل join على ٣ جداول
+        'group_class_id',
     ];
 
     protected function casts(): array

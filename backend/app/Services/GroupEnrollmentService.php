@@ -78,6 +78,12 @@ class GroupEnrollmentService
             ->first();
 
         if ($existing) {
+            // ⭐ لو الاشتراك موجود بس رابط المجموعة مش متظبط،
+            // نحدثه — عشان ما نفضلش محتاجين join على ٣ جداول
+            if (! $existing->group_class_id) {
+                $existing->update(['group_class_id' => $group->id]);
+            }
+
             /**
              * ⚠️⚠️ `array_merge` مش `+`.
              *
@@ -103,6 +109,10 @@ class GroupEnrollmentService
             'teacher_id' => $group->teacher_id,
             'start_date' => now()->toDateString(),
             'end_date' => now()->addMonth()->toDateString(),
+            // ⭐⭐ ربط مباشر بالاشتراك — فيخلي استعلام
+            // «اشتراكات مجموعة X» بـ where واحد بدل join على
+            // GroupMember → Student → Subscription
+            'group_class_id' => $group->id,
             // ⭐ شهري بس — ده قرار ثابت للمجموعات
             'billing_type' => 'monthly',
             // ⚠️ `price` NOT NULL في الجدول — فلو مفيش باقة على

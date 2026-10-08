@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\TeacherScheduleController;
 use App\Http\Controllers\Api\TeacherEarningController;
 use App\Http\Controllers\Api\TeacherPaymentController;
 use App\Http\Controllers\Api\StudentCreditController;
+use App\Http\Controllers\Api\ExportController;
 use App\Http\Controllers\Api\LessonPolicyController;
 use Illuminate\Support\Facades\Route;
 
@@ -288,6 +289,12 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     // ⭐ سياسة الحصص
     Route::get('/lesson-policy', [LessonPolicyController::class, 'show'])->middleware('permission:settings.manage');
     Route::put('/lesson-policy', [LessonPolicyController::class, 'update'])->middleware('permission:settings.manage');
+
+    // ⭐ تصدير CSV (Excel-compatible)
+    Route::get('/exports/account-movements', [ExportController::class, 'accountMovements'])->middleware('permission:finance.movements');
+    Route::get('/exports/account-balances', [ExportController::class, 'accountBalances'])->middleware('permission:finance.accounts');
+    Route::get('/exports/invoices', [ExportController::class, 'invoices'])->middleware('permission:payments.view');
+    Route::get('/exports/expenses', [ExportController::class, 'expenses'])->middleware('permission:payments.view');
 
     // CRM — Leads
     Route::get('/leads', [LeadController::class, 'index'])->middleware('permission:leads.view');
