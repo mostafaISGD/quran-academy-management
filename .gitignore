@@ -70,3 +70,10 @@ yarn-error.log*
 /backend/public/storage
 /backend/.phpunit.cache/
 .phpunit.result.cache
+
+# ⭐ أرشيف المشروع — **مش** جزء من الكود
+#
+# ⚠️ `quran-academy.zip` كان بيتضاف للـ commit من غير ما حد
+# يقصد — ٧٨٩ ميجا في تاريخ المشروع، ومحدش بيحتاجه في الريبو.
+#Git بيسيبه بره ببطء وبيخلي كل `clone` تقيل.
+*.zip

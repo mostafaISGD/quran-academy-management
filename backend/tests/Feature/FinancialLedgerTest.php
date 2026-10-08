@@ -375,7 +375,7 @@ class FinancialLedgerTest extends TestCase
     public function test_income_expense_and_teacher_payment_are_separate_categories(): void
     {
         // ⭐ التقرير لازم يفرق بين المصروفات ومستحقات المعلمين —
-        // عشان كده类别 منفصلة، مش `expense` للكل.
+        // عشان كده الفئات منفصلة، مش `expense` للكل.
         $a = $this->makeAccount(['opening_balance' => 10000]);
 
         $this->ledger()->recordIncome($a, 2000, 'payment', 1);

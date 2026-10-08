@@ -44,6 +44,8 @@ class ExpenseController extends Controller
             'category_id' => 'nullable|exists:expense_categories,id',
             'reference' => 'nullable|string',
             'notes' => 'nullable|string',
+            // ⭐ الحساب اللي المصروف طلع منه — اختياري
+            'financial_account_id' => 'nullable|integer',
         ]);
 
         // category_id إجباري في الجدول — لو مش مبعوت، خود أول فئة
@@ -64,6 +66,65 @@ class ExpenseController extends Controller
             $data['status'] = 'pending'; // اعتماد المصروف بيحصل من صفحة المصروفات
         }
 
-        return response()->json(Expense::create($data)->load('category'), 201);
+        $expense = Expense::create($data);
+
+        /**
+         * ⭐⭐ المصروف = فلوس **هتخرج** — بس مش دلوقتي.
+         *
+         * ⚠️ الـ `status` بيتقفل على `pending` دايماً
+         * (اعتماد المصروف من صفحة المصروفات)، ومفيش endpoint
+         * اعتماد لسه. فلو سجّلنا الحركة `posted` كان هيبقى
+         * **مصروف متقفل وانتهى** — ومينفعش نرجّعه.
+         *
+         * ⭐ فبنسجّلها `pending`: **موجودة وواضحة** في الدفتر،
+         * بس **مش بتأثر على الرصيد**. ولما يتبنى endpoint الاعتماد،
+         * السطر ده هو اللي هيتحوّل `posted`.
+         *
+         * @see \App\Services\FinancialLedgerService::pendingToPosted
+         */
+        $ledger = app(\App\Services\FinancialLedgerService::class);
+
+        [$account, $pickReason] = $ledger->resolveAccount(
+            $request->user()->organization_id,
+            $data['financial_account_id'] ?? null,
+            $ledger->accountTypeForPaymentMethod((string) ($data['payment_method'] ?? '')),
+        );
+
+        $movement = null;
+        $warning = null;
+
+        if ($account) {
+            $res = $ledger->recordFor(
+                account: $account,
+                direction: 'out',
+                category: 'expense',
+                amount: (float) $expense->amount,
+                referenceType: 'expense',
+                referenceId: $expense->id,
+                movementDate: (string) $expense->expense_date,
+                notes: $expense->description,
+                user: $request->user(),
+                // ⭐ مش معتمدة لسه — ما بتدخلش الرصيد
+                status: 'pending',
+            );
+            $movement = $res['movement'];
+            $warning = $res['warning'];
+        } else {
+            $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';
+        }
+
+        return response()->json([
+            ...$expense->load('category')->toArray(),
+            'ledger' => [
+                'recorded' => $movement !== null,
+                'movement_id' => $movement?->id,
+                // ⭐ الأدمن يشوف «مسجّلة بس لسه معتمدة؟» من هنا
+                'posted' => $movement !== null && $movement->status === 'posted',
+                'account_id' => $account?->id,
+                'account_name' => $account?->name,
+                'account_pick' => $pickReason,
+            ],
+            'warning' => $warning,
+        ], 201);
     }
 }

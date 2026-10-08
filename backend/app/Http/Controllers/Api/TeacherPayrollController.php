@@ -443,6 +443,8 @@ class TeacherPayrollController extends Controller
         $data = $request->validate([
             'payment_method' => 'nullable|string|max:50',
             'reference' => 'nullable|string|max:100',
+            // ⭐ الحساب اللي دُفع منه — اختياري (الافتراضي خزينة)
+            'financial_account_id' => 'nullable|integer',
         ]);
 
         if ($line->status === 'paid') {
@@ -486,7 +488,59 @@ class TeacherPayrollController extends Controller
             $request,
         );
 
-        return response()->json($this->present($line->fresh()));
+        /**
+         * ⭐⭐ دفعة المعلم = فلوس **خرجت** من خزينة الأكاديمية.
+         *
+         * ⚠️ دي كانت **ثغرة** فعلاً قبل الـ ledger: دفعة المعلم
+         * كانت بتتسجل في `teacher_payments` بس، ومفيش أي مكان
+         * بيقول إن الفلوس خرجت من الخزينة. يعني «صافي التشغيل»
+         * اللي التقرير بيحسبه كان **غلط** —Teacher اتدفع والمصروفات
+         * ما ظهرتش.
+         *
+         * ⭐ الفئة `teacher_payment` مش `expense` — عشان التقرير
+         * يفرّق بين المصروفات التشغيلية ومستحقات المعلمين.
+         */
+        $ledger = app(\App\Services\FinancialLedgerService::class);
+
+        [$account, $pickReason] = $ledger->resolveAccount(
+            $request->user()->organization_id,
+            $data['financial_account_id'] ?? null,
+            // ⭐ المرتب غالباً تحويل بنكي
+            $ledger->accountTypeForPaymentMethod((string) ($data['payment_method'] ?? '')),
+        );
+
+        $warning = null;
+        $movement = null;
+
+        if ($account) {
+            $res = $ledger->recordFor(
+                account: $account,
+                direction: 'out',
+                category: 'teacher_payment',
+                amount: (float) $line->amount,
+                referenceType: 'teacher_payroll_line',
+                referenceId: $line->id,
+                movementDate: now()->toDateString(),
+                notes: $line->reference,
+                user: $request->user(),
+            );
+            $movement = $res['movement'];
+            $warning = $res['warning'];
+        } else {
+            $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';
+        }
+
+        return response()->json([
+            ...$this->present($line->fresh()),
+            'ledger' => [
+                'recorded' => $movement !== null,
+                'movement_id' => $movement?->id,
+                'account_id' => $account?->id,
+                'account_name' => $account?->name,
+                'account_pick' => $pickReason,
+            ],
+            'warning' => $warning,
+        ]);
     }
 
     // ============================================================

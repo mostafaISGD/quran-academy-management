@@ -43,6 +43,16 @@ class PaymentController extends Controller
             'transaction_reference' => 'nullable|string',
             'status' => 'nullable|in:pending,completed,failed,voided',
             'paid_at' => 'required|date',
+
+            /**
+             * ⭐ الحساب اللي دخلت فيه الفلوس.
+             *
+             * ⭐ **اختياري عن قصد:** لو مبعوتش، الخدمة بتختار حسب
+             * طريقة الدفع (محفظة → محفظة، بنك → بنك)، والافتراضي
+             * خزينة. فالExisting flows مش هتتغيّر.
+             */
+            'financial_account_id' => 'nullable|integer',
+
             'notes' => 'nullable|string',
         ]);
 
@@ -87,7 +97,69 @@ class PaymentController extends Controller
             $request,
         );
 
-        return response()->json($payment, 201);
+        /**
+         * ⭐⭐ الحركة المالية — «فين الفلوس دي».
+         *
+         * ⚠️ **النقطة المهمة:** الدفعة **بتتحفظ** سواء اتسجلت
+         * الحركة أو لأ. الفلوس دخلت فعلاً — اللي بيفشل هو
+         * **التسجيل**، مش التحصيل. فلو رمينا exception هنا،
+         * العميل واقف في البوابة ومااتسجلش عنده حاجة.
+         *
+         * ⭐ لو مفيش حساب ولا الفترة مقفولة، بنرجّع **تحذير
+         * صريح** في الرد — عشان حد يعرف إن في دفعة من غير حركة.
+         */
+        $ledger = app(\App\Services\FinancialLedgerService::class);
+
+        [$account, $pickReason] = $ledger->resolveAccount(
+            $request->user()->organization_id,
+            $data['financial_account_id'] ?? null,
+            $ledger->accountTypeForPaymentMethod((string) $payment->payment_method),
+        );
+
+        $warning = null;
+        $movement = null;
+
+        if ($account) {
+            /**
+             * ⭐ `status` = `pending`/`failed`/`voided` **مش** تحصيل.
+             *
+             * الدفعة المعلّقة مش فلوس دخلت. لو سجّلناها
+             * `posted` كان الرصيد هيبقى أعلى من الحقيقي، والتقارير
+             * بتقول «دخل» والمفيش.
+             */
+            if (in_array($payment->status, ['completed'], true)) {
+                $res = $ledger->recordFor(
+                    account: $account,
+                    direction: 'in',
+                    category: 'income',
+                    amount: (float) $payment->amount,
+                    referenceType: 'payment',
+                    referenceId: $payment->id,
+                    movementDate: (string) $payment->paid_at,
+                    notes: $payment->transaction_reference,
+                    user: $request->user(),
+                );
+                $movement = $res['movement'];
+                $warning = $res['warning'];
+            }
+        } else {
+            $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';
+        }
+
+        return response()->json([
+            ...$payment->toArray(),
+            // ⭐ الحركة المالية — عشان الواجهة تقدر تعرض
+            // «اتسجلت» أو «لسه لأ»
+            'ledger' => [
+                'recorded' => $movement !== null,
+                'movement_id' => $movement?->id,
+                'account_id' => $account?->id,
+                'account_name' => $account?->name,
+                'account_pick' => $pickReason,
+            ],
+            // ⚠️ التحذير **بcernب** لو الحركة ماتسجلتش
+            'warning' => $warning,
+        ], 201);
     }
 
     public function show(Payment $payment)
@@ -97,7 +169,13 @@ class PaymentController extends Controller
 
     public function refund(Request $request, Payment $payment)
     {
-        $data = $request->validate(['amount' => 'required|numeric|min:0.01', 'reason' => 'required|string|max:255', 'method' => 'nullable|string']);
+        $data = $request->validate([
+            'amount' => 'required|numeric|min:0.01',
+            'reason' => 'required|string|max:255',
+            'method' => 'nullable|string',
+            // ⭐ الحساب اللي اترجعت منه الفلوس — اختياري
+            'financial_account_id' => 'nullable|integer',
+        ]);
 
         $remaining = (float) $payment->amount - $payment->totalRefunded();
         if ($data['amount'] > $remaining) {
@@ -133,7 +211,57 @@ class PaymentController extends Controller
             $request,
         );
 
-        return response()->json($refund, 201);
+        /**
+         * ⭐⭐ الاسترداد = فلوس **رجعت** من الخزينة.
+         *
+         * ⚠️ تخيّل من غير السطر ده: الخزينة نقصت 1000 عند
+         * التحصيل، وبعدين رجعنا للطالب 1000 من غير ما نكتب
+         * حاجة. فالمصروف الش/net بينجب **بارتفاع**.
+         *
+         * ⭐ قرار الإدارة: الاسترداد **نقدي** — فالخروج من
+         * الخزينة، مش رصيد دائن للطالب.
+         */
+        $ledger = app(\App\Services\FinancialLedgerService::class);
+
+        [$account, $pickReason] = $ledger->resolveAccount(
+            $request->user()->organization_id,
+            $data['financial_account_id'] ?? null,
+        );
+
+        $warning = null;
+        $movement = null;
+
+        if ($account) {
+            $res = $ledger->recordFor(
+                account: $account,
+                direction: 'out',
+                // ⭐ `refund` مش `expense` — التقرير يفرّق بين
+                // «استرداد» و«مصروف تشغيلي»
+                category: 'refund',
+                amount: (float) $data['amount'],
+                referenceType: 'refund',
+                referenceId: $refund->id,
+                movementDate: (string) ($refund->processed_at ?? now()->toDateString()),
+                notes: $data['reason'],
+                user: $request->user(),
+            );
+            $movement = $res['movement'];
+            $warning = $res['warning'];
+        } else {
+            $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';
+        }
+
+        return response()->json([
+            ...$refund->toArray(),
+            'ledger' => [
+                'recorded' => $movement !== null,
+                'movement_id' => $movement?->id,
+                'account_id' => $account?->id,
+                'account_name' => $account?->name,
+                'account_pick' => $pickReason,
+            ],
+            'warning' => $warning,
+        ], 201);
     }
 
     public function refunds(Payment $payment)

@@ -11,6 +11,15 @@ class Refund extends Model
         'method', 'status', 'processed_by', 'processed_at',
     ];
 
+    /**
+     * ⭐ قيم افتراضية **في الموديل** — انظر `Payment` للتفصيل.
+     *
+     * السبب إن SQLite مايرجعش قيمة العمود الافتراضية للصف الجديد.
+     */
+    protected $attributes = [
+        'status' => 'pending',
+    ];
+
     protected function casts(): array
     {
         return ['amount' => 'decimal:2', 'processed_at' => 'datetime'];

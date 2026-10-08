@@ -165,6 +165,124 @@ class FinancialLedgerService
         );
     }
 
+    // ============================================================
+    // الربط مع Flows الموجودة
+    // ============================================================
+
+    /**
+     * ⭐ نوع الحساب المناسب لطريقة الدفع.
+     *
+     * ⭐ السبب: لو حد دفع بـ InstaPay، الفلوس دخلت **محفظة** مش
+     * الخزينة النقدية. من غير ده رصيد الخزينة النقدية هيبقى غلط
+     * والـ gateway مش هيبان خالص.
+     *
+     * ⚠️ `cash` بيرجع `null` — لأن الخزينة هي **الافتراضي** تاني،
+     * والباقي بيروح لحسابه. فمفيش داعي نعمل lookup.
+     *
+     * @return string|null  نوع الحساب، أو `null` للافتراضي
+     */
+    public function accountTypeForPaymentMethod(string $method): ?string
+    {
+        return match ($method) {
+            'bank_transfer' => 'bank',
+            'wallet' => 'wallet',
+            'online_payment', 'card' => 'gateway',
+            // ⭐ `cash` و `other` → الافتراضي
+            default => null,
+        };
+    }
+
+    /**
+     * ⭐ اعتماد حركة معلّقة — `pending` → `posted`.
+     *
+     * ⭐ دي اللحظة اللي فيها المصروف **بيطلع فعلاً من الخزينة**.
+     *
+     * ⚠️ ليش الـ `status` بيتغيّر هنا بساعته وما بينفعش يتغيّر
+     * بعد كده: **`posted` معناه «الفلوس خرجت»**. لو رجعنا لحد
+     * بعدين غيّرناه، يبقى عندنا تاريخ بيقول «الفلوس خرجت» و«ما
+     * خرجتش» في نفس الوقت — وده عكس قاعدة الحساب الأساسية.
+     * فبعد الاعتماد، التصحيح = **عكس** مش تعديل.
+     *
+     * @throws \RuntimeException  لو الفترة مقفولة
+     */
+    public function pendingToPosted(AccountMovement $movement, ?User $user = null): AccountMovement
+    {
+        if ($movement->status === 'posted') {
+            // ⭐ idempotent — الاعتماد مرتين مابرتميش. Admissions نفس
+            // الفكرة: زرار الدبل-كليك مايرميش 500.
+            return $movement;
+        }
+
+        $account = $movement->account;
+
+        // ⭐ القفل بيتفحص **يوم الاعتماد** — هو историFinancialلي
+        // بيحصل فيه، مش تاريخ المصروف الأصلي
+        $this->assertNotLocked($account, now()->toDateString());
+
+        $movement->update(['status' => 'posted']);
+
+        return $movement->fresh();
+    }
+
+    /**
+     * ⭐⭐ تسجيل حركة **من_flow موجود** — بتفشل **بصوت عالي**.
+     *
+     * ⭐ **ليه مش بنستخدم `record()` مباشرة:**
+     *
+     * ① **مافيش حساب** — لو مفيش ولا حساب نشط، الحركة مش
+     *    تتسجل. وده **مش** معناه نكمل كأن مفيش حاجة: بنرجّع
+     *    `[movement => null, warning => ...]` والـ API بيقول
+     *    بالحرف. فلوس مااتسجلتش لازم حد يعرف.
+     *
+     * ② **الفترة مقفولة** — دي بترمي exception زي الأول، لأن
+     *    التحصيل في شهر مقفول لازم **يفشل** (مش يتحفظ السطر
+     *    من غير حركة مالية ويفصل فلوس عن رصيدها).
+     *
+     * @return array{movement: AccountMovement|null, warning: string|null}
+     */
+    public function recordFor(
+        FinancialAccount $account,
+        string $direction,
+        string $category,
+        float $amount,
+        string $referenceType,
+        int $referenceId,
+        string $movementDate,
+        ?string $notes = null,
+        ?User $user = null,
+        string $status = 'posted',
+    ): array {
+        try {
+            $movement = $this->record(
+                account: $account,
+                direction: $direction,
+                category: $category,
+                amount: $amount,
+                movementDate: $movementDate,
+                referenceType: $referenceType,
+                referenceId: $referenceId,
+                notes: $notes,
+                userId: $user?->id,
+                status: $status,
+            );
+
+            return ['movement' => $movement, 'warning' => null];
+        } catch (\RuntimeException $e) {
+            /**
+             * ⭐ **الفترة المقفولة مابترميش فوق.**
+             *
+             * السبب: دي حالة **طبيعية** («الشهر مقفل»)، مش خطأ.
+             * فلو رميناها، الدفع كله بيقع بسبب قفل، والعميل
+             * واقف في البوابة.
+             *
+             * بدل كده: الدفعة **بتتحفظ** عادي، بس من غير حركة
+             * مالية، وبنرجّع تحذير. الأدمن يشوف «دفعة من غير
+             * حركة مالية» ويفتح الفترة أو يعمل التسوية.
+             */
+            return ['movement' => null, 'warning' => $e->getMessage()];
+        }
+    }
+
     /**
      * ⭐ تسجيل **استرداد** لطالب.
      *
@@ -406,6 +524,10 @@ class FinancialLedgerService
      * ⚠️ ليش بنعمل ده: لحد ما الإدارة تعمل حساباتها، أي تحصيل
      * لازم يروح **مكان**. لو ملقيناش حساب، نعمل «الخزينة
      * الرئيسية» أوتوماتيك — أحسن من إن الفلوس تضيع.
+     *
+     * ⭐ رجع `null` يعني مفيش ولا حساب نشط — وساعتها
+     * `resolveAccount()` بيرجع `null` والمتحرّك **مش بيتسجل**،
+     * والـ API بيرجع تحذير واضح. الفلوس ماتضيعش صامتة.
      */
     public function defaultAccount(int $organizationId): ?FinancialAccount
     {
@@ -413,5 +535,50 @@ class FinancialLedgerService
             ->where('status', 'active')
             ->orderBy('id')
             ->first();
+    }
+
+    /**
+     * ⭐⭐ أي حساب تختاره الحركة؟
+     *
+     * الترتيب:
+     *  ① الحساب اللي **الكود حدّده** — مثلاً «محفظة فودافون كاش»
+     *     عشان طريقة الدفع محفظة.
+     *  ② الحساب اللي **اليوزر اختاره** (`financial_account_id`
+     *     في الطلب).
+     *  ③ الحساب الافتراضي.
+     *
+     * @return array{0: FinancialAccount|null, 1: string}  [الحساب، سبب الرجوع]
+     */
+    public function resolveAccount(
+        int $organizationId,
+        ?int $requestedId = null,
+        ?string $byType = null,
+    ): array {
+        if ($requestedId) {
+            $account = FinancialAccount::where('organization_id', $organizationId)
+                ->where('id', $requestedId)
+                ->where('status', 'active')
+                ->first();
+
+            if ($account) {
+                return [$account, 'requested'];
+            }
+
+            return [null, 'requested_missing'];
+        }
+
+        if ($byType) {
+            $account = FinancialAccount::where('organization_id', $organizationId)
+                ->where('type', $byType)
+                ->where('status', 'active')
+                ->orderBy('id')
+                ->first();
+
+            if ($account) {
+                return [$account, 'by_type'];
+            }
+        }
+
+        return [$this->defaultAccount($organizationId), 'default'];
     }
 }

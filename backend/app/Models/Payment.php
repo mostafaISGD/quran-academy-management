@@ -15,6 +15,32 @@ class Payment extends Model
         'status', 'paid_at', 'received_by', 'notes',
     ];
 
+    /**
+     * ⭐⭐ قيم افتراضية **في الموديل** مش بس في قاعدة البيانات.
+     *
+     * ⭐ **اللي حصل بسبب إن دي كانت ناقصة:**
+     *
+     * `Payment::create([...])` من غير `status` بيحفظ السطر
+     * `completed` في الـ DB (لأن الـ migration عامل `default`)،
+     * بس `$payment->status` في الذاكرة بيبقى **`null`**.
+     *
+     * وأول ما الـ ledger اتربط بالدفعات، الكود اللي بيقول
+     * «سجّل الحركة بس لو الدفعة `completed`» كان شغال **غلط**:
+     * `$payment->status` كان `null` فمابيسجلش والا.
+     * **ولا ولا دفعة في الداتا كانت هتتسجل في الدفتر** — من غير
+     * أي رسالة خطأ، بس الأرقام غلط.
+     *
+     * والسبب إن SQLite (و MySQL كمان) **مايرجعش** قيمة العمود
+     * الافتراضية للصف اللي اتعمل دلوقتي.
+     *
+     * نفس الملاحظة في `WaitingListEntry` و `GroupClass`.
+     *
+     * @see \App\Http\Controllers\Api\PaymentController::store
+     */
+    protected $attributes = [
+        'status' => 'completed',
+    ];
+
     protected function casts(): array
     {
         return ['amount' => 'decimal:2', 'paid_at' => 'datetime'];

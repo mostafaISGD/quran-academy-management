@@ -589,7 +589,7 @@ class GroupEnrollmentTest extends TestCase
         // ⭐ القفل العام مرة واحدة في الأعلى
         $this->assertCount(1, $r->json('blockers'));
 
-        // ⭐ وكل مجموعة مع“为什么 مقفولة”
+        // ⭐ وكل مجموعة بتقول ليه مقفولة
         foreach ($r->json('data') as $target) {
             $this->assertFalse($target['can_move']);
             $this->assertContains('active_subscription', array_column($target['blockers'], 'code'));

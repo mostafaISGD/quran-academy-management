@@ -118,6 +118,25 @@ trait BuildsFixtures
         ], $attrs));
     }
 
+    /**
+     * فئة مصروف.
+     *
+     * ⭐ `slug` **إجباري** في الجدول — فأي `create` من غيره بيرمي
+     * exception. عشان كده في fixture، عشان الاختبارات ما تكتبش
+     * الـ slug بإيدها.
+     */
+    protected function makeExpenseCategory(array $attrs = []): \App\Models\ExpenseCategory
+    {
+        static $seq = 0;
+        $seq++;
+
+        return \App\Models\ExpenseCategory::create(array_merge([
+            'organization_id' => $this->org->id,
+            'name' => 'فئة '.$seq,
+            'slug' => 'category-'.$seq,
+        ], $attrs));
+    }
+
     protected function makeUser(string $name = 'مستخدم', ?string $email = null): User
     {
         return User::create([
