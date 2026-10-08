@@ -58,6 +58,12 @@ Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
     Route::put('/pricing/{plan}', [PricingController::class, 'update'])
         ->middleware(['auth:sanctum', 'permission:pricing.manage']);
 
+    // ⭐ إنشاء/حذف باقة — الأدمن بس (قرار تجاري)
+    Route::post('/pricing', [PricingController::class, 'store'])
+        ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+    Route::delete('/pricing/{plan}', [PricingController::class, 'destroy'])
+        ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+
     // ===== المجموعات الأونلاين + قائمة الانتظار =====
     //
     // ⭐ **الطلب عام، والدخول محمي.**

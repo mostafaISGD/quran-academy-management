@@ -168,6 +168,68 @@ class PricingController extends Controller
         ]);
     }
 
+    /**
+     * ⭐ إنشاء باقة جديدة — الأدمن بس.
+     */
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required|string|max:100',
+            'category' => 'required|in:traditional,golden,group,single',
+            'lesson_duration_minutes' => 'required|in:30,45,60',
+            'lessons_count' => 'required|integer|min:1|max:100',
+            'price' => 'required|numeric|min:0',
+            'currency' => 'required|string|size:3',
+            'billing_type' => 'required|in:monthly,per_lesson',
+            'sort_order' => 'nullable|integer|min:0',
+            'description' => 'nullable|string|max:255',
+        ]);
+
+        // ⭐ الباقات العالمية (مش مربوطة ببرنامج) بس
+        $data['program_id'] = null;
+        $data['organization_id'] = $request->user()->organization_id;
+        $data['status'] = 'active';
+
+        $plan = SubscriptionPlan::create($data);
+
+        app(\App\Services\AuditLogService::class)->logCreate(
+            'subscription_plan',
+            $plan->id,
+            ['name' => $plan->name, 'price' => $plan->price, 'category' => $plan->category],
+            $request,
+        );
+
+        return response()->json([
+            'message' => 'تم إنشاء الباقة',
+            'plan' => $this->present($plan),
+        ], 201);
+    }
+
+    /**
+     * ⭐ حذف باقة — الأدمن بس.
+     *
+     * ⚠️ لو في اشتراكات مرتبطة، ما ينفعش نحذف — بنرجّع 422.
+     */
+    public function destroy(Request $request, SubscriptionPlan $plan)
+    {
+        if ($plan->subscriptions()->exists()) {
+            return response()->json([
+                'message' => 'فيه اشتراكات مرتبطة بالباقة — امسح الاشتراكات الأول',
+            ], 422);
+        }
+
+        $plan->delete();
+
+        app(\App\Services\AuditLogService::class)->logDelete(
+            'subscription_plan',
+            $plan->id,
+            ['name' => $plan->name, 'price' => $plan->price, 'category' => $plan->category],
+            $request,
+        );
+
+        return response()->json(['message' => 'تم حذف الباقة']);
+    }
+
     private function present(SubscriptionPlan $p): array
     {
         return [

@@ -86,8 +86,9 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: "الإدارة",
-    icon: "⚙️",
+    icon: "🛠️",
     items: [
+      { href: "/pricing-admin", label: "إدارة الباقات", icon: "🏷️" },
       { href: "/notifications", label: "الإشعارات", icon: "🔔" },
       { href: "/audit-logs", label: "سجل العمليات", icon: "📝" },
       { href: "/settings", label: "الإعدادات", icon: "⚙️" },

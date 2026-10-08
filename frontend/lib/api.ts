@@ -1826,6 +1826,35 @@ export function getPricingCsvUrl(): string {
   return `${API_BASE_URL}/pricing/export`;
 }
 
+/**
+ * ⭐ إنشاء باقة جديدة — الأدمن بس.
+ */
+export function createPricingPlan(payload: {
+  name: string;
+  category: PlanCategory;
+  lesson_duration_minutes: number;
+  lessons_count: number;
+  price: number;
+  currency: string;
+  billing_type: "monthly" | "per_lesson";
+  sort_order?: number;
+  description?: string;
+}) {
+  return apiFetch<{ message: string; plan: PricingPlan }>("/pricing", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * ⭐ حذف باقة — الأدمن بس.
+ */
+export function deletePricingPlan(id: number) {
+  return apiFetch<{ message: string }>(`/pricing/${id}`, {
+    method: "DELETE",
+  });
+}
+
 // ============================================================
 // المجموعات الأونلاين + قائمة الانتظار
 // ============================================================
