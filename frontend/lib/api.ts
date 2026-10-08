@@ -783,6 +783,9 @@ export type Payment = {
   parent_id: number | null;
   invoice_id: number | null;
   amount: string;
+  /** ⭐ المبلغ الواصل الفعلي بعد خصم عمولة بوابة الدفع.
+   * لو فاضي = amount (ما فيش عمولة). */
+  net_amount: string | null;
   currency: string;
   payment_method: "cash" | "bank_transfer" | "wallet" | "online_payment" | "card" | "other";
   transaction_reference: string | null;
@@ -792,6 +795,16 @@ export type Payment = {
   notes: string | null;
   student?: { id: number; full_name: string };
   invoice?: { id: number; invoice_number: string };
+  /** ⭐ حركات الدفتر المرتبطة — لعرض العمولة */
+  ledger?: {
+    recorded: boolean;
+    movement_id?: number;
+    account_id?: number;
+    account_name?: string;
+    account_pick?: string;
+    fee_movement_id?: number;
+  };
+  warning?: string;
 };
 
 export type Lead = {
@@ -3197,6 +3210,8 @@ export function getPayments(params?: {
 
 export function createPayment(payload: {
   student_id: number; invoice_id?: string; parent_id?: string; amount: number;
+  /** ⭐ المبلغ الواصل الفعلي بعد خصم العمولة — اختياري (الافتراضي = amount) */
+  net_amount?: number;
   currency: string; payment_method: string; transaction_reference?: string; paid_at: string; notes?: string;
 }) {
   return apiFetch<Payment>("/payments", { method: "POST", body: JSON.stringify(payload) });

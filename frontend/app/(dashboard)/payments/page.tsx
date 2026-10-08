@@ -20,7 +20,7 @@ export default function PaymentsPage() {
   const [showForm, setShowForm] = useState(false);
   const [refundPaymentId, setRefundPaymentId] = useState<number | null>(null);
 
-  const [form, setForm] = useState<{ student_id: string; invoice_id: string; amount: string; currency: string; payment_method: Payment["payment_method"]; paid_at: string }>({ student_id: "", invoice_id: "", amount: "", currency: "EGP", payment_method: "cash", paid_at: "" });
+  const [form, setForm] = useState<{ student_id: string; invoice_id: string; amount: string; net_amount: string; currency: string; payment_method: Payment["payment_method"]; paid_at: string }>({ student_id: "", invoice_id: "", amount: "", net_amount: "", currency: "EGP", payment_method: "cash", paid_at: "" });
 
   const [refundForm, setRefundForm] = useState({ amount: "", reason: "" });
 
@@ -65,11 +65,13 @@ export default function PaymentsPage() {
         student_id: Number(form.student_id),
         invoice_id: form.invoice_id || undefined,
         amount: Number(form.amount),
+        net_amount: form.net_amount ? Number(form.net_amount) : undefined,
         currency: form.currency as string,
         payment_method: form.payment_method,
         paid_at: form.paid_at,
       });
       setShowForm(false);
+      setForm({ student_id: "", invoice_id: "", amount: "", net_amount: "", currency: "EGP", payment_method: "cash", paid_at: "" });
       loadPayments();
     } catch (err) { setError(err instanceof Error ? err.message : "فشل إنشاء الدفعة"); }
   }
@@ -123,6 +125,7 @@ export default function PaymentsPage() {
             <input placeholder="معرّف الطالب" value={form.student_id} onChange={(e) => setForm({ ...form, student_id: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" required />
             <input placeholder="معرّف الفاتورة (اختياري)" value={form.invoice_id} onChange={(e) => setForm({ ...form, invoice_id: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             <input type="number" step="0.01" placeholder="المبلغ" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" required />
+            <input type="number" step="0.01" placeholder="المبلغ الواصل (بعد العمولة)" value={form.net_amount} onChange={(e) => setForm({ ...form, net_amount: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
             <select value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value as string })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm">
               {/* ⭐ `currencyLabel` — الكود الإنجليزي كان بيظهر للمستخدم */}
               <option value="EGP">جنيه مصري</option>
@@ -158,7 +161,14 @@ export default function PaymentsPage() {
                 <tr key={p.id} className="border-b border-slate-100 last:border-0">
                   <td className="px-4 py-3 font-medium text-slate-800">{p.student?.full_name ?? `طالب ${p.student_id}`}</td>
                   {/* ⭐ `money` — كان بيطبع `EGP` إنجليزي */}
-                  <td className="px-4 py-3 font-medium text-slate-800">{money(p.amount, p.currency)}</td>
+                  <td className="px-4 py-3 font-medium text-slate-800">
+              {money(p.amount, p.currency)}
+              {p.net_amount && Number(p.net_amount) < Number(p.amount) && (
+                <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] text-amber-700">
+                  وصل: {money(Number(p.amount) - Number(p.net_amount), p.currency)} عمولة
+                </span>
+              )}
+            </td>
                   <td className="px-4 py-3 text-slate-600">{METHOD_LABEL[p.payment_method]}</td>
                   <td className="px-4 py-3 text-slate-600">{p.transaction_reference ?? "—"}</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${p.status === "completed" ? "bg-green-100 text-green-700" : p.status === "pending" ? "bg-amber-100 text-amber-700" : p.status === "failed" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500"}`}>{STATUS_LABEL[p.status]}</span></td>
