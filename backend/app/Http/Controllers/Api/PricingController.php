@@ -175,6 +175,15 @@ class PricingController extends Controller
             'name' => $p->name,
             'category' => $p->category,
             'category_label' => $p->category_label,
+            /**
+             * ⭐ شهري / حصة مفردة / مخصص.
+             *
+             * ⚠️ الواجهة محتاجاه عشان **تخفي** الباقات اللي
+             * ما تنفعش لمجموعة (المجموعات شهرية بس). من غيره
+             * بتاخد `category` وتخمّن — وال categories بتتغيّر،
+             * والخلط ده بيبان على أهل.
+             */
+            'billing_type' => $p->billing_type,
             'lesson_duration_minutes' => $p->lesson_duration_minutes,
             'lessons_count' => $p->lessons_count,
             // ⭐ الإجمالي بس — الـ ٣٥٠ ج هي سعر الـ ٨ حصص كلها

@@ -188,6 +188,21 @@ export type Student = {
   parents?: { id: number; name: string; phone: string }[];
   next_lesson_date?: string | null;
   lessons_count?: number;
+
+  /**
+   * ⭐ شارة «طالب مجموعة».
+   *
+   * ⚠️ الطالب **مالوش** حالة «في مجموعة» — الحالة في
+   * `group_members.status`. فبنحسبها في السيرفر ونبعتها هنا
+   * عشان الواجهة تقدر تعرض الشارة من غير استعلام لكل صف.
+   */
+  is_group_student?: boolean;
+  group_name?: string | null;
+  group_id?: number | null;
+
+  parent_name?: string | null;
+  parent_phone?: string | null;
+  primary_phone?: { phone_number: string } | null;
 };
 
 export type Parent = {
@@ -1504,6 +1519,13 @@ export type PricingPlan = {
   name: string;
   category: PlanCategory;
   category_label: string;
+  /**
+   * ⭐ شهري / حصة مفردة / مخصص.
+   *
+   * ⚠️ مش كل الباقات تنفع لمجموعة — المجموعات **شهرية بس**،
+   * فباقي الباقات بتتخفي من شاشة اختيار باقة المجموعة.
+   */
+  billing_type?: "monthly" | "per_lesson" | "custom";
   lesson_duration_minutes: number;
   lessons_count: number | null;
   /** ⭐ السعر الإجمالي — مش سعر الحصة */
@@ -1617,6 +1639,24 @@ export type GroupRow = {
 
   /** ⭐ حتى لو ممتلئة بتستقبل طلبات — ده معنى الانتظار */
   accepts_waitlist: boolean;
+
+  /**
+   * ⭐ الباقة على المجموعة.
+   *
+   * `package_lock` = ليه مش مسموح نغيّرها دلوقتي. فاضية = مسموحة.
+   * ⭐ الواجهة بتعرض السبب **قبل** ما الأدمن يختار باقة تانية،
+   * بدل ما يضغط حفظ ويطلعله 422.
+   */
+  package: {
+    id: number;
+    name: string;
+    price: string | number;
+    currency: string;
+    lessons_count: number | null;
+    lesson_duration_minutes: number;
+  } | null;
+  package_id: number | null;
+  package_lock: Blocker[];
 };
 
 export type GroupListResponse = {
@@ -1838,6 +1878,69 @@ export function removeGroupMember(groupId: number, memberId: number, reason?: st
   );
 }
 
+// ============================================================
+// النقل بين المجموعات
+// ============================================================
+
+/** ⭐ سبب واحد يمنع حركة — مع نص عربي يتفهم */
+export type Blocker = {
+  code: "active_subscription" | "unsettled_invoice" | "destination_full" | "no_student";
+  message: string;
+};
+
+export type MoveTarget = {
+  id: number;
+  name: string;
+  teacher_id: number | null;
+  program_id: number;
+  occupancy: GroupOccupancy;
+  /** ⭐ كل الأسباب — مش بس الأول. عشان الواجهة تقراها */
+  blockers: Blocker[];
+  /** ⭐ جاهز مختصر: مفيش قفل ومفيش سعة */
+  can_move: boolean;
+};
+
+/**
+ * ⭐ كل المجموعات التانية مع سبب منع كل واحدة.
+ *
+ * ⭐ الواجهة بتطلب ده **قبل** ما تفتح شاشة النقل — عشان
+ * الأدمن يشوف مين مسموح وإيه السبب، بدل ما يختار مجموعة
+ * وبعدين يطلعله 422 مفهومهوش.
+ */
+export function getGroupMoveOptions(groupId: number, memberId: number) {
+  return apiFetch<{
+    data: MoveTarget[];
+    student: { id: number; name: string } | null;
+    /** ⭐ القفل العام (الطالب نفسه) — مرة واحدة مش لكل مجموعة */
+    blockers: Blocker[];
+    from_group: string;
+  }>(`/groups/${groupId}/members/${memberId}/move-options`);
+}
+
+/**
+ * ⭐ نقل الطالب لمجموعة تانية.
+ *
+ * ⭐ **السطر القديم بيفضل** بحالة `left` وسطر جديد بيتعمل
+ * في التانية — عشان تاريخ «كان في الأولى من شهر...» ما يضيعش.
+ */
+export function moveGroupMember(
+  groupId: number,
+  memberId: number,
+  toGroupId: number,
+  reason?: string,
+) {
+  return apiFetch<{
+    message: string;
+    member_id: number;
+    from_group: string;
+    to_group: string;
+    occupancy: GroupOccupancy;
+  }>(`/groups/${groupId}/members/${memberId}/move`, {
+    method: "POST",
+    body: JSON.stringify({ to_group_id: toGroupId, reason }),
+  });
+}
+
 /**
  * ⭐ دوال الإدارة بتبعت `program_id` **رقم**، مش كائن `program`.
  *
@@ -1852,6 +1955,13 @@ export type GroupPayload = {
   name: string;
   /** ⭐ `null` = مفيش حد أقصى — مش صفر (الصفر معناه «مفيش حد يدخل») */
   capacity?: number | null;
+  /**
+   * ⭐ الباقة على **المجموعة** — أي طالب يدخل بياخدها.
+   *
+   * ⚠️ تغييرها مقفول لو المجموعة فيها أعضاء (السعر = سعرهم).
+   * الرد بيرجّع `package_lock` بالسبب.
+   */
+  package_id?: number | null;
   meeting_url?: string | null;
   meeting_provider?: string | null;
   weekday?: number | null;

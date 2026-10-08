@@ -1839,7 +1839,25 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
                     <td className="px-3 py-3"><input type="checkbox" checked={selectedIds.includes(s.id)} onChange={() => toggleSelect(s.id)} className="rounded" /></td>
                     {visibleColumns.filter((c) => c.visible).map((col) => (
                       <td key={col.key} className="px-4 py-3">
-                        {col.key === "student" && <div><p className="font-medium text-slate-800">{s.full_name}</p><p className="text-xs text-slate-400">{s.student_code}</p></div>}
+                        {col.key === "student" && (
+                          <div>
+                            <p className="font-medium text-slate-800">{s.full_name}</p>
+                            <p className="text-xs text-slate-400">{s.student_code}</p>
+
+                            {/* ============================================================
+                                ⭐ شارة «طالب مجموعة».
+                                ⚠️ الطالب مالوش حالة «في مجموعة» — الحالة في
+                                `group_members.status`. السيرفر بيحسبها ويبعيها
+                                معلق على كل صف (من غير استعلام لكل طالب).
+                            ============================================================ */}
+                            {s.is_group_student && s.group_name && (
+                              <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700">
+                                <span>👥</span>
+                                {s.group_name}
+                              </span>
+                            )}
+                          </div>
+                        )}
                         {col.key === "program" && <span className="text-slate-600">{sub ? programs.find((p) => p.id === sub.program_id)?.name ?? "—" : "—"}</span>}
                         {col.key === "teacher" && <span className="text-slate-600">{sub ? teachers.find((t) => t.id === sub.teacher_id)?.full_name ?? "—" : "—"}</span>}
                         {col.key === "subscription" && sub && renderSubscriptionColumn(sub)}

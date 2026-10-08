@@ -13,10 +13,11 @@ import {
   type GroupOccupancy,
   type GroupRow,
 } from "@/lib/api";
-import { num, scheduleLine } from "@/lib/format";
+import { money, num, scheduleLine } from "@/lib/format";
 import { useUI } from "@/components/ui";
 import Modal from "@/components/ui/Modal";
 import GroupPanel from "@/components/GroupPanel";
+import PackagePicker from "@/components/PackagePicker";
 
 /**
  * المجموعات الأونلاين — الصفحة العامة.
@@ -88,12 +89,14 @@ function GroupCard({
   needsAttention,
   onChanged,
   onEditCapacity,
+  onEditPackage,
 }: {
   group: GroupRow;
   canManage?: boolean;
   needsAttention?: boolean;
   onChanged?: (occupancy: GroupOccupancy) => void;
   onEditCapacity?: (group: GroupRow) => void;
+  onEditPackage?: (group: GroupRow) => void;
 }) {
   const { toast } = useUI();
   const [open, setOpen] = useState(false);
@@ -179,6 +182,34 @@ function GroupCard({
         <CapacityBar group={group} />
         {group.description && (
           <p className="mt-2 text-xs leading-relaxed text-slate-500">{group.description}</p>
+        )}
+
+        {/* ============================================================
+            ⭐ الباقة على المجموعة — بتظهر للأدمن بس
+            ============================================================ */}
+        {canManage && (
+          <div className="mt-2 flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2.5 py-1.5">
+            <span className="text-[11px] text-slate-500">
+              {group.package ? (
+                <>
+                  <span className="font-medium text-slate-700">{group.package.name}</span>
+                  {" · "}
+                  {money(group.package.price, group.package.currency)}
+                </>
+              ) : (
+                "من غير باقة"
+              )}
+            </span>
+
+            {onEditPackage && (
+              <button
+                onClick={() => onEditPackage(group)}
+                className="shrink-0 rounded-md border border-slate-200 px-2 py-0.5 text-[10px] text-slate-600 transition hover:bg-white"
+              >
+                {group.package_lock.length > 0 ? "🔒 الباقة" : "الباقة"}
+              </button>
+            )}
+          </div>
         )}
       </div>
 
@@ -415,6 +446,40 @@ export default function GroupsPage() {
     }
   }
 
+  /**
+   * ⭐⭐ تغيير باقة المجموعة — **مقفول** لو فيها أعضاء.
+   *
+   * الباقة = سعر اشتراك كل عضو. تغييرها = تغيير سعرهم من غير
+   * ما حد يوافق. فبنعرض السبب في الأول، ومش بندي زرار حفظ
+   * أصلاً — عشان الأدمن ما يقعدش يضغط ويحصل على رفض.
+   */
+  const [packageGroup, setPackageGroup] = useState<GroupRow | null>(null);
+
+  function editPackage(group: GroupRow) {
+    setPackageGroup(group);
+  }
+
+  async function savePackage(planId: number | null) {
+    const group = packageGroup;
+    if (!group) return;
+
+    setPackageGroup(null);
+
+    try {
+      const r = await updateGroup(group.id, {
+        package_id: planId,
+        name: group.name,
+        program_id: group.program?.id,
+      });
+      toast.success(r.message);
+      setData((prev) =>
+        prev ? { ...prev, data: prev.data.map((g) => (g.id === group.id ? r.data : g)) } : prev,
+      );
+    } catch (e) {
+      toast.apiError("فشل تغيير الباقة", e);
+    }
+  }
+
   if (loading) {
     return (
       <div className="space-y-2">
@@ -473,9 +538,21 @@ export default function GroupsPage() {
               needsAttention={attentionIds.has(g.id)}
               onChanged={(o) => patchOccupancy(g.id, o)}
               onEditCapacity={editCapacity}
+              onEditPackage={editPackage}
             />
           ))}
         </div>
+      )}
+
+      {/* ============================================================
+          ⭐ شاشة الباقة
+          ============================================================ */}
+      {packageGroup && (
+        <PackagePicker
+          group={packageGroup}
+          onClose={() => setPackageGroup(null)}
+          onSave={savePackage}
+        />
       )}
     </div>
   );

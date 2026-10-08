@@ -14,6 +14,7 @@ import {
 } from "@/lib/api";
 import { date, num, time } from "@/lib/format";
 import { useUI } from "@/components/ui";
+import MoveMemberDialog from "@/components/MoveMemberDialog";
 
 /**
  * تفاصيل مجموعة واحدة — الأعضاء والطابور.
@@ -37,6 +38,9 @@ export default function GroupPanel({
   const [waiting, setWaiting] = useState<WaitingEntry[]>([]);
   const [occupancy, setOccupancy] = useState<GroupOccupancy>(group.occupancy);
   const [busyId, setBusyId] = useState<number | null>(null);
+
+  /** ⭐ الطالب اللي عميل يفتح شاشة نقله — `null` = الشاشة مقفولة */
+  const [moving, setMoving] = useState<GroupMemberRow | null>(null);
 
   /**
    * ⭐ `loading` بيتحسب بمقارنة — مش `useState(true)`.
@@ -405,13 +409,24 @@ export default function GroupPanel({
                     {m.joined_at ? date(m.joined_at) : "—"}
                   </td>
                   <td className="px-3 py-2">
-                    <button
-                      onClick={() => removeMember(m)}
-                      disabled={busyId !== null}
-                      className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] text-slate-600 transition hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
-                    >
-                      شيل
-                    </button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      {/* ⭐ النقل قبل «شيل» — لأن «شيل» نهائي.
+                          لو الأدمن عايز ينقله، «شيل» غلط. */}
+                      <button
+                        onClick={() => setMoving(m)}
+                        disabled={busyId !== null || !m.student}
+                        className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        نقل
+                      </button>
+                      <button
+                        onClick={() => removeMember(m)}
+                        disabled={busyId !== null}
+                        className="rounded-lg border border-slate-200 px-2.5 py-1 text-[11px] text-slate-600 transition hover:bg-rose-50 hover:text-rose-700 disabled:opacity-50"
+                      >
+                        شيل
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -441,6 +456,22 @@ export default function GroupPanel({
           </div>
         )}
       </section>
+
+      {/* ============================================================
+          ⭐ شاشة النقل — مودال فوق كل حاجة
+          ============================================================ */}
+      {moving && (
+        <MoveMemberDialog
+          groupId={group.id}
+          groupName={group.name}
+          member={moving}
+          onClose={() => setMoving(null)}
+          onMoved={async () => {
+            await load();
+            onChanged(group.occupancy);
+          }}
+        />
+      )}
     </div>
   );
 }
