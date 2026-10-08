@@ -19,7 +19,28 @@ class StudentController extends Controller
     public function index(Request $request)
     {
         $query = Student::query()
-            ->with(['branch', 'user', 'parents', 'phones'])
+            ->with([
+                'branch',
+                'user',
+                'parents',
+                'phones',
+
+                /**
+                 * ⭐ شارة «طالب مجموعة».
+                 *
+                 * بنجيب **العضويات النشطة بس** ومعها اسم المجموعة —
+                 * من غير كده الـ badge كان هيعمل استعلام لكل طالب
+                 * في الصفحة (١٠٠ استعلام لو الصفحة ١٠٠ طالب).
+                 *
+                 * ⭐ `activeGroups` بيلاقي كل الصفوف، وبعدين
+                 * `first()` بياخد الأولى. طالب في مجموعتين نادر،
+                 * بس لو حصل هنعرض الأولى — الأقدم.
+                 */
+                'activeGroupMemberships' => fn ($q) => $q
+                    ->where('status', 'active')
+                    ->with('groupClass:id,name')
+                    ->orderBy('joined_at'),
+            ])
             ->withCount(['lessons'])
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->when($request->filled('branch_id'), fn ($q) => $q->where('branch_id', $request->string('branch_id')))
@@ -55,18 +76,16 @@ class StudentController extends Controller
             ->groupBy('status')
             ->pluck('aggregate', 'status');
 
-        // نضيف counts للرد النهائي (الـ paginator بيتحويل لـ array عند التحويل لـ JSON)
-        $response = $students->toArray();
-        $response['counts'] = [
-            'active' => (int) ($countsQuery['active'] ?? 0),
-            'paused' => (int) ($countsQuery['paused'] ?? 0),
-            'inactive' => (int) ($countsQuery['inactive'] ?? 0),
-            'lead' => (int) ($countsQuery['lead'] ?? 0),
-            'graduated' => (int) ($countsQuery['graduated'] ?? 0),
-            'archived' => (int) ($countsQuery['archived'] ?? 0),
-        ];
-
         // Add computed attributes using loaded relationships (no additional queries)
+        //
+        // ⚠️⚠️ لازم **قبل** `toArray()`.
+        //
+        // كان الترتيب معكوس: `toArray()` بياخد نسخة من الداتا
+        // وبيحوّلها، وبعدين الـ `transform` بيعدّل الموديلات
+        // بس — فالنسخة اللي رايحة في الرد كانت **قبل** التعديل.
+        // النتيجة: `parent_name` و `primary_phone` و
+        // `is_group_student` كلهم مكانش بيظهروا خالص، وصفحة
+        // الطلاب بتعرض خانة فاضية من زمان.
         $students->getCollection()->transform(function ($student) {
             // lessons_count comes from withCount
             $student->lessons_count = $student->lessons_count ?? 0;
@@ -87,8 +106,36 @@ class StudentController extends Controller
                 ->where('is_primary', true)
                 ->first() ?? $student->phones->first();
 
+            /**
+             * ⭐ شارة «طالب مجموعة».
+             *
+             * `activeGroupMemberships` متحمّلة من الـ eager load
+             * فوق — فمفيش استعلام إضافي لكل طالب.
+             *
+             * ⭐ `first()` مش `count()`: بنعرض **اسم** المجموعة
+             * عشان الأدمن يعرف هو فين، مش بس «فيه مجموعة ولا لأ».
+             * وطالب في أكتر من مجموعة نادر — بنعرض الأقدم.
+             */
+            $activeGroup = $student->activeGroupMemberships->first();
+            $student->group_name = $activeGroup?->groupClass?->name;
+            $student->group_id = $activeGroup?->group_class_id;
+            $student->is_group_student = $activeGroup !== null;
+
             return $student;
         });
+
+        // ⭐ `toArray()` **بعد** الـ transform — عشان الحقول
+        // المحسوبة اللي فوق تكون في الرد فعلاً
+        $response = $students->toArray();
+
+        $response['counts'] = [
+            'active' => (int) ($countsQuery['active'] ?? 0),
+            'paused' => (int) ($countsQuery['paused'] ?? 0),
+            'inactive' => (int) ($countsQuery['inactive'] ?? 0),
+            'lead' => (int) ($countsQuery['lead'] ?? 0),
+            'graduated' => (int) ($countsQuery['graduated'] ?? 0),
+            'archived' => (int) ($countsQuery['archived'] ?? 0),
+        ];
 
         return response()->json($response);
     }

@@ -29,6 +29,29 @@ class Student extends Model
     public function parents() { return $this->belongsToMany(ParentModel::class, 'student_parents', 'student_id', 'parent_id')->withPivot(['relationship', 'is_primary', 'can_manage', 'can_pay', 'can_receive_notifications'])->withTimestamps(); }
     public function phones() { return $this->hasMany(StudentPhone::class); }
     public function subscriptions() { return $this->hasMany(Subscription::class); }
+
+    /**
+     * ⭐ عضوياته في **المجموعات**.
+     *
+     * السبب:Student مالوش حالة «في مجموعة» — الحالة في
+     * `group_members.status`. من غير العلاقة دي، صفحة الطلاب
+     * مش هتعرف مين «طالب مجموعة» ومين خاص.
+     *
+     * ⚠️ `hasMany` مش `belongsToMany` — العضوية عندها تاريخ
+     * (دخل/خرج)، فالسطر بيفضل بعد ما يخرج.
+     */
+    public function groupMemberships() { return $this->hasMany(GroupMember::class); }
+
+    /**
+     * ⭐ العضويات **النشطة** بس — اللي بتظهر كشارة في صفحة
+     * الطلاب وفي شاشة النقل.
+     *
+     * منفصلة عن `groupMemberships` عن قصد: دي بتطلع كل
+     * التاريخ (دخل وخرج)، والدي محتاجين النشط بس. لازم نلخبط
+     * نحسبهم غلط — «طالب في مجموعة» لازم ما يكونش اللي خرج
+     * من شهر.
+     */
+    public function activeGroupMemberships() { return $this->hasMany(GroupMember::class)->where('status', 'active'); }
     public function activeSubscription() { return $this->hasOne(Subscription::class)->where('status', 'active')->latestOfMany(); }
     public function lessons() { return $this->hasMany(Lesson::class); }
     public function creditAccounts() { return $this->hasMany(LessonCreditAccount::class); }

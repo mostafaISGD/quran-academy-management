@@ -111,6 +111,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/groups/{group}/members/{member}', [GroupController::class, 'removeMember'])
         ->middleware('permission:groups.manage');
 
+    // ===== النقل بين المجموعات =====
+    // ⚠️ `move-options` **قبل** `{member}/move` — مش ترتيب تنسيق.
+    // `{member}` بيلقط `move-options` كأنه id، والطلب بيروح
+    // لـ `move` بـ `to_group_id` ناقص. نفس درس `groups/alerts`.
+    Route::get('/groups/{group}/members/{member}/move-options', [GroupController::class, 'moveOptions'])
+        ->middleware('permission:groups.manage');
+    Route::post('/groups/{group}/members/{member}/move', [GroupController::class, 'move'])
+        ->middleware('permission:groups.manage');
+
     Route::get('/groups/{group}/waiting', [GroupController::class, 'waitingList'])
         ->middleware('permission:groups.manage');
     Route::post('/groups/{group}/waiting/{entry}/admit', [GroupController::class, 'admit'])

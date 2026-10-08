@@ -6,8 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Models\GroupClass;
 use App\Models\GroupMember;
 use App\Models\Student;
-use App\Models\Subscription;
-use App\Models\SubscriptionPlan;
 use App\Models\WaitingListEntry;
 use App\Services\AuditLogService;
 use Illuminate\Http\Request;
@@ -276,41 +274,15 @@ class WaitlistController extends Controller
 
             $member = GroupMember::admit($group, $student, 'waitlist', $entry->notes);
 
-            // ===== 3) الاشتراك الشهري =====
-            $subscription = null;
-            if ($group->program_id) {
-                $subscription = Subscription::where('student_id', $student->id)
-                    ->where('program_id', $group->program_id)
-                    ->whereIn('status', ['active', 'paused'])
-                    ->first();
-
-                if (! $subscription) {
-                    $plan = SubscriptionPlan::where('program_id', $group->program_id)
-                        ->where('billing_type', 'monthly')
-                        ->where('status', 'active')
-                        ->first()
-                        ?? SubscriptionPlan::whereNull('program_id')
-                            ->where('billing_type', 'monthly')
-                            ->where('status', 'active')
-                            ->first();
-
-                    $subscription = Subscription::create([
-                        'organization_id' => $orgId,
-                        'student_id' => $student->id,
-                        'plan_id' => $plan?->id,
-                        'program_id' => $group->program_id,
-                        'teacher_id' => $group->teacher_id,
-                        'start_date' => now()->toDateString(),
-                        'end_date' => now()->addMonth()->toDateString(),
-                        'billing_type' => 'monthly',
-                        'price' => $plan?->price ?? 0,
-                        'currency' => $plan?->currency ?? 'EGP',
-                        'lesson_duration_minutes' => $plan?->lesson_duration_minutes,
-                        'lessons_included' => $plan?->lessons_count,
-                        'status' => 'active',
-                    ]);
-                }
-            }
+            /**
+             * ===== 3) اشتراك شهري + فاتورة =====
+             *
+             * ⚠️ الخدمة **مصدر واحد** — نفس الكود في
+             * `GroupController@admit` و `addMember` و `move`.
+             * كان مكرر في مكانين والنسخة دي كانت ناقصة الفاتورة.
+             */
+            $enrollment = app(\App\Services\GroupEnrollmentService::class)
+                ->enroll($group, $student, $request->user());
 
             app(AuditLogService::class)->log(
                 'update', 'waiting_list_entry', $entry->id,
@@ -320,10 +292,15 @@ class WaitlistController extends Controller
             );
 
             return response()->json([
-                'message' => 'اتضاف الطالب للمجموعة واتعامل اشتراكه',
+                'message' => $enrollment['invoice_created']
+                    ? 'اتضاف الطالب للمجموعة واتعمل اشتراكه وفاتورته'
+                    : 'اتضاف الطالب للمجموعة واتعامل اشتراكه',
                 'student_id' => $student->id,
                 'member_id' => $member->id,
-                'subscription_id' => $subscription?->id,
+                'subscription_id' => $enrollment['subscription']?->id,
+                'subscription_created' => $enrollment['subscription_created'],
+                'invoice_id' => $enrollment['invoice']?->id,
+                'invoice_created' => $enrollment['invoice_created'],
                 'occupancy' => $group->occupancy(),
             ], 201);
         });

@@ -61,7 +61,14 @@ class GroupController extends Controller
             ->active()
             ->displayOrder()
             ->withOccupancy()
-            ->with(['program:id,name', 'level:id,name', 'teacher:id,display_name'])
+            ->with([
+                'program:id,name',
+                'level:id,name',
+                'teacher:id,display_name',
+                // ⭐ `present()` بيحتاج الباقة — من غير eager load
+                // كانت هتعمل استعلام لكل مجموعة في الصفحة
+                'package:id,name,price,currency,lessons_count,lesson_duration_minutes',
+            ])
             ->get();
 
         return response()->json([
@@ -83,7 +90,12 @@ class GroupController extends Controller
         $group->loadCount([
             'activeMembers as activeMembers_count',
             'waiting as waiting_count',
-        ])->load(['program:id,name', 'level:id,name', 'teacher:id,display_name']);
+        ])->load([
+            'program:id,name',
+            'level:id,name',
+            'teacher:id,display_name',
+            'package:id,name,price,currency,lessons_count,lesson_duration_minutes',
+        ]);
 
         return response()->json(['data' => $this->present($group)]);
     }
@@ -229,6 +241,36 @@ class GroupController extends Controller
     {
         $data = $request->validate($this->rules($group));
 
+        /**
+         * ⭐⭐ **قفل تغيير الباقة.**
+         *
+         * الباقة = **سعر** اشتراك كل عضو في المجموعة. فلو فيه
+         * أعضاء، تغييرها معناه تغيير سعرهم من غير ما حد يوافق
+         * — والحساب آخر الشهر بيطلع مش متفق.
+         *
+         * فبنقفل التغيير لحد ما الأعضاء يخلصوا اشتراكاتهم
+         * وفواتيرهم تتسدّد.
+         *
+         * ⚠️ بيتقارن بعد التطبيع: `null` و`""` نفس الحاجة، و
+         * `123` و`"123"` نفس الحاجة. من غير كده تغيير الحقل
+         * من غير تغيير فعلي كان هيتقفل برضه.
+         */
+        $newPackage = $data['package_id'] ?? null;
+        $oldPackage = $group->package_id;
+
+        $isChanging = $newPackage !== null && (int) $newPackage !== (int) $oldPackage;
+
+        if ($isChanging) {
+            $blockers = app(\App\Services\GroupEnrollmentService::class)->packageBlockers($group);
+
+            if ($blockers !== []) {
+                return response()->json([
+                    'message' => 'مش مسموح بتغيير باقة المجموعة دلوقتي',
+                    'blockers' => $blockers,
+                ], 422);
+            }
+        }
+
         $old = $group->only(array_keys($data));
 
         $group->update($data);
@@ -281,6 +323,14 @@ class GroupController extends Controller
              */
             'capacity' => ['nullable', 'integer', 'min:1', 'max:500'],
 
+            /**
+             * ⭐ الباقة على المجموعة نفسها — أي طالب يدخل بياخدها.
+             *
+             * اختياري: مجموعة من غير باقة بتاخد اشتراك من باقة
+             * البرنامج الشهرية زي ما كانت قبل كده.
+             */
+            'package_id' => ['nullable', 'exists:subscription_plans,id'],
+
             'meeting_url' => ['nullable', 'url', 'max:500'],
             'meeting_provider' => ['nullable', 'string', 'max:50'],
             'weekday' => ['nullable', 'integer', 'min:0', 'max:6'],
@@ -321,7 +371,14 @@ class GroupController extends Controller
         ]);
     }
 
-    /** ⭐ إضافة طالب — بيتحقق إن الطالب موجود فعلاً */
+    /**
+     * ⭐ إضافة طالب — بيتحقق إن الطالب موجود فعلاً.
+     *
+     * ⚠️ بتعمل اشتراك شهري + فاتورة كمان — نفس المعاملة اللي
+     * بتتقعمل لما يدخل من الطابور. قبل كده الإضافة اليدوية
+     * كانت بتعمل عضوية **بس**، فالطالب بيدفع في وحدة وبياخد
+     * حصص في التانية.
+     */
     public function addMember(Request $request, GroupClass $group)
     {
         $data = $request->validate([
@@ -331,14 +388,23 @@ class GroupController extends Controller
 
         $student = Student::findOrFail($data['student_id']);
 
-        $member = GroupMember::admit($group, $student, 'manual', $data['notes'] ?? null);
+        $result = DB::transaction(function () use ($group, $student, $data, $request) {
+            $member = GroupMember::admit($group, $student, 'manual', $data['notes'] ?? null);
 
-        app(\App\Services\AuditLogService::class)->logCreate(
-            'group_member',
-            $member->id,
-            ['group' => $group->name, 'student' => $student->id],
-            $request,
-        );
+            $enrollment = app(\App\Services\GroupEnrollmentService::class)
+                ->enroll($group, $student, $request->user());
+
+            app(\App\Services\AuditLogService::class)->logCreate(
+                'group_member',
+                $member->id,
+                ['group' => $group->name, 'student' => $student->id],
+                $request,
+            );
+
+            return [$member, $enrollment];
+        });
+
+        [$member, $enrollment] = $result;
 
         $group->loadCount([
             'activeMembers as activeMembers_count',
@@ -346,9 +412,159 @@ class GroupController extends Controller
         ]);
 
         return response()->json([
-            'message' => 'اتضاف الطالب للمجموعة',
+            'message' => $enrollment['invoice_created']
+                ? 'اتضاف الطالب للمجموعة واتعمل اشتراكه وفاتورته'
+                : 'اتضاف الطالب للمجموعة',
+            'member_id' => $member->id,
+            'subscription_id' => $enrollment['subscription']?->id,
+            'subscription_created' => $enrollment['subscription_created'],
+            'invoice_id' => $enrollment['invoice']?->id,
+            'invoice_created' => $enrollment['invoice_created'],
             'occupancy' => $group->occupancy(),
         ], 201);
+    }
+
+    /**
+     * ⭐⭐ نقل طالب من مجموعة لمجموعة تانية.
+     *
+     * ⚠️⚠️ **القاعدة: ما ينفعش ينقل والاشتراك شغال.**
+     *
+     * لو نقلناه وهو داخل في اشتراك على برنامج الأولى، يبقى عنده
+     * اشتراك على برنامج مش بياخد فيه حصص + فاتورة مفتوحة على
+     * الأولى. الحساب بينقفل عليه مرتين على نفس الشهر.
+     * فاتنينقل **لما** اشتراكه يخلص وفواتيره تتسدّد.
+     *
+     * ⭐ الشكل الصح للنقل: السطر القديم **يفضل** في الجدول
+     * بحالة `left` وسبب «نقل» — عشان تاريخ «كان في المجموعة
+     * الأولى من شهر...» ما يضيعش. وسطر **جديد** في الثانية.
+     */
+    public function move(Request $request, GroupClass $group, GroupMember $member)
+    {
+        abort_if($member->group_class_id !== $group->id, 404);
+
+        $data = $request->validate([
+            'to_group_id' => ['required', 'exists:group_classes,id'],
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $to = GroupClass::findOrFail($data['to_group_id']);
+
+        abort_if($to->id === $group->id, 422, 'الطالب أصلاً في المجموعة دي');
+
+        $student = $member->student;
+
+        if (! $student) {
+            return response()->json(['message' => 'الطالب مش موجود'], 422);
+        }
+
+        // ===== ① القفل — لازم Student واحد بس من كل المجموعات =====
+        $service = app(\App\Services\GroupEnrollmentService::class);
+        $blockers = $service->moveBlockers($student);
+
+        if ($blockers !== []) {
+            return response()->json([
+                'message' => 'الطالب مش قابل للنقل دلوقتي',
+                'blockers' => $blockers,
+            ], 422);
+        }
+
+        // ===== ② السعة — المجموعة الجديدة =====
+        $occupancy = $to->occupancy();
+
+        if ($occupancy['is_full']) {
+            return response()->json([
+                'message' => 'مجموعة «'.$to->name.'» مليانة — مفيش مقاعد فاضية',
+                'blockers' => [[
+                    'code' => 'destination_full',
+                    'message' => 'السعة '.$occupancy['capacity'].' والأعضاء '.$occupancy['members'].'.',
+                ]],
+            ], 422);
+        }
+
+        // ===== ③ نشيله من الأولى وندخله التانية =====
+        $newMember = DB::transaction(function () use ($group, $to, $member, $student, $data, $request) {
+            $member->markLeft('نقل لمجموعة «'.$to->name.'»');
+
+            $fresh = GroupMember::admit($to, $student, 'manual', $data['reason'] ?? null);
+
+            // ⭐ الاشتراك الجديد على برنامج المجموعة الجديدة
+            app(\App\Services\GroupEnrollmentService::class)->enroll($to, $student, $request->user());
+
+            app(\App\Services\AuditLogService::class)->log(
+                'update', 'group_member', $member->id,
+                ['group' => $group->name, 'student' => $student->id, 'status' => 'active'],
+                ['status' => 'left', 'reason' => 'move', 'to' => $to->name],
+                $request,
+            );
+
+            return $fresh;
+        });
+
+        return response()->json([
+            'message' => 'اتنقل «'.trim($student->first_name.' '.$student->last_name).'» لمجموعة «'.$to->name.'»',
+            'member_id' => $newMember->id,
+            'from_group' => $group->name,
+            'to_group' => $to->name,
+            'occupancy' => $to->fresh()->occupancy(),
+        ]);
+    }
+
+    /**
+     * ⭐ فين الطالب ده ينقل — مع سبب كل حالة.
+     *
+     * ⭐ الواجهة محتاجة تعرف **قبل** ما تفتح شاشة النقل: مين
+     * مسموح ومين لأ، وإيه السبب. من غير كده المستخدم بيختار
+     * مجموعة وبعدين يتفاجأ بـ 422 مفهومهوش.
+     */
+    public function moveOptions(GroupClass $group, GroupMember $member)
+    {
+        abort_if($member->group_class_id !== $group->id, 404);
+
+        $student = $member->student;
+
+        $blockers = $student
+            ? app(\App\Services\GroupEnrollmentService::class)->moveBlockers($student)
+            : [['code' => 'no_student', 'message' => 'الطالب مش موجود']];
+
+        $targets = GroupClass::where('organization_id', $group->organization_id)
+            ->where('status', 'active')
+            ->where('id', '!=', $group->id)
+            ->orderBy('name')
+            ->get()
+            ->map(function (GroupClass $g) use ($blockers, $group, $student) {
+                $o = $g->occupancy();
+
+                /**
+                 * ⭐ سبب مستقل عن القفل العام.
+                 *
+                 * «الطالب مش قابل للنقل» بيمنع **كل** المجموعات.
+                 * وملء المقاعد بيخص **المجموعة دي** بس.
+                 */
+                $own = $o['is_full']
+                    ? [['code' => 'destination_full', 'message' => 'مليانة']]
+                    : [];
+
+                return [
+                    'id' => $g->id,
+                    'name' => $g->name,
+                    'teacher_id' => $g->teacher_id,
+                    'program_id' => $g->program_id,
+                    'occupancy' => $o,
+                    'blockers' => array_merge($blockers, $own),
+                    'can_move' => $blockers === [] && ! $o['is_full'],
+                ];
+            })
+            ->all();
+
+        return response()->json([
+            'data' => $targets,
+            'student' => $student ? [
+                'id' => $student->id,
+                'name' => trim($student->first_name.' '.$student->last_name),
+            ] : null,
+            'blockers' => $blockers,
+            'from_group' => $group->name,
+        ]);
     }
 
     /**
@@ -482,43 +698,15 @@ class GroupController extends Controller
             // ===== 2) ندخله عضو في المجموعة =====
             $member = GroupMember::admit($group, $student, 'waitlist', $entry->notes);
 
-            // ===== 3) اشتراك شهري لبرنامج المجموعة =====
-            $subscription = null;
-            if ($group->program_id) {
-                // ما نعملش اشتراك لو الطالب عنده واحد لسه نشط لنفس البرنامج
-                $subscription = Subscription::where('student_id', $student->id)
-                    ->where('program_id', $group->program_id)
-                    ->whereIn('status', ['active', 'paused'])
-                    ->first();
-
-                if (! $subscription) {
-                    // نجيب الباقة المناسبة للبرنامج — الشهرية هي الافتراضية
-                    $plan = \App\Models\SubscriptionPlan::where('program_id', $group->program_id)
-                        ->where('billing_type', 'monthly')
-                        ->where('status', 'active')
-                        ->first()
-                        ?? \App\Models\SubscriptionPlan::whereNull('program_id')
-                            ->where('billing_type', 'monthly')
-                            ->where('status', 'active')
-                            ->first();
-
-                    $subscription = Subscription::create([
-                        'organization_id' => $orgId,
-                        'student_id' => $student->id,
-                        'plan_id' => $plan?->id,
-                        'program_id' => $group->program_id,
-                        'teacher_id' => $group->teacher_id,
-                        'start_date' => now()->toDateString(),
-                        'end_date' => now()->addMonth()->toDateString(),
-                        'billing_type' => 'monthly',
-                        'price' => $plan?->price ?? 0,
-                        'currency' => $plan?->currency ?? 'EGP',
-                        'lesson_duration_minutes' => $plan?->lesson_duration_minutes,
-                        'lessons_included' => $plan?->lessons_count,
-                        'status' => 'active',
-                    ]);
-                }
-            }
+            /**
+             * ===== 3) اشتراك شهري + فاتورة =====
+             *
+             * ⚠️ الخدمة دي **مصدر واحد** — نفس الكود في
+             * `WaitlistController@admit` و `addMember` و `move`.
+             * قبل كده كان مكرر في مكانين.
+             */
+            $enrollment = app(\App\Services\GroupEnrollmentService::class)
+                ->enroll($group, $student, $request->user());
 
             app(\App\Services\AuditLogService::class)->log(
                 'update', 'waiting_list_entry', $entry->id,
@@ -536,7 +724,10 @@ class GroupController extends Controller
                 'message' => 'اتضاف الطالب للمجموعة واتعامل اشتراكه',
                 'student_id' => $student->id,
                 'member_id' => $member->id,
-                'subscription_id' => $subscription?->id,
+                'subscription_id' => $enrollment['subscription']?->id,
+                'subscription_created' => $enrollment['subscription_created'],
+                'invoice_id' => $enrollment['invoice']?->id,
+                'invoice_created' => $enrollment['invoice_created'],
                 'occupancy' => $group->occupancy(),
             ], 201);
         });
@@ -585,6 +776,10 @@ class GroupController extends Controller
     {
         $o = $g->occupancy();
 
+        // ⭐ شبكة أمان: لو حد نادى `present()` من غير `with`،
+        // هنجيبها مرة واحدة مش مرة لكل صف
+        $g->loadMissing('package');
+
         return [
             'id' => $g->id,
             'name' => $g->name,
@@ -628,6 +823,26 @@ class GroupController extends Controller
             // «فيه شغل» إشارة داخلية، مالهاش لازمة في الرد العام.
 
             'accepts_waitlist' => $g->isOpenForWaitlist(),
+
+            /**
+             * ⭐ الباقة على المجموعة.
+             *
+             * `can_change` = ينفع نغيّرها دلوقتي ولا مقفولة.
+             * ⭐ الواجهة محتاجة المعلومة دي **قبل** ما تفتح
+             * شاشة تعديل المجموعة — عشان تعرض السبب وتقول للمستخدم
+             * ليه مش هيقدر، بدل ما يضغط حفظ ويطلعله 422.
+             */
+            'package' => $g->package ? [
+                'id' => $g->package->id,
+                'name' => $g->package->name,
+                'price' => $g->package->price,
+                'currency' => $g->package->currency,
+                'lessons_count' => $g->package->lessons_count,
+                'lesson_duration_minutes' => $g->package->lesson_duration_minutes,
+            ] : null,
+            'package_id' => $g->package_id,
+            'package_lock' => app(\App\Services\GroupEnrollmentService::class)
+                ->packageBlockers($g),
         ];
     }
 

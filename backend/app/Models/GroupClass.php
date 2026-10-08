@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\SubscriptionPlan;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -47,7 +48,7 @@ class GroupClass extends Model
 
     protected $fillable = [
         'organization_id', 'program_id', 'level_id', 'teacher_id', 'name',
-        'capacity', 'meeting_url', 'meeting_provider',
+        'capacity', 'package_id', 'meeting_url', 'meeting_provider',
         'weekday', 'start_time', 'end_time',
         'status', 'sort_order', 'description',
     ];
@@ -80,6 +81,18 @@ class GroupClass extends Model
     public function level(): BelongsTo
     {
         return $this->belongsTo(Level::class);
+    }
+
+    /**
+     * ⭐ الباقة على **المجموعة** — أي طالب يدخل بياخدها.
+     *
+     * ⚠️ اختياري (`belongsTo` مش `hasOne`) — المجموعة ممكن
+     * تكون من غير باقة، وساعتها بتاخد اشتراك من باقة البرنامج
+     * الشهرية. ده اللي كان بيحصل قبل ما نضيف العمود.
+     */
+    public function package(): BelongsTo
+    {
+        return $this->belongsTo(SubscriptionPlan::class, 'package_id');
     }
 
     public function teacher(): BelongsTo
