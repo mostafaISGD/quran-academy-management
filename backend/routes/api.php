@@ -22,6 +22,7 @@ use App\Http\Controllers\Api\ProgramController;
 use App\Http\Controllers\Api\ReportController;
 use App\Http\Controllers\Api\RoleController;
 use App\Http\Controllers\Api\SettingController;
+use App\Http\Controllers\Api\FinancialAccountController;
 use App\Http\Controllers\Api\StudentController;
 use App\Http\Controllers\Api\StudentPhoneController;
 use App\Http\Controllers\Api\SubscriptionController;
@@ -351,6 +352,34 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::post('/teacher-payroll/periods/{period}/reopen', [TeacherPayrollController::class, 'reopen'])->middleware('permission:payroll.manage');
     Route::put('/teacher-payroll/lines/{line}', [TeacherPayrollController::class, 'updateLine'])->middleware('permission:payroll.manage');
     Route::post('/teacher-payroll/lines/{line}/pay', [TeacherPayrollController::class, 'pay'])->middleware('permission:payroll.manage');
+
+    // ⭐ الخزائن والحسابات + دفتر الحركات
+    //
+    // ⚠️ ترتيب مهم: `/accounts/movements` و `/accounts/transfer`
+    // **قبل** `/accounts/{account}` — لو العكس، Laravel هياخد
+    // «movements» كـ id وهيرمي 404.
+    Route::get('/accounts', [FinancialAccountController::class, 'index'])->middleware('permission:finance.accounts');
+    Route::post('/accounts', [FinancialAccountController::class, 'store'])->middleware('permission:finance.accounts');
+    Route::get('/accounts/movements', [FinancialAccountController::class, 'movements'])->middleware('permission:finance.movements');
+
+    // ⭐ التحويل بياخد `finance.movements` — **مش** صلاحية جديدة.
+    //
+    // السبب: التحويل بين خزائن الأكاديمية مش «فلوس دخلت أو
+    // خرجت» — هو حركتين داخل الدفتر نفسه. فاللي يقدر يسجّل
+    // حركة يقدر يسجّل التحويل، والحساب (accountant) يقدر
+    // ينقل من الخزينة للبنك من غير ما نعمل صلاحية زيادة.
+    Route::post('/accounts/transfer', [FinancialAccountController::class, 'transfer'])->middleware('permission:finance.movements');
+
+    // ⭐⭐ العكس — **المدير بس**، زي فتح الفترات.
+    // الحساب (accountant) **مالوش** `finance.reverse`.
+    Route::post('/movements/{movement}/reverse', [FinancialAccountController::class, 'reverse'])->middleware('permission:finance.reverse');
+
+    Route::get('/period-locks', [FinancialAccountController::class, 'locks'])->middleware('permission:finance.movements');
+    Route::post('/period-locks', [FinancialAccountController::class, 'lockPeriod'])->middleware('permission:finance.periods.lock');
+    Route::post('/period-locks/{lock}/unlock', [FinancialAccountController::class, 'unlockPeriod'])->middleware('permission:finance.periods.unlock');
+
+    Route::get('/accounts/{account}', [FinancialAccountController::class, 'show'])->middleware('permission:finance.accounts');
+    Route::put('/accounts/{account}', [FinancialAccountController::class, 'update'])->middleware('permission:finance.accounts');
 
     // Expenses
     Route::get('/expenses', [ExpenseController::class, 'index']);
