@@ -34,6 +34,9 @@ class AccountsApiTest extends TestCase
         return $this->makeUserWithRole('accountant', [
             'finance.view', 'finance.accounts', 'finance.movements',
             'finance.periods.lock',
+            // ⭐ اللي تحتاجه الاختبارات عشان تسجّل تحصيل وتدفع معلم
+            'payroll.manage', 'payments.view', 'payments.create',
+            'payments.refund', 'students.view',
         ]);
     }
 
@@ -266,6 +269,162 @@ class AccountsApiTest extends TestCase
 
         $r = $this->getJsonAs('/api/accounts/movements?direction=in', $this->manager());
         $this->assertSame(1, $r->json('meta.total'));
+    }
+
+    // ============================================================
+    // ②ب وصف السطر — الدفتر **لازم** يكون قابل للتتبع
+    // ============================================================
+
+    public function test_a_payment_movement_says_who_paid_and_which_invoice(): void
+    {
+        // ⭐⭐ **الاختبار ده بيسدّ ثقب حقيقي.**
+        //
+        // أول ما الصفحة اتعملت، عمود «البند» طلع **فاضي** لكل
+        // الدفعات. السبب: الـ `notes` كان بيتملّا من
+        // `transaction_reference` اللي **ب.null** في ٩٥٪ من
+        // الدفعات.
+        //
+        // فالدفتر كان بيقول «500 ج.م، تحصيل» ومفيش أي طريقة نعرف
+        // ده تحصيل **مين**. وده غلط — الدفتر وظيفته إنه يوصّل
+        // الفلوس بمصدرها.
+        $account = $this->makeAccount();
+        [$student] = $this->studentWithSubscription();
+
+        $invoice = \App\Models\Invoice::create([
+            'organization_id' => $this->org->id,
+            'student_id' => $student->id,
+            'invoice_number' => 'INV-9001',
+            'total' => 500,
+            'paid_amount' => 0,
+            'balance_due' => 500,
+            'issue_date' => now()->toDateString(),
+            'currency' => 'EGP',
+            'status' => 'issued',
+        ]);
+
+        $this->postJsonAs('/api/payments', [
+            'student_id' => $student->id,
+            'invoice_id' => $invoice->id,
+            'amount' => 500,
+            'currency' => 'EGP',
+            'payment_method' => 'cash',
+            'paid_at' => now()->toDateString(),
+        ], $this->accountant())->assertCreated();
+
+        $r = $this->getJsonAs('/api/accounts/movements', $this->accountant());
+
+        $description = $r->json('data.0.description');
+
+        $this->assertStringContainsString($student->full_name, $description);
+        $this->assertStringContainsString('INV-9001', $description);
+        $this->assertStringContainsString('تحصيل', $description);
+    }
+
+    public function test_the_description_and_the_notes_are_different_things(): void
+    {
+        // ⭐ عمودين مختلفين لسببين مختلفين:
+        //
+        //  • `description` = **مصدر الفلوس** (مين دفع) — محسوب
+        //    دايماً، عشان الدفتر يتتبع.
+        //  • `notes` = **ملاحظة حرة** كتبها whoever سجّل.
+        //
+        // لو خلطناهم، الدفتر يفقد معناه.
+        $account = $this->makeAccount();
+        [$student] = $this->studentWithSubscription();
+
+        $this->postJsonAs('/api/payments', [
+            'student_id' => $student->id,
+            'amount' => 500,
+            'currency' => 'EGP',
+            'payment_method' => 'cash',
+            'paid_at' => now()->toDateString(),
+            'notes' => 'دفعت Capitol — الكاشير محمد',
+        ], $this->accountant())->assertCreated();
+
+        $r = $this->getJsonAs('/api/accounts/movements', $this->accountant());
+
+
+        $this->assertStringContainsString('تحصيل من', $r->json('data.0.description'));
+        $this->assertSame('دفعت Capitol — الكاشير محمد', $r->json('data.0.notes'));
+    }
+
+    public function test_a_reversal_inherits_the_original_description(): void
+    {
+        // ⭐ سطر العكس لازم يكون مفهوم لوحده في التقرير.
+        // «عكس تحصيل من أحمد» أوضح بكتير من «عكس #12».
+        $account = $this->makeAccount(['opening_balance' => 1000]);
+        [$student] = $this->studentWithSubscription();
+
+        $payment = $this->postJsonAs('/api/payments', [
+            'student_id' => $student->id,
+            'amount' => 500,
+            'currency' => 'EGP',
+            'payment_method' => 'cash',
+            'paid_at' => now()->toDateString(),
+        ], $this->accountant());
+
+        $movement = AccountMovement::where('reference_type', 'payment')->first();
+
+        $this->postJsonAs("/api/movements/{$movement->id}/reverse", [
+            'reason' => 'اتسجل غلط',
+        ], $this->manager())->assertCreated();
+
+        $r = $this->getJsonAs('/api/accounts/movements', $this->manager());
+
+        // ⭐ الأحدث فوق
+        $this->assertStringStartsWith('عكس ', $r->json('data.0.description'));
+        $this->assertStringContainsString($student->full_name, $r->json('data.0.description'));
+    }
+
+    public function test_a_teacher_payment_says_which_teacher(): void
+    {
+        $account = $this->makeAccount(['opening_balance' => 5000]);
+        $period = $this->makePeriod('2026-09-01', '2026-09-30', ['status' => 'finalized']);
+        $teacher = $this->makeActiveTeacher();
+
+        $line = $period->teacherLines()->create([
+            'organization_id' => $this->org->id,
+            'teacher_id' => $teacher->id,
+            'status' => 'approved',
+            'amount' => 1200,
+        ]);
+
+        $this->postJsonAs("/api/teacher-payroll/lines/{$line->id}/pay", [], $this->accountant())
+            ->assertOk();
+
+        $r = $this->getJsonAs('/api/accounts/movements', $this->accountant());
+
+        $this->assertStringContainsString($teacher->display_name, $r->json('data.0.description'));
+        $this->assertStringContainsString('مرتب', $r->json('data.0.description'));
+    }
+
+    public function test_an_expense_shows_its_category_and_description(): void
+    {
+        $account = $this->makeAccount(['opening_balance' => 2000]);
+        $category = $this->makeExpenseCategory(['name' => 'إيجار']);
+
+        $this->postJsonAs('/api/expenses', [
+            'amount' => 800,
+            'expense_date' => now()->toDateString(),
+            'description' => 'إيجار الشهر',
+            'category_id' => $category->id,
+        ], $this->accountant())->assertCreated();
+
+        $r = $this->getJsonAs('/api/accounts/movements', $this->accountant());
+
+        $description = $r->json('data.0.description');
+        $this->assertStringContainsString('إيجار', $description);
+        $this->assertStringContainsString('إيجار الشهر', $description);
+    }
+
+    private function studentWithSubscription(): array
+    {
+        $program = $this->makeProgram();
+        $this->defaultPlan($program);
+        $student = $this->makeStudent();
+        $this->makeSubscription($program, $student, ['price' => 500]);
+
+        return [$student, $program];
     }
 
     // ============================================================

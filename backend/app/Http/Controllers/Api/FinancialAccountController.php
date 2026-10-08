@@ -26,6 +26,30 @@ use Illuminate\Support\Facades\DB;
  */
 class FinancialAccountController extends Controller
 {
+    /**
+     * ⭐ ذاكرة مؤقتة للسطر الواحد — **مش** دائمة.
+     *
+     * ⭐ **السبب:** `describe()` محتاجة سجلات المراجع (الدفعة،
+     * المصروف...) وهيكل كل واحدة في `n+1`. فبنحمّلها مرة واحدة
+     * لكل **صفحة** ونتشاركها مع كل السطور.
+     *
+     * ⚠️ لازم تتفضّ في **أول** `preloadReferences()` — عشان
+     * طلب تاني مايلقاش بيانات طلب تاني (مستخدم تاني بيستعلم
+     * في نفس الـ process).
+     *
+     * @var \Illuminate\Support\Collection|null
+     */
+    private $refPayments = null;
+
+    private $refRefunds = null;
+
+    private $refTeacherLines = null;
+
+    private $refExpenses = null;
+
+    /** @var \Illuminate\Support\Collection|null */
+    private $refMovements = null;
+
     // ============================================================
     // ① الحسابات
     // ============================================================
@@ -214,6 +238,15 @@ class FinancialAccountController extends Controller
 
         $perPage = $request->integer('per_page') ?: 100;
         $movements = $query->paginate($perPage);
+
+        /**
+         * ⭐ تحميل المراجع **قبل** العرض.
+         *
+         * السبب: `describe()` محتاجة سجل الدفعة/المصروف/سطر
+         * المرتب. من غير preload كان كل سطر بيعمل استعلامين —
+         * يعني صفحة من ٥٠ سطر = ١٠٠ استعلام.
+         */
+        $this->preloadReferences($movements->getCollection());
 
         return response()->json([
             'data' => $movements->getCollection()
@@ -541,12 +574,198 @@ class FinancialAccountController extends Controller
             'status' => $m->status,
             'notes' => $m->notes,
 
+            /**
+             * ⭐⭐ **وصف السطر بالبشر** — مش رقم المرجع.
+             *
+             * ⭐ **السبب:** الـ `notes` عمود حر، فكل flow بيملاه
+             * على حسبه (`transaction_reference` للدفعات، سبب
+             * الاسترداد، وصف المصروف). يعني في سطر بيوصل **فاضي**
+             * ومفيش طريقة نعرف منه إن ده تحصيل مين ولا كذا.
+             *
+             * والدفتر بدون كده **مش قابل للتتبع** — يعني الدفتر
+             * مش بيعمل حاجته.
+             *
+             * ⭐ `description` مبني من المرجع نفسه (رقم + اسم)،
+             * مش من الـ notes. فالوصف موجود **دايماً**.
+             *
+             * @see self::describe()
+             */
+            'description' => $this->describe($m),
+
         // ⭐ العكس — عشان الشاشة تعرض «معكوس» بدل ما
             // السطر الأصلي يبان كأنه عادي
             'is_reversed' => $m->isReversed(),
             'reversal_of' => $m->reverses_movement_id,
             'has_reversal' => $m->hasReversal(),
         ];
+    }
+
+    /**
+     * ⭐⭐ وصف الحركة **بالبشر** — «مين» و«إيه».
+     *
+     * ⭐ **ليه دالة لوحدها مش عمود مخزّن؟**
+     *
+     * لأن الاسم ممكن يتغير (الطالب يعيد تسجيله باسم تاني)،
+     * والاسم **وقت الحركة** هو المهم محاسبياً. فبنحسبه وقت العرض
+     * من السطر المرجعي — فالوصف **بيتبع** البيانات الجديدة، وده
+     * الصح هنا: الدفتر بيقول «دي دفعة محمد»، والاسم الحقيقي دلوقتي
+     * هو اللي يشوفه الأدمن.
+     *
+     * ⭐ **التكلفة:** استعلام واحد لكل نوع مرجع في الصفحة (٤ أنواع
+     * = ٤ استعلامات) — **مش** واحد لكل سطر. عشان كده
+     * `movements()` بيعمل preload.
+     *
+     * @see self::preloadReferences()
+     */
+    private function describe(AccountMovement $m): string
+    {
+        $refId = $m->reference_id;
+
+        // ⭐ السطر العكسي — الوصف هو وصف الأصلي + «معكوس»
+        if ($m->reverses_movement_id) {
+            return 'عكس '.($this->describe($this->findMovement($m->reverses_movement_id)));
+        }
+
+        if (! $refId) {
+            return $this->categoryLabel($m->category);
+        }
+
+        return match ($m->reference_type) {
+            'payment' => $this->describePayment($refId),
+            'refund' => $this->describeRefund($refId),
+            'teacher_payroll_line' => $this->describeTeacherPay($refId),
+            'expense' => $this->describeExpense($refId),
+            'transfer' => 'تحويل بين الحسابات',
+            default => $this->categoryLabel($m->category).' #'.$refId,
+        };
+    }
+
+    /** ⭐ تحميل المراجع مرة واحدة لكل الصفحة — مش استعلام لكل سطر */
+    private function preloadReferences($movements): void
+    {
+        /**
+         * ⭐⭐ `groupBy` بيرجّع **موديلات** مش أرقام.
+         *
+         * فبنعمل `pluck('reference_id')` — من غيرها `whereIn` بيرمي
+         * «Nested arrays may not be passed to whereIn» والصفحة
+         * بترجع 500 بدل الدفتر.
+         *
+         * ⭐ `filter()` بيشيل الـ `null` — فسطر من غير مرجع (تسوية
+         * يدوية مثلاً) مش بيكلّف استعلام فاضي.
+         */
+        $idsOf = fn (string $type) => $movements
+            ->where('reference_type', $type)
+            ->pluck('reference_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        $paymentIds = $idsOf('payment');
+        if ($paymentIds->isNotEmpty()) {
+            $this->refPayments = \App\Models\Payment::whereIn('id', $paymentIds)
+                ->with('student', 'invoice:id,invoice_number')
+                ->get()->keyBy('id');
+        }
+
+        $refundIds = $idsOf('refund');
+        if ($refundIds->isNotEmpty()) {
+            $this->refRefunds = \App\Models\Refund::whereIn('id', $refundIds)
+                ->with('payment.student')
+                ->get()->keyBy('id');
+        }
+
+        $lineIds = $idsOf('teacher_payroll_line');
+        if ($lineIds->isNotEmpty()) {
+            $this->refTeacherLines = \App\Models\TeacherPayrollLine::whereIn('id', $lineIds)
+                // ⭐ `display_name` مش `name` — الـ Teacher موديله
+                // كده. لو غلطنا كان الوصف فاضي لكل مرتب.
+                ->with('teacher:id,display_name')
+                ->get()->keyBy('id');
+        }
+
+        $expenseIds = $idsOf('expense');
+        if ($expenseIds->isNotEmpty()) {
+            $this->refExpenses = \App\Models\Expense::whereIn('id', $expenseIds)
+                ->with('category:id,name')
+                ->get()->keyBy('id');
+        }
+
+        // ⭐ سطور العكس — عشان الوصف يورّث وصف الأصلي
+        $reversalIds = $movements->whereNotNull('reverses_movement_id')
+            ->pluck('reverses_movement_id')
+            ->filter()
+            ->unique()
+            ->values();
+
+        $this->refMovements = $reversalIds->isEmpty()
+            ? collect()
+            : AccountMovement::whereIn('id', $reversalIds)->get()->keyBy('id');
+    }
+
+    private function findMovement(int $id): AccountMovement
+    {
+        // ⭐ مافيش `with('reference')` — المرجع **مش** relation.
+        //
+        // `reference_type` + `reference_id` مجرد عمودين، وكل نوع
+        // بيفتح جدول مختلف. فبنجيب السطر وبعدين `describe()`
+        // بتتولى الباقي بنفسها.
+        return $this->refMovements?->get($id)
+            ?? AccountMovement::find($id)
+            ?? new AccountMovement(['category' => 'income']);
+    }
+
+    private function describePayment(int $id): string
+    {
+        $p = $this->refPayments?->get($id);
+
+        if (! $p) {
+            return 'تحصيل دفعة #'.$id;
+        }
+
+        $name = $p->student?->full_name ?: 'طالب';
+
+        return $p->invoice?->invoice_number
+            ? 'تحصيل من '.$name.' — فاتورة '.$p->invoice->invoice_number
+            : 'تحصيل من '.$name;
+    }
+
+    private function describeRefund(int $id): string
+    {
+        $r = $this->refRefunds?->get($id);
+
+        if (! $r) {
+            return 'استرداد #'.$id;
+        }
+
+        $name = $r->payment?->student?->full_name;
+
+        return $name
+            ? 'استرداد لـ'.$name.($r->reason ? ' — '.$r->reason : '')
+            : 'استرداد'.($r->reason ? ' — '.$r->reason : '');
+    }
+
+    private function describeTeacherPay(int $id): string
+    {
+        $line = $this->refTeacherLines?->get($id);
+
+        if (! $line) {
+            return 'دفعة لمعلم #'.$id;
+        }
+
+        return 'مرتب '.$line->teacher?->display_name.' — '.$line->amount;
+    }
+
+    private function describeExpense(int $id): string
+    {
+        $e = $this->refExpenses?->get($id);
+
+        if (! $e) {
+            return 'مصروف #'.$id;
+        }
+
+        return $e->category?->name
+            ? $e->category->name.' — '.$e->description
+            : (string) $e->description;
     }
 
     private function typeLabel(string $type): string

@@ -136,7 +136,22 @@ class PaymentController extends Controller
                     referenceType: 'payment',
                     referenceId: $payment->id,
                     movementDate: (string) $payment->paid_at,
-                    notes: $payment->transaction_reference,
+                    /**
+                     * ⭐⭐ **الملاحظة البشرية الأول،المرجع بعده.**
+                     *
+                     * السبب: `notes` في الدفتر هي «اللي كتبه موظف
+                     * الاستقبال» — زي «دفعت Capitol — الكاشير محمد».
+                     * دي المعلومة اللي بتقنع لما تبصّ على السطر بعد
+                     * سنة.
+                     *
+                     * ولو ملّيناها بـ `transaction_reference` (رقم
+                     * آلي) كان الدفتر كله أرقام، والأرقام موجودة
+                     * أصلاً في وصف السطر («تحصيل من أحمد — فاتورة
+                     * INV-9001»).
+                     *
+                     * فالمرجع **fallback** مش أولوية.
+                     */
+                    notes: $payment->notes ?: $payment->transaction_reference,
                     user: $request->user(),
                 );
                 $movement = $res['movement'];

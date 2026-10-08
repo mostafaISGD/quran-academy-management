@@ -1007,6 +1007,258 @@ export function createExpense(payload: {
   });
 }
 
+/* ============================================================
+   الخزائن ودفتر الحركات
+   ============================================================ */
+
+export type FinancialAccount = {
+  id: number;
+  name: string;
+  type: "cash" | "bank" | "wallet" | "gateway" | "other";
+  type_label: string;
+  currency: string;
+  status: "active" | "inactive";
+  notes: string | null;
+  opening_balance: number;
+  /** ⭐ الرصيد المحسوب — مش عمود مخزّن */
+  balance: number;
+  /** ⭐ دخل الفترة (الفلاتر الحالية) — مش كل التاريخ */
+  total_in: number;
+  total_out: number;
+  movements_count: number;
+  /** ⭐ حركات موجودة بس لسه معتمدة — مالش بتأثير على الرصيد */
+  pending_count: number;
+  locked: boolean;
+};
+
+export type AccountsResponse = {
+  data: FinancialAccount[];
+  meta: {
+    total: number;
+    /**
+     * ⭐⭐ **الإجماليات مقسومة عملة عملة — مش رقم واحد.**
+     *
+     * الحسابات ممكن تعمل عملات مختلفة، وجمعهم بيحتاج سعر صرف
+     * بيتغيّر. فالـ API بيرجع كل عملة لوحدها بدل رقم مضلّل.
+     */
+    by_currency: Record<string, number>;
+  };
+};
+
+export type AccountMovement = {
+  id: number;
+  account: { id: number; name: string; type: string } | null;
+  direction: "in" | "out";
+  category: string;
+  category_label: string;
+  amount: number;
+  currency: string;
+  reference_type: string | null;
+  reference_id: number | null;
+  movement_date: string;
+  status: "posted" | "pending";
+  /**
+   * ⭐ ملاحظة حرة كتبها من سجّل السطر (رقم الإيصال، ملاحظة cashier).
+   *
+   * ⭐ **مش** هي دي اللي بتقول «مين دفع» — ده `description`.
+   * العمودين مختلفين لسببين مختلفين.
+   */
+  notes: string | null;
+  /**
+   * ⭐⭐ وصف السطر بالبشر — «تحصيل من أحمد — فاتورة INV-9001».
+   *
+   * ⭐ مبني من المرجع (`reference_type` + `reference_id`) مش من
+   * `notes` — فموجود **دايماً**، وده اللي بيخلّي الدفتر قابل
+   * للتتبع.
+   */
+  description: string;
+  /** ⭐ السطر ده **معكوس** — والأصلي لسه موجود */
+  is_reversed: boolean;
+  /** ⭐ لو السطر ده **عكس** لسطر تاني */
+  reversal_of: number | null;
+  has_reversal: boolean;
+};
+
+export type MovementsResponse = {
+  data: AccountMovement[];
+  meta: {
+    current_page: number;
+    last_page: number;
+    per_page: number;
+    total: number;
+    /** ⭐ محسوبة في السيرفر — صفحة 100 صف مش كل الجدول */
+    totals: { in: number; out: number };
+  };
+};
+
+export type PeriodLock = {
+  id: number;
+  scope: "all" | "account" | "payroll" | "expenses";
+  account: { id: number; name: string } | null;
+  period_start: string;
+  period_end: string;
+  label: string | null;
+  reason: string | null;
+  is_active: boolean;
+  locked_by: string | null;
+  locked_at: string | null;
+  unlocked_by: string | null;
+  unlocked_at: string | null;
+  unlock_reason: string | null;
+};
+
+export function getFinancialAccounts(params?: {
+  status?: string;
+  type?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+}) {
+  const s = new URLSearchParams();
+  if (params?.status) s.set("status", params.status);
+  if (params?.type) s.set("type", params.type);
+  if (params?.search) s.set("search", params.search);
+  // ⭐ الفترة بتروح للـ API عشان `total_in` / `total_out` يبقوا
+  // للفترة المختارة — مش لكل تاريخ الحساب
+  if (params?.from) s.set("from", params.from);
+  if (params?.to) s.set("to", params.to);
+  return apiFetch<AccountsResponse>(`/accounts?${s.toString()}`);
+}
+
+export function getAccountMovements(params?: {
+  account_id?: number;
+  category?: string;
+  direction?: "in" | "out";
+  status?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  per_page?: number;
+}) {
+  const s = new URLSearchParams();
+  if (params?.account_id) s.set("account_id", String(params.account_id));
+  if (params?.category) s.set("category", params.category);
+  if (params?.direction) s.set("direction", params.direction);
+  if (params?.status) s.set("status", params.status);
+  if (params?.search) s.set("search", params.search);
+  if (params?.from) s.set("from", params.from);
+  if (params?.to) s.set("to", params.to);
+  if (params?.page) s.set("page", String(params.page));
+  s.set("per_page", String(params?.per_page ?? 50));
+  return apiFetch<MovementsResponse>(`/accounts/movements?${s.toString()}`);
+}
+
+/** إنشاء خزينة / حساب جديد */
+export function createFinancialAccount(payload: {
+  name: string;
+  type: FinancialAccount["type"];
+  currency: string;
+  opening_balance?: number;
+  notes?: string;
+}) {
+  return apiFetch<{ message: string; data: FinancialAccount }>("/accounts", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * ⭐ تعديل حساب — **من غير** الرصيد الافتتاحي أو العملة.
+ *
+ * ⚠️ الحقلين دول مش قابلين للتعديل من الـ API أصلاً وبيترجعوا
+ * 422 — التصحيح الصح «تسوية» في الدفتر.
+ */
+export function updateFinancialAccount(
+  id: number,
+  payload: {
+    name?: string;
+    type?: FinancialAccount["type"];
+    status?: "active" | "inactive";
+    notes?: string;
+  },
+) {
+  return apiFetch<{ message: string; data: FinancialAccount }>(`/accounts/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export type TransferResult = {
+  message: string;
+  data: {
+    id: number;
+    amount: number;
+    currency: string;
+    exchange_rate: number | null;
+    target_currency: string | null;
+    received_amount: number;
+    from: FinancialAccount;
+    to: FinancialAccount;
+  };
+};
+
+/**
+ * ⭐ تحويل بين حسابين.
+ *
+ * ⭐ مش إيراد ومش مصروف — فالفئات `transfer_in` / `transfer_out`
+ * منفصلة، والصافي ما بيتغيرش.
+ */
+export function transferBetweenAccounts(payload: {
+  from_account_id: number;
+  to_account_id: number;
+  amount: number;
+  transfer_date?: string;
+  reference?: string;
+  notes?: string;
+}) {
+  return apiFetch<TransferResult>("/accounts/transfer", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/**
+ * ⭐⭐ عكس حركة — **المدير بس**.
+ *
+ * ⭐ السطر الأصلي **ما بيتلمسش**؛ بيتعمل سطر عكسي جديد بنفس
+ * الفئة والاتجاه المضاد.
+ *
+ * ⚠️ `reason` إجباري — من غيره محدش هيعرف بعد سنة ليه اتصحّح.
+ */
+export function reverseMovement(id: number, reason: string) {
+  return apiFetch<{ message: string; data: AccountMovement }>(`/movements/${id}/reverse`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export function getPeriodLocks() {
+  return apiFetch<{ data: PeriodLock[] }>("/period-locks");
+}
+
+/** ⭐ قفل فترة — المحاسب يقدر (بيحمي الدفاتر) */
+export function lockPeriod(payload: {
+  start: string;
+  end?: string;
+  scope?: PeriodLock["scope"];
+  account_id?: number;
+  reason?: string;
+}) {
+  return apiFetch<{ message: string; data: { id: number } }>("/period-locks", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** ⭐⭐ فتح فترة — **المدير بس**. السبب إجباري. */
+export function unlockPeriod(lockId: number, reason: string) {
+  return apiFetch<{ message: string }>(`/period-locks/${lockId}/unlock`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
 export type Notification = {
   id: number;
   user_id: number;
