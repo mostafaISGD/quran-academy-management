@@ -12,7 +12,7 @@ class Invoice extends Model
     protected $fillable = [
         'organization_id', 'branch_id', 'student_id', 'parent_id', 'subscription_id',
         'invoice_number', 'issue_date', 'due_date', 'subtotal', 'discount', 'tax',
-        'total', 'paid_amount', 'balance_due', 'currency', 'status', 'notes',
+        'total', 'paid_amount', 'balance_due', 'credited_amount', 'currency', 'status', 'notes',
     ];
 
     protected function casts(): array
@@ -24,6 +24,7 @@ class Invoice extends Model
             'total' => 'decimal:2',
             'paid_amount' => 'decimal:2',
             'balance_due' => 'decimal:2',
+            'credited_amount' => 'decimal:2',
             'issue_date' => 'date',
             'due_date' => 'date',
         ];
@@ -47,26 +48,32 @@ class Invoice extends Model
     }
 
     /**
-     * ⭐⭐ إعادة حساب المدفوع والمتبقي من التوزيعات النشطة.
+     * ⭐⭐ إعادة حساب المدفوع والمتبقي من التوزيعات النشطة
+     * والرصيد الدائن المطبّق.
      *
      * ⭐ **القاعدة 5 في الخطة:** «لا نخزّن المدفوع والمتبقي على
      * الاشتراك أو الفاتورة كأرقام مستقلة».
+     *
+     * ⭐ `balance_due = total - paid_amount - credited_amount`
      */
     public function recalculateFromAllocations(): self
     {
         $paid = (float) $this->allocations()->active()->sum('amount');
 
+        $credited = (float) $this->creditApplications()->active()->sum('amount');
+
         $total = (float) $this->total;
-        $balance = max(0, $total - $paid);
+        $balance = max(0, $total - $paid - $credited);
 
         $status = match (true) {
-            $paid <= 0 => 'issued',
+            $paid + $credited <= 0 => 'issued',
             $balance <= 0 => 'paid',
             default => 'partially_paid',
         };
 
         $this->update([
             'paid_amount' => round($paid, 2),
+            'credited_amount' => round($credited, 2),
             'balance_due' => round($balance, 2),
             'status' => $status,
         ]);
@@ -78,5 +85,11 @@ class Invoice extends Model
     public function paidViaAllocations(): float
     {
         return (float) $this->allocations()->active()->sum('amount');
+    }
+
+    /**   تطبيقات الرصيد الدائن على هذه الفاتورة */
+    public function creditApplications()
+    {
+        return $this->hasMany(CreditNoteApplication::class);
     }
 }

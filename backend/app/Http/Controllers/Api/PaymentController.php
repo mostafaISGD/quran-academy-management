@@ -55,6 +55,19 @@ class PaymentController extends Controller
             'financial_account_id' => 'nullable|integer',
 
             'notes' => 'nullable|string',
+
+            /**
+             * ⭐ المبلغ الواصل الفعلي بعد خصم عمولة بوابة الدفع.
+             *
+             * ⭐ **ليه ده مهم؟** لو الطالب دفع 1000 وبوابة الدفع
+             * خصمت 30، فتحساب الأكاديمية دخل 970. لو سجّلنا
+             * 1000، الرصيد هيبقى أعلى من الحقيقي والفرق 30
+             * بيختفي من التقارير.
+             *
+             * فلو `net_amount` مبعوت: الي دخل = `net_amount`،
+             * والفرق (عمولة) بيتسجل كمصروف تلقائي.
+             */
+            'net_amount' => 'nullable|numeric|min:0|max:100000',
         ]);
 
         $data['organization_id'] = $request->user()->organization_id;
@@ -157,30 +170,49 @@ class PaymentController extends Controller
                     account: $account,
                     direction: 'in',
                     category: 'income',
-                    amount: (float) $payment->amount,
+                    /**
+                     * ⭐⭐ تسجيل **المبلغ الواصل** مش المبلغ الاسمي.
+                     *
+                     * لو فيه عمولة (net_amount < amount)، الرصيد
+                     * الحقيقي بتاع الحساب هو net_amount.
+                     */
+                    amount: (float) ($payment->net_amount ?: $payment->amount),
                     referenceType: 'payment',
                     referenceId: $payment->id,
                     movementDate: (string) $payment->paid_at,
-                    /**
-                     * ⭐⭐ **الملاحظة البشرية الأول،المرجع بعده.**
-                     *
-                     * السبب: `notes` في الدفتر هي «اللي كتبه موظف
-                     * الاستقبال» — زي «دفعت Capitol — الكاشير محمد».
-                     * دي المعلومة اللي بتقنع لما تبصّ على السطر بعد
-                     * سنة.
-                     *
-                     * ولو ملّيناها بـ `transaction_reference` (رقم
-                     * آلي) كان الدفتر كله أرقام، والأرقام موجودة
-                     * أصلاً في وصف السطر («تحصيل من أحمد — فاتورة
-                     * INV-9001»).
-                     *
-                     * فالمرجع **fallback** مش أولوية.
-                     */
                     notes: $payment->notes ?: $payment->transaction_reference,
                     user: $request->user(),
                 );
                 $movement = $res['movement'];
                 $warning = $res['warning'];
+
+                /**
+                 * ⭐ لو فيه عمولة، بتتسجل كمصروف عمولة.
+                 *
+                 * ⭐ السبب: الدفتر لازم يبيّن عَفْو أيه 500 - 30 = 470
+                 * مش بس «470 دخل». فلو مُسَجَّلت 470 فقط، المصروف
+                 * التشغيلي ناقص — والتقارير بتقول «الربحerranta
+                 * أكتر من الحقيقي» بـ30.
+                 */
+                if ($payment->net_amount && $payment->net_amount < $payment->amount) {
+                    $commission = (float) $payment->amount - (float) $payment->net_amount;
+
+                    $feeRes = $ledger->recordFor(
+                        account: $account,
+                        direction: 'out',
+                        category: 'fee',
+                        amount: $commission,
+                        referenceType: 'payment_fee',
+                        referenceId: $payment->id,
+                        movementDate: (string) $payment->paid_at,
+                        notes: 'عمولة بوابة الدفع على دفعة #'.$payment->id,
+                        user: $request->user(),
+                    );
+
+                    if (! $feeRes['movement'] && ! $warning) {
+                        $warning = $feeRes['warning'];
+                    }
+                }
             }
         } else {
             $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';

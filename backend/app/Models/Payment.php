@@ -12,7 +12,7 @@ class Payment extends Model
     protected $fillable = [
         'organization_id', 'student_id', 'parent_id', 'invoice_id',
         'amount', 'currency', 'payment_method', 'transaction_reference',
-        'status', 'paid_at', 'received_by', 'notes',
+        'status', 'paid_at', 'received_by', 'notes', 'net_amount',
     ];
 
     /**
@@ -43,7 +43,7 @@ class Payment extends Model
 
     protected function casts(): array
     {
-        return ['amount' => 'decimal:2', 'paid_at' => 'datetime'];
+        return ['amount' => 'decimal:2', 'net_amount' => 'decimal:2', 'paid_at' => 'datetime'];
     }
 
     public function student() { return $this->belongsTo(Student::class); }

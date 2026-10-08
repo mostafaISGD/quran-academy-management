@@ -30,6 +30,8 @@ use App\Http\Controllers\Api\TeacherController;
 use App\Http\Controllers\Api\TeacherScheduleController;
 use App\Http\Controllers\Api\TeacherEarningController;
 use App\Http\Controllers\Api\TeacherPaymentController;
+use App\Http\Controllers\Api\StudentCreditController;
+use App\Http\Controllers\Api\LessonPolicyController;
 use Illuminate\Support\Facades\Route;
 
 // ---- Public ----
@@ -276,6 +278,16 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/payments/{payment}/refunds', [PaymentController::class, 'refunds'])->middleware('permission:payments.view');
     // ⭐ توزيع الدفعة على فواتير — القاعدة 5 من الخطة
     Route::post('/payments/{payment}/allocate', [PaymentController::class, 'allocate'])->middleware('permission:payments.edit');
+
+    // ⭐ الرصيد الدائن
+    Route::get('/student-credits', [StudentCreditController::class, 'index'])->middleware('permission:payments.view');
+    Route::post('/student-credits', [StudentCreditController::class, 'store'])->middleware('permission:payments.create');
+    Route::post('/student-credits/{studentCredit}/apply', [StudentCreditController::class, 'apply'])->middleware('permission:payments.edit');
+    Route::post('/student-credits/{studentCredit}/refund', [StudentCreditController::class, 'refund'])->middleware('permission:payments.refund');
+
+    // ⭐ سياسة الحصص
+    Route::get('/lesson-policy', [LessonPolicyController::class, 'show'])->middleware('permission:settings.manage');
+    Route::put('/lesson-policy', [LessonPolicyController::class, 'update'])->middleware('permission:settings.manage');
 
     // CRM — Leads
     Route::get('/leads', [LeadController::class, 'index'])->middleware('permission:leads.view');
