@@ -324,6 +324,8 @@ class StudentController extends Controller
             'due_date' => 'nullable|date|after_or_equal:issue_date',
             'amount' => 'nullable|numeric|min:0',
             'description' => 'nullable|string|max:255',
+            // ⭐ كود ترويجي اختياري (ينطبق على كل الفواتير)
+            'promo_code' => 'nullable|string|max:50|exists:promo_codes,code',
         ]);
 
         $user = $request->user();
@@ -338,6 +340,14 @@ class StudentController extends Controller
             ->get()
             ->groupBy('student_id')
             ->map(fn ($group) => $group->first());
+
+        // ⭐ تحميل الكود الترويجي مرة واحدة لو موجود
+        $promoCode = null;
+        if (! empty($data['promo_code'])) {
+            $promoCode = \App\Models\PromoCode::where('organization_id', $user->organization_id)
+                ->where('code', $data['promo_code'])
+                ->first();
+        }
 
         $created = [];
         $skipped = [];
@@ -354,7 +364,24 @@ class StudentController extends Controller
                 ? (float) $data['amount']
                 : (float) $sub->price;
 
-            $invoice = DB::transaction(function () use ($sub, $amount, $issueDate, $dueDate, $user, $data) {
+            $invoice = DB::transaction(function () use ($sub, $amount, $issueDate, $dueDate, $user, $data, $promoCode) {
+                $subtotal = $amount;
+                $discount = 0;
+                $promoDiscount = 0;
+                $appliedPromo = null;
+
+                // ⭐ تطبيق الكود الترويجي لو موجود وينطبق
+                if ($promoCode && $promoCode->isValidNow()) {
+                    $tempInvoice = new \App\Models\Invoice(['program_id' => $sub->program_id]);
+                    if ($promoCode->appliesTo($tempInvoice)) {
+                        $promoDiscount = $promoCode->calculateDiscount($amount);
+                        $appliedPromo = $promoCode;
+                    }
+                }
+
+                $total = $amount - $promoDiscount;
+                $finalDiscount = $discount + $promoDiscount;
+
                 $invoice = Invoice::create([
                     'organization_id' => $user->organization_id,
                     'student_id' => $sub->student_id,
@@ -364,12 +391,29 @@ class StudentController extends Controller
                     'issue_date' => $issueDate,
                     'due_date' => $dueDate,
                     'subtotal' => $amount,
-                    'total' => $amount,
+                    'discount' => $finalDiscount,
+                    'total' => $total,
                     'paid_amount' => 0,
-                    'balance_due' => $amount,
+                    'balance_due' => $total,
                     'status' => 'issued',
                     'notes' => $data['description'] ?? null,
                 ]);
+
+                // ⭐ تسجيل استخدام الكود
+                if ($appliedPromo) {
+                    $appliedPromo->incrementUsage();
+
+                    \App\Models\PromoCodeUsage::create([
+                        'organization_id' => $user->organization_id,
+                        'promo_code_id' => $appliedPromo->id,
+                        'invoice_id' => $invoice->id,
+                        'student_id' => $sub->student_id,
+                        'discount_amount' => $promoDiscount,
+                        'original_amount' => $amount,
+                        'final_amount' => $total,
+                        'created_by' => $user->id,
+                    ]);
+                }
 
                 InvoiceItem::create([
                     'invoice_id' => $invoice->id,

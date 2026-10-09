@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\TeacherPaymentController;
 use App\Http\Controllers\Api\StudentCreditController;
 use App\Http\Controllers\Api\ExportController;
 use App\Http\Controllers\Api\LessonPolicyController;
+use App\Http\Controllers\Api\PromoCodeController;
 use Illuminate\Support\Facades\Route;
 
 // ---- Public ----
@@ -63,6 +64,25 @@ Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
         ->middleware(['auth:sanctum', 'permission:pricing.manage']);
     Route::delete('/pricing/{plan}', [PricingController::class, 'destroy'])
         ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+
+    // ============================================================
+    // ⭐⭐ الأكواد الترويجية (Promo Codes)
+    // ============================================================
+    Route::get('/promo-codes', [PromoCodeController::class, 'index'])
+        ->middleware('permission:pricing.view');
+    Route::post('/promo-codes', [PromoCodeController::class, 'store'])
+        ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+    Route::get('/promo-codes/{promoCode}', [PromoCodeController::class, 'show'])
+        ->middleware('permission:pricing.view');
+    Route::put('/promo-codes/{promoCode}', [PromoCodeController::class, 'update'])
+        ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+    Route::delete('/promo-codes/{promoCode}', [PromoCodeController::class, 'destroy'])
+        ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+    // التحقق من كود (عامة للواجهة عند الإدخال، محمية عشان ما يتسحبش الكودات)
+    Route::post('/promo-codes/validate', [PromoCodeController::class, 'validate'])
+        ->middleware(['auth:sanctum', 'permission:pricing.view']);
+    Route::get('/promo-codes/{promoCode}/stats', [PromoCodeController::class, 'stats'])
+        ->middleware('permission:pricing.view');
 
     // ===== المجموعات الأونلاين + قائمة الانتظار =====
     //

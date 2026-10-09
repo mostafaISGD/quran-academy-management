@@ -46,6 +46,9 @@ class InvoiceController extends Controller
             'discount' => 'nullable|numeric|min:0',
             'tax' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string',
+
+            // ⭐ كود ترويجي اختياري
+            'promo_code' => 'nullable|string|max:50|exists:promo_codes,code',
         ]);
 
         $data['organization_id'] = $request->user()->organization_id;
@@ -58,11 +61,49 @@ class InvoiceController extends Controller
         $tax = $data['tax'] ?? 0;
         $total = $subtotal - $discount + $tax;
 
+        // ⭐ تطبيق الكود الترويجي لو موجود
+        $promoDiscount = 0;
+        $promoCode = null;
+
+        if (! empty($data['promo_code'])) {
+            $promo = \App\Models\PromoCode::where('organization_id', $request->user()->organization_id)
+                ->where('code', $data['promo_code'])
+                ->first();
+
+            if ($promo && $promo->isValidNow()) {
+                // ننشئ فاتورة مؤقتة للتحقق من appliesTo
+                $tempInvoice = new Invoice(['program_id' => $data['subscription_id'] ? \App\Models\Subscription::find($data['subscription_id'])?->program_id : null]);
+                if ($promo->appliesTo($tempInvoice)) {
+                    $promoDiscount = $promo->calculateDiscount($total - $discount);
+                    $promoCode = $promo;
+                }
+            }
+        }
+
+        $data['discount'] = $discount + $promoDiscount;
+        $total = $subtotal - $data['discount'] + $tax;
+
         $data['subtotal'] = $subtotal;
         $data['total'] = $total;
         $data['balance_due'] = $total;
 
         $invoice = Invoice::create($data);
+
+        // ⭐ تسجيل استخدام الكود
+        if ($promoCode) {
+            $promoCode->incrementUsage();
+
+            \App\Models\PromoCodeUsage::create([
+                'organization_id' => $request->user()->organization_id,
+                'promo_code_id' => $promoCode->id,
+                'invoice_id' => $invoice->id,
+                'student_id' => $invoice->student_id,
+                'discount_amount' => $promoDiscount,
+                'original_amount' => $total + $promoDiscount,
+                'final_amount' => $total,
+                'created_by' => $request->user()->id,
+            ]);
+        }
 
         foreach ($data['items'] as $item) {
             InvoiceItem::create([
@@ -95,6 +136,8 @@ class InvoiceController extends Controller
                 'invoice_number' => $invoice->invoice_number,
                 'student_id' => $invoice->student_id,
                 'total' => $invoice->total,
+                'promo_code' => $promoCode?->code,
+                'promo_discount' => $promoDiscount,
             ],
             $request,
         );

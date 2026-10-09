@@ -1869,6 +1869,130 @@ export function deletePricingPlan(id: number) {
 }
 
 // ============================================================
+// الأكواد الترويجية (Promo Codes)
+// ============================================================
+
+export type PromoCode = {
+  id: number;
+  code: string;
+  name: string;
+  description: string | null;
+  type: "percent" | "fixed";
+  type_label: string;
+  value: number;
+  max_uses: number | null;
+  used_count: number;
+  max_uses_per_student: number;
+  starts_at: string | null;
+  expires_at: string | null;
+  applies_to: "all" | "program" | "category";
+  applies_to_label: string;
+  program: { id: number; name: string } | null;
+  category: string | null;
+  category_label: string | null;
+  new_students_only: boolean;
+  is_active: boolean;
+  is_valid_now: boolean;
+  created_at: string | null;
+  created_by: string | null;
+};
+
+export type PromoCodeStats = {
+  total_usage: number;
+  total_discount: number;
+  unique_students: number;
+  remaining_uses: number | null;
+};
+
+export function getPromoCodes(params?: {
+  is_active?: boolean;
+  search?: string;
+  page?: number;
+  per_page?: number;
+}) {
+  const s = new URLSearchParams();
+  if (params?.is_active !== undefined) s.set("is_active", String(params.is_active));
+  if (params?.search) s.set("search", params.search);
+  if (params?.page) s.set("page", String(params.page));
+  if (params?.per_page) s.set("per_page", String(params.per_page ?? 20));
+  return apiFetch<{ data: PromoCode[]; meta: { current_page: number; last_page: number; per_page: number; total: number } }>(`/promo-codes?${s.toString()}`);
+}
+
+export function getPromoCode(id: number) {
+  return apiFetch<{ data: PromoCode }>(`/promo-codes/${id}`);
+}
+
+export function createPromoCode(payload: {
+  code: string;
+  name: string;
+  description?: string;
+  type: "percent" | "fixed";
+  value: number;
+  max_uses?: number;
+  max_uses_per_student?: number;
+  starts_at?: string;
+  expires_at?: string;
+  applies_to: "all" | "program" | "category";
+  program_id?: number;
+  category?: "traditional" | "golden" | "group" | "single";
+  new_students_only?: boolean;
+  is_active?: boolean;
+}) {
+  return apiFetch<{ message: string; data: PromoCode }>("/promo-codes", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updatePromoCode(id: number, payload: {
+  name?: string;
+  description?: string;
+  value?: number;
+  max_uses?: number;
+  max_uses_per_student?: number;
+  starts_at?: string;
+  expires_at?: string;
+  applies_to?: "all" | "program" | "category";
+  program_id?: number;
+  category?: "traditional" | "golden" | "group" | "single";
+  new_students_only?: boolean;
+  is_active?: boolean;
+}) {
+  return apiFetch<{ message: string; data: PromoCode }>(`/promo-codes/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deletePromoCode(id: number) {
+  return apiFetch<{ message: string }>(`/promo-codes/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export function validatePromoCode(payload: {
+  code: string;
+  invoice_id: number;
+  student_id: number;
+  amount: number;
+}) {
+  return apiFetch<{
+    valid: boolean;
+    promo_code?: { id: number; code: string; name: string; type: "percent" | "fixed"; value: number };
+    discount_amount?: number;
+    final_amount?: number;
+    message: string;
+  }>("/promo-codes/validate", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function getPromoCodeStats(id: number) {
+  return apiFetch<{ data: PromoCodeStats }>(`/promo-codes/${id}/stats`);
+}
+
+// ============================================================
 // سياسات الحصة (Lesson Policy)
 // ============================================================
 
