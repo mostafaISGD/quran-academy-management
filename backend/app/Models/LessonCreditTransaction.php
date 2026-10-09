@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 
 class LessonCreditTransaction extends Model
@@ -17,7 +18,7 @@ class LessonCreditTransaction extends Model
     {
         return [
             'quantity' => 'decimal:2',
-            'balance_after' => 'decimal:2',
+            'balance_after' => Piastres::class,
             'created_at' => 'datetime',
         ];
     }

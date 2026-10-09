@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 
 /**
  * ⭐⭐ حركة واحدة — **المصدر الوحيد للحقيقة المالية**.
  *
  * كل قرش داخل الأكاديمية أو بيخرج منها بيتسجل هنا كسطر واحد.
- * الرصيد مافيش رقم في جدول خ��ان — بيتحسب من الحركات دي.
+ * الرصيد مافيش رقم في جدول خالصان — بيتحسب من الحركات دي.
  *
  * ⭐ **القاعدة ١: لا تعديل على السجلات المالية التاريخية.**
  * عشان كده الجدول ده **مالوش** `deleted_at` — السطر ما يتمسحش
@@ -36,7 +37,7 @@ class AccountMovement extends Model
     protected function casts(): array
     {
         return [
-            'amount' => 'decimal:2',
+            'amount' => Piastres::class,
             'movement_date' => 'date',
         ];
     }

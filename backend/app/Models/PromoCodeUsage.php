@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 
 class PromoCodeUsage extends Model
@@ -14,9 +15,9 @@ class PromoCodeUsage extends Model
     protected function casts(): array
     {
         return [
-            'discount_amount' => 'decimal:2',
-            'original_amount' => 'decimal:2',
-            'final_amount' => 'decimal:2',
+            'discount_amount' => Piastres::class,
+            'original_amount' => Piastres::class,
+            'final_amount' => Piastres::class,
             'applied_at' => 'datetime',
         ];
     }

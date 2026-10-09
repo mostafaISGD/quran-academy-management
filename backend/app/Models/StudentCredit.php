@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 
 class StudentCredit extends Model
@@ -16,9 +17,9 @@ class StudentCredit extends Model
     protected function casts(): array
     {
         return [
-            'total' => 'decimal:2',
-            'used' => 'decimal:2',
-            'refunded' => 'decimal:2',
+            'total' => Piastres::class,
+            'used' => Piastres::class,
+            'refunded' => Piastres::class,
             'expires_at' => 'date',
         ];
     }

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 
 class Subscription extends Model
@@ -19,7 +20,7 @@ class Subscription extends Model
     protected function casts(): array
     {
         return [
-            'price' => 'decimal:2',
+            'price' => Piastres::class,
             'start_date' => 'date',
             'end_date' => 'date',
             'auto_renew' => 'boolean',

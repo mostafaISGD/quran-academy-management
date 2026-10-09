@@ -55,6 +55,24 @@ class TeacherPayrollController extends Controller
             ->selectRaw('sum(amount) as amount, count(*) as earning_count, min(earning_date) as first_date')
             ->groupBy('teacher_id')
             ->get()
+            /**
+             * ⭐⭐ `selectRaw('sum(amount)')` بيرجّع **قرش خام**.
+             *
+             * والصفوف دي `stdClass` من `DB::table` — مافيش
+             * موديل و مافيش cast. فلو ما حوّلناش:
+             *
+             *     المستحق 4500 جنيه → 450000 (قرش خام)
+             *     → بيتخزّن كـ 4500 × 100 = 45,000,000
+             *     → الموديل بيقرأ 450,000 جنيه  ⭐ 100× غلط
+             *
+             * @see \App\Casts\Piastres::fromDatabase
+             */
+            ->map(fn ($row) => (object) [
+                'teacher_id' => $row->teacher_id,
+                'earning_count' => $row->earning_count,
+                'first_date' => $row->first_date,
+                'amount' => \App\Casts\Piastres::fromDatabase($row->amount),
+            ])
             ->keyBy('teacher_id');
     }
 
@@ -125,7 +143,8 @@ class TeacherPayrollController extends Controller
                 'end_date' => $p->end_date,
                 'status' => $p->status,
                 'lines_count' => $p->teacher_lines_count,
-                'total_amount' => round((float) ($t->total ?? 0), 2),
+                // ⭐ `DB::table` + `sum()` → **قرش خام**، مافيش cast
+                'total_amount' => round((float) \App\Casts\Piastres::fromDatabase($t->total ?? 0), 2),
                 'total_hours' => round((float) ($t->hours ?? 0), 2),
                 'payable' => $this->payableCount($p->id),
             ];
@@ -563,7 +582,7 @@ class TeacherPayrollController extends Controller
      * مالوش رقم يتراجع فمش بيقفل.
      *
      * ⚠️ بيتأكد من **سطر المعلمين هو** بس. مرتبات الموظفين ليها
-     * مسارها بنفس الفترة، ومنفصل. ده معناه إنه ممكن科普مّل قفل
+     * مسارها بنفس الفترة، ومنفصل. ده معناه إنه ممكن يكمل قفل
      * الفترة من ناحية المعلمين وفيه سطور موظفين لسه مسودّة.
      *
      * مقصود: كل طرف بيمرّ على سطوره. في **طريقتين للقفل** (موظفين

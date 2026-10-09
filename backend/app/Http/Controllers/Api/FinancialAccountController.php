@@ -264,14 +264,20 @@ class FinancialAccountController extends Controller
                  * المتصفح (صفحة ١٠٠ صف مش كل الـ database).
                  */
                 'totals' => [
-                    'in' => round((float) $query->clone()
-                        ->where('direction', 'in')
-                        ->where('status', 'posted')
-                        ->sum('amount'), 2),
-                    'out' => round((float) $query->clone()
-                        ->where('direction', 'out')
-                        ->where('status', 'posted')
-                        ->sum('amount'), 2),
+                    // ⭐ `sum()` على الـ query بيرجّع **قرش** — الـ cast
+                    // ما بيشتغلش على aggregates. لازم `fromDatabase`.
+                    'in' => round((float) \App\Casts\Piastres::fromDatabase(
+                        $query->clone()
+                            ->where('direction', 'in')
+                            ->where('status', 'posted')
+                            ->sum('amount')
+                    ), 2),
+                    'out' => round((float) \App\Casts\Piastres::fromDatabase(
+                        $query->clone()
+                            ->where('direction', 'out')
+                            ->where('status', 'posted')
+                            ->sum('amount')
+                    ), 2),
                 ],
             ],
         ]);

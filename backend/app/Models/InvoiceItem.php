@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 
 class InvoiceItem extends Model
@@ -15,8 +16,8 @@ class InvoiceItem extends Model
     {
         return [
             'quantity' => 'decimal:2',
-            'unit_price' => 'decimal:2',
-            'total' => 'decimal:2',
+            'unit_price' => Piastres::class,
+            'total' => Piastres::class,
         ];
     }
 

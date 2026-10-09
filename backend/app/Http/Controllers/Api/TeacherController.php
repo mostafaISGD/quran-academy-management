@@ -309,11 +309,31 @@ class TeacherController extends Controller
         $earnings = $teacher->earnings()->whereIn('status', ['approved', 'paid']);
         $payments = $teacher->payments()->where('status', 'completed');
 
-        $earnedThisMonth = (float) (clone $earnings)->whereRange('earning_date', $startOfMonth, $endOfMonth)->sum('amount');
-        $paidThisMonth = (float) (clone $payments)->whereRange('paid_at', $startOfMonth, $endOfMonth)->sum('amount');
-        $earnedTotal = (float) (clone $earnings)->sum('amount');
-        $paidTotal = (float) (clone $payments)->sum('amount');
-        $pendingTotal = (float) $teacher->earnings()->where('status', 'pending')->sum('amount');
+        /**
+         * ⭐⭐ `$teacher->earnings()` و `->payments()` **علاقات**
+         * (Eloquent Builder)، فـ `sum()` بتتنفّذ في SQL وبترجّع
+         * **قرش خام** — الـ cast ما بيشتغلش على aggregates.
+         *
+         * لو ما حوّلناش، الملخص بيطلع 100 مرة أكبر من الحقيقي
+         * والواجهة بتعرض أرقام غلط للمدير.
+         *
+         * @see \App\Casts\Piastres::fromDatabase
+         */
+        $earnedThisMonth = (float) \App\Casts\Piastres::fromDatabase(
+            (clone $earnings)->whereRange('earning_date', $startOfMonth, $endOfMonth)->sum('amount')
+        );
+        $paidThisMonth = (float) \App\Casts\Piastres::fromDatabase(
+            (clone $payments)->whereRange('paid_at', $startOfMonth, $endOfMonth)->sum('amount')
+        );
+        $earnedTotal = (float) \App\Casts\Piastres::fromDatabase(
+            (clone $earnings)->sum('amount')
+        );
+        $paidTotal = (float) \App\Casts\Piastres::fromDatabase(
+            (clone $payments)->sum('amount')
+        );
+        $pendingTotal = (float) \App\Casts\Piastres::fromDatabase(
+            $teacher->earnings()->where('status', 'pending')->sum('amount')
+        );
 
         return response()->json([
             'summary' => [

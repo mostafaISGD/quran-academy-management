@@ -137,8 +137,24 @@ class StudentCreditController extends Controller
             'created_by' => $request->user()->id,
         ]);
 
-        // ⭐ خصم من الرصيد الدائن
-        $studentCredit->increment('used', $data['amount']);
+        /**
+         * ⭐ خصم من الرصيد الدائن
+         *
+         * ⚠️⚠️ **`increment()` بتتخطّى الـ cast تمامًا!**
+         *
+         * الـ `increment` بتنفيذ `UPDATE ... SET used = used + ?`
+         * على مستوى الـ query builder — من غير ما يعدّي على
+         * `Piastres::set`. فالمبلغ ٢٠٠ جنيه كان بيتخزّن **٢٠٠
+         * قرش**، والرصيد المتبقي بيطلع ١٩٨ بدل صفر.
+         *
+         * الحل: نقرأ الحالي (وهو **جنيه** من الـ cast) ونمنشنّله
+         * بنفسه. كده الاتنين متساويين في الوحدة.
+         *
+         * @see \App\Casts\Piastres
+         */
+        $studentCredit->update([
+            'used' => round((float) $studentCredit->used + (float) $data['amount'], 2),
+        ]);
 
         if ($studentCredit->fresh()->balance() <= 0) {
             $studentCredit->update(['status' => 'depleted']);
@@ -183,7 +199,15 @@ class StudentCreditController extends Controller
             ], 422);
         }
 
-        $studentCredit->increment('refunded', $data['amount']);
+        /**
+         * ⭐⚠️ نفس سبب `used` فوق — `increment()` بتتخطّى الـ cast.
+         *
+         * الاسترداد ٣٠٠ جنيه كان بيتخزّن ٣٠٠ قرش، فالرصيد بيطلع
+         * ٣ جنيه بدل ٣٠٠. بنجمع في الجنيه ونمنّقه بإيدنا.
+         */
+        $studentCredit->update([
+            'refunded' => round((float) $studentCredit->refunded + (float) $data['amount'], 2),
+        ]);
 
         if ($studentCredit->fresh()->balance() <= 0) {
             $studentCredit->update(['status' => 'refunded']);

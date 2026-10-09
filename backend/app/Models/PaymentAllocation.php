@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -27,7 +28,7 @@ class PaymentAllocation extends Model
 
     protected function casts(): array
     {
-        return ['amount' => 'decimal:2'];
+        return ['amount' => Piastres::class];
     }
 
     public function organization() { return $this->belongsTo(Organization::class); }

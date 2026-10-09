@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -43,7 +44,7 @@ class Payment extends Model
 
     protected function casts(): array
     {
-        return ['amount' => 'decimal:2', 'net_amount' => 'decimal:2', 'paid_at' => 'datetime'];
+        return ['amount' => Piastres::class, 'net_amount' => Piastres::class, 'paid_at' => 'datetime'];
     }
 
     public function student() { return $this->belongsTo(Student::class); }
@@ -64,7 +65,10 @@ class Payment extends Model
     /**   مجموع ما اتوزّع من الدفعة (النشط فقط) */
     public function allocatedAmount(): float
     {
-        return (float) $this->allocations()->active()->sum('amount');
+        // ⭐ `sum()` بالقرش — لازم `fromDatabase`
+        return (float) Piastres::fromDatabase(
+            $this->allocations()->active()->sum('amount')
+        );
     }
 
     /**   المتبقي من الدفعة اللي لسه ما اتغطى على فاتورة */
@@ -75,7 +79,10 @@ class Payment extends Model
 
     public function totalRefunded(): float
     {
-        return (float) $this->refunds()->where('status', 'processed')->sum('amount');
+        // ⭐ `sum()` بالقرش — لازم `fromDatabase`
+        return (float) Piastres::fromDatabase(
+            $this->refunds()->where('status', 'processed')->sum('amount')
+        );
     }
 
     public function isFullyRefunded(): bool

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 
 class CreditNoteApplication extends Model
@@ -13,7 +14,7 @@ class CreditNoteApplication extends Model
 
     protected function casts(): array
     {
-        return ['amount' => 'decimal:2'];
+        return ['amount' => Piastres::class];
     }
 
     protected $attributes = ['status' => 'active'];

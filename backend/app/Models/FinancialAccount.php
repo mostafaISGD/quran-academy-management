@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -30,7 +31,7 @@ class FinancialAccount extends Model
     protected function casts(): array
     {
         return [
-            'opening_balance' => 'decimal:2',
+            'opening_balance' => Piastres::class,
         ];
     }
 
@@ -73,7 +74,7 @@ class FinancialAccount extends Model
      * (`amount * direction` كـ CASE) عشان ما نعملش استعلامين.
      *
      * @param  \Carbon\Carbon|string|null  $from  فلتر من تاريخ (للتقارير)
-     * @param  \Carbon\Carbon|string|null  $to    فلتر ل�� تاريخ
+     * @param  \Carbon\Carbon|string|null  $to    فلتر لآخر تاريخ
      */
     public function balance($from = null, $to = null): float
     {
@@ -86,11 +87,26 @@ class FinancialAccount extends Model
             $query->where('movement_date', '<=', $to);
         }
 
-        $net = $query
-            ->selectRaw(
-                'COALESCE(SUM(CASE WHEN direction = '."'in'".' THEN amount ELSE -amount END), 0) AS net'
-            )
-            ->value('net');
+        /**
+         * ⭐⭐ `$net` **بالقرش** — الـ `SUM` بيتخطّى الـ cast.
+         *
+         * ⚠️ و`$this->opening_balance` **بالجنيه** — لأنه قراءة
+         * خاصية وبيتعدّي على `Piastres::get`.
+         *
+         * فجمعهم من غير تحويل = خلط وحدتين = **غلط 100×**:
+         *     1000.00 (جنيه) + 50000 (قرش) = 51000
+         *
+         * فبنمرّر `SUM` على `fromDatabase()` الأول.
+         *
+         * @see \App\Casts\Piastres::fromDatabase
+         */
+        $net = Piastres::fromDatabase(
+            $query
+                ->selectRaw(
+                    'COALESCE(SUM(CASE WHEN direction = '."'in'".' THEN amount ELSE -amount END), 0) AS net'
+                )
+                ->value('net')
+        );
 
         return round((float) $this->opening_balance + (float) $net, 2);
     }
@@ -100,12 +116,15 @@ class FinancialAccount extends Model
      */
     public function totalIn($from = null, $to = null): float
     {
-        return (float) $this->movements()
-            ->where('status', 'posted')
-            ->where('direction', 'in')
-            ->when($from, fn ($q) => $q->where('movement_date', '>=', $from))
-            ->when($to, fn ($q) => $q->where('movement_date', '<=', $to))
-            ->sum('amount');
+        // ⭐ `sum()` بيرجّع قرش — لازم `fromDatabase`
+        return (float) Piastres::fromDatabase(
+            $this->movements()
+                ->where('status', 'posted')
+                ->where('direction', 'in')
+                ->when($from, fn ($q) => $q->where('movement_date', '>=', $from))
+                ->when($to, fn ($q) => $q->where('movement_date', '<=', $to))
+                ->sum('amount')
+        );
     }
 
     /**
@@ -113,12 +132,15 @@ class FinancialAccount extends Model
      */
     public function totalOut($from = null, $to = null): float
     {
-        return (float) $this->movements()
-            ->where('status', 'posted')
-            ->where('direction', 'out')
-            ->when($from, fn ($q) => $q->where('movement_date', '>=', $from))
-            ->when($to, fn ($q) => $q->where('movement_date', '<=', $to))
-            ->sum('amount');
+        // ⭐ `sum()` بيرجّع قرش — لازم `fromDatabase`
+        return (float) Piastres::fromDatabase(
+            $this->movements()
+                ->where('status', 'posted')
+                ->where('direction', 'out')
+                ->when($from, fn ($q) => $q->where('movement_date', '>=', $from))
+                ->when($to, fn ($q) => $q->where('movement_date', '<=', $to))
+                ->sum('amount')
+        );
     }
 
     // ============================================================

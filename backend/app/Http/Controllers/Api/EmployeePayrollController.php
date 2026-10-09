@@ -56,7 +56,8 @@ class EmployeePayrollController extends Controller
                 'end_date' => $p->end_date,
                 'status' => $p->status,
                 'lines_count' => $p->employee_lines_count,
-                'total_amount' => round((float) ($t->total ?? 0), 2),
+                // ⭐ `DB::table` + `sum()` → **قرش خام**، مافيش cast
+                'total_amount' => round((float) \App\Casts\Piastres::fromDatabase($t->total ?? 0), 2),
                 'total_hours' => round((float) ($t->hours ?? 0), 2),
                 // ⭐ بتّحطّ في الشاشة عشان زر الإقفال يقول
                 // «في ٣ أسطر لسه مدفوعش» قبل ما يدوس.
@@ -403,7 +404,7 @@ class EmployeePayrollController extends Controller
      *   | مدفوع  → تعديل ❌ |            | دفع ❌ (اتدفع)
      *
      * ⚠️ شرط الإقفال: مفيش مسودّات. سطر لسه ما اتراجعش ماينفعش
-     * يتحط جوه فترة «مقفولة» — بعد كده مفيش способ نعدّله.
+     * يتحط جوه فترة «مقفولة» — بعد كده مفيش طريقة نعدّله.
      */
     public function close(Request $request, PayrollPeriod $period)
     {

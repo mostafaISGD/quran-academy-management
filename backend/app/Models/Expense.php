@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -17,7 +18,7 @@ class Expense extends Model
 
     protected function casts(): array
     {
-        return ['amount' => 'decimal:2', 'expense_date' => 'date'];
+        return ['amount' => Piastres::class, 'expense_date' => 'date'];
     }
 
     public function organization() { return $this->belongsTo(Organization::class); }

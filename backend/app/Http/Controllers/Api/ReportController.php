@@ -26,9 +26,15 @@ class ReportController extends Controller
         $today = Carbon::today();
         $todayLessons = Lesson::query()->whereDate('scheduled_start_at', $today);
         $monthStart = $today->copy()->startOfMonth();
-        $monthlyRevenue = Payment::query()->where('status', 'completed')->whereRange('paid_at', $monthStart, $today)->sum('amount');
+        // ⭐ `sum()` على الـ query بيرجّع **قرش** — الـ cast ما بيشتغلش
+        // على aggregates. لازم `fromDatabase` قبل أي مقارنة أو جمع.
+        $monthlyRevenue = \App\Casts\Piastres::fromDatabase(
+            Payment::query()->where('status', 'completed')->whereRange('paid_at', $monthStart, $today)->sum('amount')
+        );
         $expiringSoon = Subscription::query()->where('status', 'active')->whereRange('end_date', $today, $today->copy()->addDays(3))->count();
-        $pendingTeacherPayments = TeacherPayment::query()->whereIn('status', ['pending'])->sum('amount');
+        $pendingTeacherPayments = \App\Casts\Piastres::fromDatabase(
+            TeacherPayment::query()->whereIn('status', ['pending'])->sum('amount')
+        );
         $unscheduledLeads = Lead::query()->whereIn('status', ['new', 'contacted'])->count();
 
         return response()->json([

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -29,8 +30,8 @@ class EmployeePayrollLine extends Model
     {
         return [
             'hours' => 'float',
-            'hourly_rate' => 'float',
-            'amount' => 'float',
+            'hourly_rate' => Piastres::class,
+            'amount' => Piastres::class,
             'period_start' => 'date',
             'period_end' => 'date',
             'paid_at' => 'datetime',

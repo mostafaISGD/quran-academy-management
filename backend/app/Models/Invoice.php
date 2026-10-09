@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\Piastres;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -18,13 +19,13 @@ class Invoice extends Model
     protected function casts(): array
     {
         return [
-            'subtotal' => 'decimal:2',
-            'discount' => 'decimal:2',
-            'tax' => 'decimal:2',
-            'total' => 'decimal:2',
-            'paid_amount' => 'decimal:2',
-            'balance_due' => 'decimal:2',
-            'credited_amount' => 'decimal:2',
+            'subtotal' => Piastres::class,
+            'discount' => Piastres::class,
+            'tax' => Piastres::class,
+            'total' => Piastres::class,
+            'paid_amount' => Piastres::class,
+            'balance_due' => Piastres::class,
+            'credited_amount' => Piastres::class,
             'issue_date' => 'date',
             'due_date' => 'date',
         ];
@@ -58,9 +59,22 @@ class Invoice extends Model
      */
     public function recalculateFromAllocations(): self
     {
-        $paid = (float) $this->allocations()->active()->sum('amount');
+        /**
+         * ⭐⭐ الـ `sum()` بيرجّع **قرش** — والـ `total` بالتحت
+         * **جنيه** (لأنه خاصية بتعدّي على الـ cast).
+         *
+         * فلو ما مرّرناش التوزيعات على `fromDatabase()`:
+         *     650.00 (جنيه) - 20000 (قرش) = -19350  ⭐ كارثة
+         *
+         * @see \App\Casts\Piastres::fromDatabase
+         */
+        $paid = (float) Piastres::fromDatabase(
+            $this->allocations()->active()->sum('amount')
+        );
 
-        $credited = (float) $this->creditApplications()->active()->sum('amount');
+        $credited = (float) Piastres::fromDatabase(
+            $this->creditApplications()->active()->sum('amount')
+        );
 
         $total = (float) $this->total;
         $balance = max(0, $total - $paid - $credited);
@@ -84,7 +98,10 @@ class Invoice extends Model
     /**   كل ما اتدفع على هذه الفاتورة (مجموع التوزيعات النشطة) */
     public function paidViaAllocations(): float
     {
-        return (float) $this->allocations()->active()->sum('amount');
+        // ⭐ `sum()` بالقرش — لازم `fromDatabase`
+        return (float) Piastres::fromDatabase(
+            $this->allocations()->active()->sum('amount')
+        );
     }
 
     /**   تطبيقات الرصيد الدائن على هذه الفاتورة */
