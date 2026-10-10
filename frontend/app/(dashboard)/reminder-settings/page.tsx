@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { usePage } from "@/lib/use-page";
 import { useUI } from "@/components/ui";
 
 /**
@@ -34,9 +35,7 @@ type Settings = {
 
 export default function ReminderSettingsPage() {
   const { toast } = useUI();
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const [settings, setSettings] = useState<Settings>({
     subscription_process_time: "02:00",
@@ -52,21 +51,25 @@ export default function ReminderSettingsPage() {
     },
   });
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      // TODO: GET /api/reminder-settings
-      // للدلوقتي نستخدم القيم الافتراضية
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "تعذر التحميل");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    load();
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * ⚠️ الendpoint لسه مش متنفّذ (TODO) — الـ fetcher
+   * بيعمل no-op بيرجع `null`. أول ما السيرفر يجهز
+   * `GET /api/reminder-settings`، هنرجّع `data` ونملأ
+   * بيه الـ `settings`.
+   *
+   * @see usePage
+   */
+  const fetchSettings = useCallback(async () => {
+    // TODO: const r = await getReminderSettings();
+    // setSettings(r);
+    return null;
   }, []);
+
+  const { loading, error } = usePage<null>("reminder-settings", fetchSettings, {
+    initial: null,
+  });
 
   const handleChange = <K extends keyof Settings>(
     key: K,

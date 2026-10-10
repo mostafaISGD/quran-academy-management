@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { usePage } from "@/lib/use-page";
 import {
   approvePayroll,
   closePayrollPeriod,
@@ -74,46 +75,60 @@ function prettyDate(iso: string): string {
 }
 
 export default function PayrollPage() {
-  const [data, setData] = useState<PayrollPeriodsResponse | null>(null);
   const [periodId, setPeriodId] = useState<number | null>(null);
-  const [lines, setLines] = useState<PayrollLinesResponse | null>(null);
-  const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const { toast, confirm } = useUI();
 
-  const loadPeriods = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await getPayrollPeriods();
-      setData(r);
-      // أول فترة مفتوحة لو فيه، وإلا أحدث فترة
-      setPeriodId((cur) => {
-        if (cur && r.periods.some((p) => p.id === cur)) return cur;
-        const open = r.periods.find((p) => p.status === "open");
-        return open?.id ?? r.periods[0]?.id ?? null;
-      });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "تعذر تحميل الفترات");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * الفترات في `usePage` ثابت (`payroll-periods`)، والسطور
+   * في `usePage` بـ key الفترة المختارة.
+   *
+   * @see usePage
+   */
+  const fetchPeriods = useCallback(() => getPayrollPeriods(), []);
 
-  const loadLines = useCallback(async (id: number) => {
-    try {
-      setLines(await getPayrollLines(id));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "تعذر تحميل السطور");
-    }
-  }, []);
+  const {
+    data: periodsData,
+    loading,
+    error: periodsError,
+    reload: reloadPeriods,
+  } = usePage<PayrollPeriodsResponse | null>("payroll-periods", fetchPeriods, {
+    initial: null,
+  });
 
-  useEffect(() => { loadPeriods(); }, [loadPeriods]);
-  useEffect(() => { if (periodId) loadLines(periodId); }, [periodId, loadLines]);
+  const periods = periodsData?.periods ?? [];
 
-  const period = data?.periods.find((p) => p.id === periodId) ?? null;
+  /**
+   * ⭐ اختيار الفترة — **أثناء الرسم**، مش في effect.
+   *
+   * بنختار أول فترة مفتوحة لو فيه، وإلا أحدث فترة. ولو
+   * الفترة المختارة اتمسحت (مثلاً بعد إقفال)، بنرجع
+   * للاختيار التلقائي.
+   */
+  if (!periodId || !periods.some((p) => p.id === periodId)) {
+    const open = periods.find((p) => p.status === "open");
+    setPeriodId(open?.id ?? periods[0]?.id ?? null);
+  }
+
+  const fetchLines = useCallback(
+    async () => (periodId ? getPayrollLines(periodId) : null),
+    [periodId],
+  );
+
+  const {
+    data: lines,
+    error: linesError,
+    reload: reloadLines,
+  } = usePage<PayrollLinesResponse | null>(
+    `payroll-lines:${periodId ?? "none"}`,
+    fetchLines,
+    { initial: null },
+  );
+
+  const period = periods.find((p) => p.id === periodId) ?? null;
   const isOpen = period?.status === "open";
 
   // سطور مستحقة لسه ما اتصرفتش — بيظهر في تنبيه الفترة المقفولة
@@ -145,7 +160,7 @@ export default function PayrollPage() {
     try {
       const r = await generatePayroll(period.id);
       toast.success(r.message);
-      await Promise.all([loadLines(period.id), loadPeriods()]);
+      await Promise.all([reloadLines(), reloadPeriods()]);
     } catch (e) {
       toast.apiError("فشل الاحتساب", e);
     } finally {
@@ -176,7 +191,7 @@ export default function PayrollPage() {
     try {
       const r = await approvePayroll(period.id);
       toast.success(r.message);
-      await Promise.all([loadLines(period.id), loadPeriods()]);
+      await Promise.all([reloadLines(), reloadPeriods()]);
     } catch (e) {
       toast.apiError("فشل الاعتماد", e);
     } finally {
@@ -218,7 +233,7 @@ export default function PayrollPage() {
     try {
       const r = await closePayrollPeriod(period.id);
       toast.success(r.message);
-      await Promise.all([loadLines(period.id), loadPeriods()]);
+      await Promise.all([reloadLines(), reloadPeriods()]);
     } catch (e) {
       toast.apiError("فشل الإقفال", e);
     } finally {
@@ -246,7 +261,7 @@ export default function PayrollPage() {
     try {
       const r = await reopenPayrollPeriod(period.id);
       toast.success(r.message);
-      await Promise.all([loadLines(period.id), loadPeriods()]);
+      await Promise.all([reloadLines(), reloadPeriods()]);
     } catch (e) {
       toast.apiError("فشل الفتح", e);
     } finally {
@@ -261,10 +276,9 @@ export default function PayrollPage() {
   async function patchLine(id: number, payload: Parameters<typeof updatePayrollLine>[1]) {
     try {
       const r = await updatePayrollLine(id, payload);
-      // نحدّث السطر في القائمة بس — من غير إعادة تحميل كامل
-      setLines((prev) =>
-        prev ? { ...prev, lines: prev.lines.map((l) => (l.id === id ? r : l)) } : prev,
-      );
+      // ⭐ بنحدّث السطور من السيرفر — التحديث المتفائل القديم
+      // كان بيعتمد على `setLines` اللي اتشال مع التحويل
+      reloadLines();
       return r;
     } catch (e) {
       toast.apiError("فشل التعديل", e);
@@ -284,7 +298,7 @@ export default function PayrollPage() {
     try {
       await payPayrollLine(line.id);
       toast.success(`اتسجّل دفع ${line.employee.name}`);
-      await Promise.all(periodId ? [loadLines(periodId), loadPeriods()] : []);
+      await Promise.all(periodId ? [reloadLines(), reloadPeriods()] : []);
     } catch (e) {
       toast.apiError("فشل تسجيل الدفع", e);
     } finally {
@@ -317,13 +331,15 @@ export default function PayrollPage() {
         </p>
       </div>
 
-      {error && (
-        <div className="mb-4 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700">{error}</div>
+      {(periodsError ?? linesError) && (
+        <div className="mb-4 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700">
+          {periodsError ?? linesError}
+        </div>
       )}
 
       {/* ===== اختيار الفترة ===== */}
       <div className="mb-4 flex flex-wrap gap-2">
-        {(data?.periods ?? []).map((p) => (
+        {periods.map((p) => (
           <button
             key={p.id}
             onClick={() => setPeriodId(p.id)}
@@ -347,7 +363,7 @@ export default function PayrollPage() {
             </span>
           </button>
         ))}
-        {data && data.periods.length === 0 && (
+        {periodsData && periods.length === 0 && (
           <p className="text-sm text-slate-400">مفيش فترات مرتبات لسه</p>
         )}
       </div>
@@ -523,7 +539,7 @@ export default function PayrollPage() {
           )}
 
           {/* ===== موظفين بلا سعر ساعة ===== */}
-          {data && data.hourly_employees.length === 0 && (
+          {periodsData && periodsData.hourly_employees.length === 0 && (
             <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
               <h3 className="mb-1 text-sm font-medium text-slate-800">مفيش موظف بسعر ساعة</h3>
               <p className="text-xs text-slate-500">
@@ -657,10 +673,13 @@ function NumberField({
   const [text, setText] = useState(value === null ? "" : String(value));
   const [saving, setSaving] = useState(false);
 
-  // لو القيمة اتغيّرت من برّه (بعد حفظ)، نحدّث الخانة
-  useEffect(() => {
+  // ⭐ لو القيمة اتغيّرت من برّه (بعد حفظ)، نحدّث الخانة —
+  // أثناء الرسم (نمط اشتقاق الحالة من توثيق React)، مش في effect
+  const [prevValue, setPrevValue] = useState(value);
+  if (value !== prevValue) {
+    setPrevValue(value);
     setText(value === null ? "" : String(value));
-  }, [value]);
+  }
 
   async function commit() {
     const trimmed = text.trim();
