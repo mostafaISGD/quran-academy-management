@@ -13,9 +13,7 @@ import {
   transferBetweenAccounts,
   unlockPeriod,
   type AccountMovement,
-  type AccountsResponse,
   type FinancialAccount,
-  type MovementsResponse,
   type PeriodLock,
 } from "@/lib/api";
 import { date, money, num, text } from "@/lib/format";

@@ -7,7 +7,7 @@ const eslintConfig = defineConfig([
   ...nextTs,
 
   /**
-   * ⭐⭐⭐ **`set-state-in-effect` مقفول — والسبب مكتوب هنا.**
+   * ⭐⭐⭐ **`set-state-in-effect` مفعّلة كـ `error` — والسبب مكتوب هنا.**
      *
      * ═══════════════════════════════════════════════════════════
      * ⭐ القاعدة دي جاية من إعدادات React Compiler، وهي بتقول
