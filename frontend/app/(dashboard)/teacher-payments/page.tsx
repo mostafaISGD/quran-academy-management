@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { getTeacherPayments, getTeachers, type TeacherPayment, type Teacher } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import { date, egp } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
@@ -28,58 +29,92 @@ const METHOD_LABEL: Record<string, string> = {
 /** ⭐ alias — التنسيق في `lib/format` (كان `toLocaleString` مكرر هنا) */
 const fmtMoney = egp;
 
+/**
+ * ⭐ كل حاجة بيجيبها الطلب في كومة واحدة —
+ * عشان `usePage` بترجع `data` واحد بس.
+ */
+type PaymentsBundle = {
+  items: TeacherPayment[];
+  total: number;
+  lastPage: number;
+  statusCounts: Record<string, number>;
+  totalAmount: number;
+};
+
+const EMPTY_PAYMENTS: PaymentsBundle = {
+  items: [],
+  total: 0,
+  lastPage: 1,
+  statusCounts: {},
+  totalAmount: 0,
+};
+
 export default function TeacherPaymentsPage() {
-  const [payments, setPayments] = useState<TeacherPayment[]>([]);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
-  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
-  const [totalAmount, setTotalAmount] = useState(0);
-
   const [statusFilter, setStatusFilter] = useState("");
   const [teacherFilter, setTeacherFilter] = useState("");
 
-  const load = useCallback(
-    async (targetPage = 1, status = "", teacherId = "") => {
-      setLoading(true);
-      setError(null);
-      try {
-        const r = await getTeacherPayments({
-          per_page: PAGE_SIZE,
-          page: targetPage,
-          status: status || undefined,
-          teacher_id: teacherId ? Number(teacherId) : undefined,
-        });
-        setPayments(r.data);
-        setMeta({ total: r.total, last_page: r.last_page });
-        setTotalAmount(r.sums?.amount ?? 0);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * الـ `key` بيتضمن الصفحة **والفلاتر** — أي تغيير
+   * فيهم بيحدّث البيانات. والـ selects تحت بتصفّر
+   * الصفحة مع الفلتر (`setPage(1)`).
+   *
+   * @see usePage
+   */
+  const fetchPayments = useCallback(async (): Promise<PaymentsBundle> => {
+    const r = await getTeacherPayments({
+      per_page: PAGE_SIZE,
+      page,
+      status: statusFilter || undefined,
+      teacher_id: teacherFilter ? Number(teacherFilter) : undefined,
+    });
+    const c = r.counts as Record<string, unknown> | undefined;
+    const st = c?.status;
+    return {
+      items: r.data,
+      total: r.total,
+      lastPage: r.last_page,
+      statusCounts: (st && typeof st === "object" ? st : {}) as Record<string, number>,
+      totalAmount: r.sums?.amount ?? 0,
+    };
+  }, [page, statusFilter, teacherFilter]);
 
-        const c = r.counts as Record<string, unknown> | undefined;
-        const st = c?.status;
-        setStatusCounts((st && typeof st === "object" ? st : {}) as Record<string, number>);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
+  const {
+    data: bundle,
+    loading,
+    error,
+    reload,
+  } = usePage<PaymentsBundle>(
+    `teacher-payments:${page}:${statusFilter}:${teacherFilter}`,
+    fetchPayments,
+    { initial: EMPTY_PAYMENTS },
   );
 
-  useEffect(() => {
-    load(1, statusFilter, teacherFilter);
-    getTeachers({ per_page: 100 })
-      .then((r) => setTeachers(r.data))
-      .catch(() => {});
-  }, [load, statusFilter, teacherFilter]);
+  const payments = bundle.items;
+  const meta = { total: bundle.total, last_page: bundle.lastPage };
+  const statusCounts = bundle.statusCounts;
+  const totalAmount = bundle.totalAmount;
+
+  /**
+   * ⭐ قائمة المعلمين للفلتر — `usePage` منفصل بثابت
+   * `key`، فبتتجاب مرة واحدة (كان بيتعيد جلبها
+   * مع كل فلتر في الـ effect القديم).
+   */
+  const fetchTeachersList = useCallback(async () => {
+    const r = await getTeachers({ per_page: 100 });
+    return r.data;
+  }, []);
+
+  const { data: teachersData } = usePage<Teacher[]>("teacher-list", fetchTeachersList, {
+    initial: [],
+  });
+  const teachers = teachersData ?? [];
 
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    load(target, statusFilter, teacherFilter);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -137,7 +172,7 @@ export default function TeacherPaymentsPage() {
       {error && (
         <div className="mb-4 flex items-center justify-between rounded-lg bg-red-50 px-4 py-2.5">
           <p className="text-sm text-red-700">{error}</p>
-          <button onClick={() => load(page, statusFilter, teacherFilter)} className="text-sm font-medium text-red-700 underline">
+          <button onClick={reload} className="text-sm font-medium text-red-700 underline">
             إعادة المحاولة
           </button>
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   getSubscriptions,
   deleteSubscription,
@@ -8,6 +8,7 @@ import {
   type Subscription,
   type ProcessDayResult,
 } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import { money } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 import { useUI, IconRefresh } from "@/components/ui";
@@ -32,55 +33,85 @@ const PAGE_SIZE = 100;
 /** ⭐ alias — `money` من `lib/format` بتعمل كل ده (ج.م + التحويل) */
 const fmtMoney = money;
 
+/**
+ * ⭐ كل حاجة بيجيبها الطلب في كومة واحدة —
+ * عشان `usePage` بترجع `data` واحد بس.
+ */
+type SubscriptionsBundle = {
+  items: Subscription[];
+  total: number;
+  lastPage: number;
+  counts: Record<string, number>;
+  sums: Record<string, number>;
+};
+
+const EMPTY_SUBS: SubscriptionsBundle = {
+  items: [],
+  total: 0,
+  lastPage: 1,
+  counts: {},
+  sums: {},
+};
+
 export default function SubscriptionsPage() {
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [sums, setSums] = useState<Record<string, number>>({});
-
   const [statusFilter, setStatusFilter] = useState("");
 
   const [processing, setProcessing] = useState(false);
   const [lastRun, setLastRun] = useState<ProcessDayResult | null>(null);
+  /** ⭐ خطأ الإجراءات — منفصل عن `error` (الجلب) */
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const { toast, confirm } = useUI();
 
-  const load = useCallback(async (targetPage = 1, status = "") => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await getSubscriptions({
-        per_page: PAGE_SIZE,
-        page: targetPage,
-        status: status || undefined,
-      });
-      setSubscriptions(r.data);
-      setMeta({ total: r.total, last_page: r.last_page });
-      // counts متداخلة تحت اسم العمود: { status: {...}, billing_type: {...} }
-      // قراءة r.counts كأنها مسطّحة بتدي أصفار صامتة
-      const c = r.counts as Record<string, unknown> | undefined;
-      const st = c?.status;
-      setCounts((st && typeof st === "object" ? st : {}) as Record<string, number>);
-      setSums(r.sums ?? {});
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * الـ `key` بيتضمن الصفحة **والفلتر**. ملاحظة:
+   * الـ select تحت بيصفّر الصفحة مع الفلتر
+   * (`setPage(1)`) — فمحتاجينش نعمل حاجة
+   * إضافية.
+   *
+   * @see usePage
+   */
+  const fetchSubscriptions = useCallback(async (): Promise<SubscriptionsBundle> => {
+    const r = await getSubscriptions({
+      per_page: PAGE_SIZE,
+      page,
+      status: statusFilter || undefined,
+    });
+    // counts متداخلة تحت اسم العمود: { status: {...}, billing_type: {...} }
+    // قراءة r.counts كأنها مسطّحة بتدي أصفار صامتة
+    const c = r.counts as Record<string, unknown> | undefined;
+    const st = c?.status;
+    return {
+      items: r.data,
+      total: r.total,
+      lastPage: r.last_page,
+      counts: (st && typeof st === "object" ? st : {}) as Record<string, number>,
+      sums: r.sums ?? {},
+    };
+  }, [page, statusFilter]);
 
-  useEffect(() => {
-    load(1, statusFilter);
-  }, [load, statusFilter]);
+  const {
+    data: bundle,
+    loading,
+    error,
+    reload,
+  } = usePage<SubscriptionsBundle>(
+    `subscriptions:${page}:${statusFilter}`,
+    fetchSubscriptions,
+    { initial: EMPTY_SUBS },
+  );
+
+  const subscriptions = bundle.items;
+  const meta = { total: bundle.total, last_page: bundle.lastPage };
+  const counts = bundle.counts;
+  const sums = bundle.sums;
 
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    load(target, statusFilter);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -95,10 +126,11 @@ export default function SubscriptionsPage() {
     try {
       await deleteSubscription(id);
       toast.success("تم حذف الاشتراك", studentName);
-      load(1, statusFilter);
+      setPage(1);
+      reload();
     } catch (err) {
       toast.error("فشل حذف الاشتراك", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل الحذف");
+      setActionError(err instanceof Error ? err.message : "فشل الحذف");
     }
   }
 
@@ -126,7 +158,7 @@ export default function SubscriptionsPage() {
     try {
       const r = await processSubscriptionDay();
       setLastRun(r);
-      load(page, statusFilter);
+      reload();
 
       const parts = [
         `${r.renewed.length} تجديد`,
@@ -145,7 +177,7 @@ export default function SubscriptionsPage() {
       }
     } catch (err) {
       toast.error("فشلت المعالجة", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشلت المعالجة");
+      setActionError(err instanceof Error ? err.message : "فشلت المعالجة");
     } finally {
       setProcessing(false);
     }
@@ -205,10 +237,10 @@ export default function SubscriptionsPage() {
         </div>
       </div>
 
-      {error && (
+      {(error || actionError) && (
         <div className="mb-4 flex items-center justify-between rounded-lg bg-red-50 px-4 py-2.5">
-          <p className="text-sm text-red-700">{error}</p>
-          <button onClick={() => load(page, statusFilter)} className="text-sm font-medium text-red-700 underline">
+          <p className="text-sm text-red-700">{error ?? actionError}</p>
+          <button onClick={reload} className="text-sm font-medium text-red-700 underline">
             إعادة المحاولة
           </button>
         </div>

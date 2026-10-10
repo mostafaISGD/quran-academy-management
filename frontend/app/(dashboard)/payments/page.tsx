@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { getPayments, createPayment, refundPayment, type Payment } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import { date, egp, money } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
@@ -13,47 +14,80 @@ const METHOD_LABEL: Record<Payment["payment_method"], string> = {
   cash: "نقدي", bank_transfer: "تحويل بنكي", wallet: "محفظة", online_payment: "دفع أونلاين", card: "بطاقة", other: "أخرى",
 };
 
+/**
+ * ⭐ كل حاجة بيجيبها الطلب في كومة واحدة —
+ * عشان `usePage` بترجع `data` واحد بس.
+ */
+type PaymentsBundle = {
+  items: Payment[];
+  total: number;
+  lastPage: number;
+  sums: Record<string, number>;
+  methodCounts: Record<string, number>;
+};
+
+const EMPTY_PAYMENTS: PaymentsBundle = {
+  items: [],
+  total: 0,
+  lastPage: 1,
+  sums: {},
+  methodCounts: {},
+};
+
 export default function PaymentsPage() {
-  const [payments, setPayments] = useState<Payment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [refundPaymentId, setRefundPaymentId] = useState<number | null>(null);
+  /** ⭐ خطأ الإجراءات (إنشاء/استرجاع) — منفصل عن `error` (الجلب) */
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const [form, setForm] = useState<{ student_id: string; invoice_id: string; amount: string; net_amount: string; currency: string; payment_method: Payment["payment_method"]; paid_at: string }>({ student_id: "", invoice_id: "", amount: "", net_amount: "", currency: "EGP", payment_method: "cash", paid_at: "" });
 
   const [refundForm, setRefundForm] = useState({ amount: "", reason: "" });
 
-  // Pagination + إحصائيات من الداتابيز
+  // Pagination + إحصائيات من الداتابيس
   const PAGE_SIZE = 100;
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
-  const [sums, setSums] = useState<Record<string, number>>({});
-  const [methodCounts, setMethodCounts] = useState<Record<string, number>>({});
 
-  function loadPayments(targetPage = 1) {
-    setLoading(true);
-    getPayments({ per_page: PAGE_SIZE, page: targetPage })
-      .then((r) => {
-        setPayments(r.data);
-        setMeta({ total: r.total, last_page: r.last_page });
-        setSums(r.sums ?? {});
-        const c = r.counts as Record<string, unknown> | undefined;
-        const m = c?.payment_method;
-        setMethodCounts((m && typeof m === "object" ? m : {}) as Record<string, number>);
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : "تعذر تحميل البيانات"))
-      .finally(() => setLoading(false));
-  }
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * الـ `key` هو الصفحة — والإحصائيات (`sums`
+   * و`methodCounts`) بتيجي من نفس الطلب.
+   *
+   * @see usePage
+   */
+  const fetchPayments = useCallback(async (): Promise<PaymentsBundle> => {
+    const r = await getPayments({ per_page: PAGE_SIZE, page });
+    const c = r.counts as Record<string, unknown> | undefined;
+    const m = c?.payment_method;
+    return {
+      items: r.data,
+      total: r.total,
+      lastPage: r.last_page,
+      sums: r.sums ?? {},
+      methodCounts: (m && typeof m === "object" ? m : {}) as Record<string, number>,
+    };
+  }, [page]);
+
+  const {
+    data: bundle,
+    loading,
+    error,
+    reload,
+  } = usePage<PaymentsBundle>(`payments:${page}`, fetchPayments, {
+    initial: EMPTY_PAYMENTS,
+  });
+
+  const payments = bundle.items;
+  const meta = { total: bundle.total, last_page: bundle.lastPage };
+  const sums = bundle.sums;
+  const methodCounts = bundle.methodCounts;
 
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    loadPayments(target);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
-
-  useEffect(() => { loadPayments(1); }, []);
 
   // ⭐ `egp` من `lib/format` — بتعمل التحويل لـ«ج.م» جواها
   const fmt = egp;
@@ -72,8 +106,10 @@ export default function PaymentsPage() {
       });
       setShowForm(false);
       setForm({ student_id: "", invoice_id: "", amount: "", net_amount: "", currency: "EGP", payment_method: "cash", paid_at: "" });
-      loadPayments();
-    } catch (err) { setError(err instanceof Error ? err.message : "فشل إنشاء الدفعة"); }
+      // ⭐ نرجع لأول صفحة ونعيد الجلب
+      setPage(1);
+      reload();
+    } catch (err) { setActionError(err instanceof Error ? err.message : "فشل إنشاء الدفعة"); }
   }
 
   async function handleRefund(e: React.FormEvent) {
@@ -83,8 +119,10 @@ export default function PaymentsPage() {
       await refundPayment(refundPaymentId, Number(refundForm.amount), refundForm.reason);
       setRefundPaymentId(null);
       setRefundForm({ amount: "", reason: "" });
-      loadPayments();
-    } catch (err) { setError(err instanceof Error ? err.message : "فشل الاسترجاع"); }
+      // ⭐ نفس الحاجة — نعيد الجلب من أول صفحة
+      setPage(1);
+      reload();
+    } catch (err) { setActionError(err instanceof Error ? err.message : "فشل الاسترجاع"); }
   }
 
   return (
@@ -118,6 +156,7 @@ export default function PaymentsPage() {
 
       {loading && <p className="text-sm text-slate-500">جارٍ التحميل...</p>}
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+      {actionError && <p className="mb-4 text-sm text-red-600">{actionError}</p>}
       {showForm && (
         <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="mb-4 text-sm font-semibold text-slate-800">تسجيل دفعة</h2>
