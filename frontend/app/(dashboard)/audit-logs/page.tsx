@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { getAuditLogs, type AuditLog } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import { dateSmart } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
@@ -19,47 +20,60 @@ const ENTITY_LABEL: Record<string, string> = {
 };
 
 export default function AuditLogsPage() {
-  const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [filterEntity, setFilterEntity] = useState("");
   const [filterAction, setFilterAction] = useState("");
-
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
-  const [actionCounts, setActionCounts] = useState<Record<string, number>>({});
 
-  const loadLogs = useCallback(async (targetPage = 1, entity = "", action = "") => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await getAuditLogs({
-        per_page: PAGE_SIZE,
-        page: targetPage,
-        entity_type: entity || undefined,
-        action: action || undefined,
-      });
-      setLogs(r.data);
-      setMeta({ total: r.total, last_page: r.last_page });
-      const c = r.counts as Record<string, unknown> | undefined;
-      const a = c?.action;
-      setActionCounts((a && typeof a === "object" ? a : {}) as Record<string, number>);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر التحميل");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * ⭐ العدّادات (`counts.action`) بتيجي مع كل رد — فبنتلفهم
+   * جوه نفس الـ fetcher بدل طلب لوحده.
+   *
+   * @see usePage
+   */
+  const fetchLogs = useCallback(async () => {
+    const r = await getAuditLogs({
+      per_page: PAGE_SIZE,
+      page,
+      entity_type: filterEntity || undefined,
+      action: filterAction || undefined,
+    });
 
-  useEffect(() => {
-    setPage(1);
-    loadLogs(1, filterEntity, filterAction);
-  }, [loadLogs, filterEntity, filterAction]);
+    const c = r.counts as Record<string, unknown> | undefined;
+    const a = c?.action;
+
+    return {
+      logs: r.data,
+      total: r.total,
+      lastPage: r.last_page,
+      actionCounts: (a && typeof a === "object" ? a : {}) as Record<string, number>,
+    };
+  }, [page, filterEntity, filterAction]);
+
+  const {
+    data,
+    loading,
+    error,
+  } = usePage(
+    `audit-logs:${page}:${filterEntity}:${filterAction}`,
+    fetchLogs,
+    {
+      initial: {
+        logs: [] as AuditLog[],
+        total: 0,
+        lastPage: 1,
+        actionCounts: {} as Record<string, number>,
+      },
+    },
+  );
+
+  const { logs, total, lastPage, actionCounts } = data;
+  const meta = { total, last_page: lastPage };
 
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    loadLogs(target, filterEntity, filterAction);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 

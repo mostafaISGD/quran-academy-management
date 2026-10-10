@@ -1,28 +1,66 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { getDashboardSummary, getFinancialReport, getAcademicReport, getSalesReport } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import { currencyLabel, egp, money, num } from "@/lib/format";
 
 type Tab = "dashboard" | "financial" | "academic" | "sales";
 
+type Dashboard = Awaited<ReturnType<typeof getDashboardSummary>>;
+type Financial = Awaited<ReturnType<typeof getFinancialReport>>;
+type Academic = Awaited<ReturnType<typeof getAcademicReport>>;
+type Sales = Awaited<ReturnType<typeof getSalesReport>>;
+
 export default function ReportsPage() {
   const [tab, setTab] = useState<Tab>("dashboard");
-  const [dashboard, setDashboard] = useState<Awaited<ReturnType<typeof getDashboardSummary>> | null>(null);
-  const [financial, setFinancial] = useState<Awaited<ReturnType<typeof getFinancialReport>> | null>(null);
-  const [academic, setAcademic] = useState<Awaited<ReturnType<typeof getAcademicReport>> | null>(null);
-  const [sales, setSales] = useState<Awaited<ReturnType<typeof getSalesReport>> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState({ from: "", to: "" });
 
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([getDashboardSummary(), getFinancialReport(dateRange), getAcademicReport(dateRange), getSalesReport(dateRange)])
-      .then(([dash, fin, acad, sal]) => { setDashboard(dash); setFinancial(fin); setAcademic(acad); setSales(sal); })
-      .catch((err) => setError(err instanceof Error ? err.message : "تعذر تحميل التقارير"))
-      .finally(() => setLoading(false));
+  /**
+   * ⭐⭐⭐ **التقارير الأربعة مدمجين في وعد واحد.**
+   *
+   * كلهم بيتبعتوا في نفس اللحظة للمستخدم، والـ API بيرجّعهم
+   * لنفس الفترة — فجمعهم في `Promise.all` **صح** هنا (بعكس
+   * القوائم المرجعية في `schedule` اللي بتتغيّر بتاعتهم).
+   *
+   * ⭐ كل `setState` بيحصل **بعد await** جوّه الـ hook، فمفيش
+   * رسم إضافي.
+   *
+   * @see usePage
+   */
+  const fetchReports = useCallback(async () => {
+    const [dash, fin, acad, sal] = await Promise.all([
+      getDashboardSummary(),
+      getFinancialReport(dateRange),
+      getAcademicReport(dateRange),
+      getSalesReport(dateRange),
+    ]);
+    return { dashboard: dash, financial: fin, academic: acad, sales: sal };
   }, [dateRange]);
+
+  const {
+    data,
+    loading,
+    error,
+  } = usePage(
+    `reports:${dateRange.from}:${dateRange.to}`,
+    fetchReports,
+    {
+      initial: {
+        dashboard: null,
+        financial: null,
+        academic: null,
+        sales: null,
+      } as {
+        dashboard: Dashboard | null;
+        financial: Financial | null;
+        academic: Academic | null;
+        sales: Sales | null;
+      },
+    },
+  );
+
+  const { dashboard, financial, academic, sales } = data;
 
   const TABS: { key: Tab; label: string }[] = [
     { key: "dashboard", label: "لوحة التحكم" },

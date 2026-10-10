@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { getInvoices, createInvoice, deleteInvoice, type Invoice } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import { egp, money } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 import { useUI } from "@/components/ui";
@@ -12,9 +13,6 @@ const STATUS_LABEL: Record<Invoice["status"], string> = {
 };
 
 export default function InvoicesPage() {
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     student_id: "", issue_date: "", due_date: "",
@@ -24,31 +22,53 @@ export default function InvoicesPage() {
   // Pagination + إحصائيات من الداتابيز
   const PAGE_SIZE = 100;
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
-  const [sums, setSums] = useState<Record<string, number>>({});
 
   const { toast, confirm } = useUI();
 
-  function loadInvoices(targetPage = 1) {
-    setLoading(true);
-    getInvoices({ per_page: PAGE_SIZE, page: targetPage })
-      .then((r) => {
-        setInvoices(r.data);
-        setMeta({ total: r.total, last_page: r.last_page });
-        setSums(r.sums ?? {});
-      })
-      .catch((err) => setError(err instanceof Error ? err.message : "تعذر تحميل البيانات"))
-      .finally(() => setLoading(false));
-  }
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * ⭐ المجاميع المالية (`sums`) بتيجي مع كل رد — فبنتلفها جوه
+   * نفس الـ fetcher، مفيش طلب لوحده.
+   *
+   * @see usePage
+   */
+  const fetchInvoices = useCallback(async () => {
+    const r = await getInvoices({ per_page: PAGE_SIZE, page });
+    return {
+      invoices: r.data,
+      total: r.total,
+      lastPage: r.last_page,
+      sums: r.sums ?? {},
+    };
+  }, [page]);
+
+  const {
+    data,
+    loading,
+    error,
+    reload,
+  } = usePage(
+    `invoices:${page}`,
+    fetchInvoices,
+    {
+      initial: {
+        invoices: [] as Invoice[],
+        total: 0,
+        lastPage: 1,
+        sums: {} as Record<string, number>,
+      },
+    },
+  );
+
+  const { invoices, sums } = data;
+  const meta = { total: data.total, last_page: data.lastPage };
 
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    loadInvoices(target);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
-
-  useEffect(() => { loadInvoices(1); }, []);
 
   // ⭐ `egp` من `lib/format` — بتعمل التحويل لـ«ج.م» جواها
   const fmt = egp;
@@ -65,8 +85,8 @@ export default function InvoicesPage() {
       });
       setShowForm(false);
       toast.success("تم إنشاء الفاتورة");
-      loadInvoices();
-    } catch (err) { toast.error("فشل إنشاء الفاتورة", err instanceof Error ? err.message : undefined); setError(err instanceof Error ? err.message : "فشل إنشاء الفاتورة"); }
+      reload();
+    } catch (err) { toast.error("فشل إنشاء الفاتورة", err instanceof Error ? err.message : undefined); }
   }
 
   async function handleDelete(id: number, number: string, studentName: string) {
@@ -80,10 +100,9 @@ export default function InvoicesPage() {
     try {
       await deleteInvoice(id);
       toast.success("تم حذف الفاتورة", number);
-      loadInvoices();
+      reload();
     } catch (err) {
       toast.error("فشل حذف الفاتورة", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل الحذف");
     }
   }
 

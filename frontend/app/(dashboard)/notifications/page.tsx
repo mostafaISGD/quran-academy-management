@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { getNotifications, markNotificationRead, markAllNotificationsRead, type Notification } from "@/lib/api";
+import { usePaginated } from "@/lib/use-page";
 import { dateSmart } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
@@ -18,52 +19,60 @@ const CHANNEL_LABEL: Record<Notification["channel"], string> = {
 const PAGE_SIZE = 100;
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [eventFilter, setEventFilter] = useState("");
+  /** ⭐ خطأ العمليات (تعليم كمقروء) — منفصل عن خطأ التحميل */
+  const [actionError, setActionError] = useState<string | null>(null);
 
   /**
-   * ⭐ مفيش `event` هنا عن قصد.
+   * ⭐ الجلب عن طريق `usePaginated` بدل `useEffect`.
    *
-   * الفلترة بنوع الحدث بتحصل في العرض (`visible` تحت) مش في
-   * السيرفر — فالمعامل كان ميّت بس بيوحّي إنه بيفلتر.
+   * ⭐ `unreadOnly` في الـ `key` — فالتحديد بيطلب تاني، والصفحة
+   * بترجع لـ 1 في الـ `onChange` (السطر ٩٣).
+   *
+   * @see usePaginated
    */
-  const loadNotifications = useCallback(async (targetPage = 1, unread = false) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await getNotifications({ per_page: PAGE_SIZE, page: targetPage, unread: unread || undefined });
-      setNotifications(r.data);
-      setMeta({ total: r.total, last_page: r.last_page });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر التحميل");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const fetchNotifications = useCallback(
+    () => getNotifications({
+      per_page: PAGE_SIZE,
+      page,
+      unread: unreadOnly || undefined,
+    }),
+    [page, unreadOnly],
+  );
 
-  useEffect(() => { loadNotifications(1, unreadOnly); }, [loadNotifications, unreadOnly, eventFilter]);
+  const {
+    items: notifications,
+    total,
+    lastPage,
+    loading,
+    error,
+    reload,
+  } = usePaginated<Notification>(`notifications:${page}:${unreadOnly}`, fetchNotifications);
 
+  const meta = { total, last_page: lastPage };
+
+  /**
+   * ⭐ الفلترة بنوع الحدث بتحصل في العرض مش في السيرفر.
+   *
+   * فـ `eventFilter` **مش** في الـ `key` — تغييره ما بيعملش طلب.
+   * (قبل كده كان بيعمل إعادة تحميل من غير داعي.)
+   */
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    loadNotifications(target, unreadOnly);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function handleMarkRead(id: number) {
-    try { await markNotificationRead(id); loadNotifications(page, unreadOnly); }
-    catch (err) { setError(err instanceof Error ? err.message : "فشل"); }
+    try { await markNotificationRead(id); reload(); }
+    catch (err) { setActionError(err instanceof Error ? err.message : "فشل"); }
   }
 
   async function handleMarkAllRead() {
-    try { await markAllNotificationsRead(); loadNotifications(1, unreadOnly); }
-    catch (err) { setError(err instanceof Error ? err.message : "فشل"); }
+    try { await markAllNotificationsRead(); reload(); }
+    catch (err) { setActionError(err instanceof Error ? err.message : "فشل"); }
   }
 
   const visible = eventFilter
@@ -108,6 +117,7 @@ export default function NotificationsPage() {
       </div>
       {loading && <p className="text-sm text-slate-500">جارٍ التحميل...</p>}
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+      {actionError && <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{actionError}</p>}
       {!loading && !error && (
         <div className="space-y-2">
           {visible.length === 0 && <p className="text-slate-400">لا توجد إشعارات</p>}
