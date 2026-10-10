@@ -16,6 +16,7 @@ import {
   type Student, type Teacher, type Program, type Subscription, type Lesson, type StudentPhone,
   type StudentParent,
 } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import Pagination from "@/components/Pagination";
 import LessonCalendarPreview, { WEEKDAY_NAMES } from "@/components/LessonCalendarPreview";
 import TeacherPicker from "@/components/TeacherPicker";
@@ -255,29 +256,47 @@ const PhoneManagerLocal = memo(function PhoneManagerLocal({
   const [localParentRelationship, setLocalParentRelationship] = useState("");
   const [localCustomRelationship, setLocalCustomRelationship] = useState("");
 
-  // الإكمال التلقائي: بحث في أولياء الأمر
-  const [suggestions, setSuggestions] = useState<(Parent & { students_count: number })[]>([]);
+  // الإكمال التلقائي: بحث في أولياء الأمر — ⭐ البيانات من `usePage` تحت
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  useEffect(() => {
-    if (!localIsParent || localPhoneValue.replace(/\D/g, "").length < 3) {
-      setSuggestions([]);
-      return;
-    }
+  /**
+   * ⭐⭐⭐ **البحث التلقائي عبر `usePage` مع `enabled` + تأخير.**
+   *
+   * ⚠️ قبل كده كان فيه `setSuggestions([])` **متزامن** جوه
+   * جسم الـ `useEffect` — وده بالظبط اللي القاعدة بتتحذّر منه
+   * (رسم إضافي في كل ضغطة مفتاح).
+   *
+   * ⭐ دلوقتي:
+   * ① `enabled` بيتحسب من الشرط — فلو الشرط مش متوفر، **مفيش
+   *    طلب خالص** (مش طلب بيطلّع نتيجة فاضية).
+   * ② `debounceMs: 300` — المستخدم بيكتب رقم ببطء، فلو طلبنا
+   *    مع كل حرف كان ده ٢٠٠ طلب. التأخير بيخلي الطلب بعد ما
+   *    يوقف.
+   * ③ مفيش `setState` متزامن في جسم الـ effect.
+   */
+  const canSearch = localIsParent && localPhoneValue.replace(/\D/g, "").length >= 3;
 
-    const timer = setTimeout(() => {
-      searchParents(localPhoneValue)
-        .then((r) => setSuggestions(r.data))
-        .catch(() => setSuggestions([]));
-    }, 300);
+  const fetchSuggestions = useCallback(
+    () => searchParents(localPhoneValue).then((r) => r.data),
+    [localPhoneValue],
+  );
 
-    return () => clearTimeout(timer);
-  }, [localPhoneValue, localIsParent]);
+  const { data: suggestions } = usePage<(Parent & { students_count: number })[]>(
+    `parent-suggestions:${localPhoneValue}`,
+    fetchSuggestions,
+    {
+      enabled: canSearch,
+      initial: [] as (Parent & { students_count: number })[],
+      // ⭐ ٣٠٠ مللي — نفس التأخير اللي كان في الكود القديم
+      debounceMs: 300,
+    },
+  );
 
   const applySuggestion = (parent: Parent & { students_count: number }) => {
     setLocalParentName(parent.name);
     setLocalIsParent(true);
-    setSuggestions([]);
+    // ⭐ مافيش `setSuggestions([])` — الـ `usePage` هيمسح تلقائياً
+    // لأن `canSearch` هيبقى false (الرقم اتغيّر) + الـ `key` اتغيّر
     setShowSuggestions(false);
   };
 
@@ -367,7 +386,8 @@ const PhoneManagerLocal = memo(function PhoneManagerLocal({
     setLocalParentName("");
     setLocalParentRelationship("");
     setLocalCustomRelationship("");
-    setSuggestions([]);
+    // ⭐ `localPhoneValue` اتصفّر فوق، فـ `canSearch` بقى false
+    // والـ `usePage` بيصفّر النتائج لوحده
 
     setTimeout(() => phoneInputRef.current?.focus(), 0);
   };
@@ -606,9 +626,7 @@ export default function StudentsPage() {
   const [studentDetail, setStudentDetail] = useState<StudentDetail | null>(null);
   const [studentTab, setStudentTab] = useState("overview");
 
-  // أولياء أمر الطالب (للتبويب الجديد)
-  const [guardians, setGuardians] = useState<StudentParent[]>([]);
-  const [guardiansLoading, setGuardiansLoading] = useState(false);
+  // أولياء أمر الطالب (للتبويب الجديد) — ⭐ البيانات والـ loading من `usePage` تحت
   const [guardianBusyId, setGuardianBusyId] = useState<number | null>(null);
   const [filterStatus, setFilterStatus] = useState("");
   const [filterCountry, setFilterCountry] = useState("");
@@ -1087,51 +1105,49 @@ export default function StudentsPage() {
     return result;
   }, [students, filterStatus, filterCountry, filterProgram, filterTeacher, searchQuery, smartSegment, subscriptions]);
 
-  /** تحميل أولياء أمر الطالب */
-  const loadGuardians = useCallback(async () => {
-    if (!selectedStudent) {
-      setGuardians([]);
-      return;
-    }
-    setGuardiansLoading(true);
-    try {
-      const r = await getStudentParents(selectedStudent.id);
-      setGuardians(r.data);
-    } catch {
-      setGuardians([]);
-    } finally {
-      setGuardiansLoading(false);
-    }
+  /**
+   * ⭐⭐⭐ **تحميل أولياء أمر الطالب عبر `usePage` مع `enabled`.**
+   *
+   * ⭐ بنستخدم **ID** في الـ `key` مش الـ `selectedStudent` object —
+   * الـ object بيتغيّر هوية كل مرة، فلو استعملناه في الـ `key`
+   * كان الـ effect هيتشغّل كل رسم.
+   *
+   * ⭐ التحميل **مش** على طول — بس لما التبويب مفتوح (عشان
+   * مفيش داعي نطلب أولياء أمر وانت في تبويب تاني).
+   */
+  const fetchGuardians = useCallback(async () => {
+    const r = await getStudentParents(selectedStudent!.id);
+    return r.data;
   }, [selectedStudent]);
+
+  const studentTabIsGuardians = studentTab === "guardians";
+
+  const {
+    data: guardiansData,
+    loading: guardiansLoading,
+    reload: reloadGuardians,
+  } = usePage<StudentParent[]>(
+    `guardians:${selectedStudent?.id ?? "none"}`,
+    fetchGuardians,
+    { enabled: !!selectedStudent && studentTabIsGuardians, initial: [] as StudentParent[] },
+  );
+
+  /** ⭐ القائمة بتتحدّث من الـ hook بدل الـ state */
+  const guardians = guardiansData;
 
   /** تغيير ولي الأمر الأساسي */
   async function handleSetPrimaryGuardian(parentId: number) {
     if (!selectedStudent) return;
     setGuardianBusyId(parentId);
     try {
-      const r = await setPrimaryParent(selectedStudent.id, parentId);
-      setGuardians(r.data);
+      await setPrimaryParent(selectedStudent.id, parentId);
+      reloadGuardians();
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر تغيير ولي الأمر الأساسي");
     } finally {
       setGuardianBusyId(null);
     }
   }
-
-  // تحميل أولياء الأمر لما يبقى التبويب مفتوح
-  useEffect(() => {
-    if (selectedStudent && studentTab === "guardians") {
-      loadGuardians();
-    }
-  }, [selectedStudent, studentTab, loadGuardians]);
-
-  // تصفير القائمة لما نقفل الدروار
-  useEffect(() => {
-    if (!selectedStudent) {
-      setGuardians([]);
-      setGuardianBusyId(null);
-    }
-  }, [selectedStudent]);
 
   function openCreate() { setForm(emptyForm); setEditingId(null); setShowForm(true); }
   function openEdit(s: StudentWithRelations) {
@@ -2279,7 +2295,7 @@ export default function StudentsPage() {
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-slate-800">👨‍👩‍👧 أولياء الأمر ({guardians.length})</h3>
                     <button
-                      onClick={loadGuardians}
+                      onClick={reloadGuardians}
                       className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs text-slate-600 hover:bg-slate-200"
                     >
                       ↻ تحديث

@@ -73,7 +73,7 @@ const inFlight = new Map<string, Pending>();
 export function usePage<T>(
   key: string,
   fetcher: () => Promise<T>,
-  options: { enabled?: boolean; initial?: T } = {},
+  options: { enabled?: boolean; initial?: T; debounceMs?: number } = {},
 ): {
   data: T;
   loading: boolean;
@@ -81,7 +81,7 @@ export function usePage<T>(
   /** إعادة تحميل يدوية — بعد حفظ أو حذف */
   reload: () => void;
 } {
-  const { enabled = true, initial = null as T } = options;
+  const { enabled = true, initial = null as T, debounceMs = 0 } = options;
 
   /**
    * ⭐ `loading` يبدأ `true`.
@@ -113,6 +113,12 @@ export function usePage<T>(
     let cancelled = false;
     loadedKey.current = key;
 
+    /**
+     * ⭐ المؤقتات اللي محتاجة تتلغي لو الـ key اتغيّر أو
+     * الـ component اتشال — عشان بحث قديم ما يطلعش بعدين.
+     */
+    const cleanupTimers: ReturnType<typeof setTimeout>[] = [];
+
     // ⭐ لو فيه طلب شغّال بنفس الـ key، نستنّاه بدل ما نكرر
     const existing = inFlight.get(key);
 
@@ -139,9 +145,32 @@ export function usePage<T>(
 
     const controller = new AbortController();
 
+    /**
+     * ⭐⭐⭐ **التأخير (debounce) — اختياري.**
+     *
+     * ⭐ ده بت-solving مشكلتين:
+     *
+     * ① **البحث أثناء الكتابة** (زي بحث أولياء أمر بالاسم):
+     *    المستخدم بيكتب حرف، فبيطلب طلب. وبيكتب تاني، تاني.
+     *    من غير تأخير، ده ٢٠٠ طلب وهو بيكتب كلمة واحدة.
+     *
+     * ② **`setState` المتزامن في جسم الـ effect:**
+     *    لو كنا بنعمل `setLoading(true)` فوراً، القاعدة بتتحذّر.
+     *    مع `enabled`، لما الشرط ينفع بنستخدم `loading` الابتدائي.
+     *
+     * ⚠️ لما `debounceMs > 0`، الـ cleanup لازم **يلغي الـ timer**
+     * عشان طلبات البحث ما تتراكمش.
+     */
+    const delay = debounceMs > 0
+      ? new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, debounceMs);
+          cleanupTimers.push(timer);
+        })
+      : Promise.resolve();
+
     // ⭐⭐ **`await` الأول** — كل `setState` بعدها في microtask،
     // مش في جسم الـ effect. ده اللي بيمرّي القاعدة.
-    const promise = Promise.resolve()
+    const promise = delay
       .then(() => fetcher())
       .then((result) => {
         if (!cancelled) {
@@ -166,8 +195,11 @@ export function usePage<T>(
 
     return () => {
       cancelled = true;
+      // ⭐ إلغاء المؤقتات — عشان البحث-old ما يطلعش بعد ما
+      // المستخدم يكون اتحرك للرقم الجديد
+      cleanupTimers.forEach(clearTimeout);
     };
-  }, [key, enabled, nonce]);
+  }, [key, enabled, nonce, debounceMs]);
 
   /**
    * ⭐ لو الـ key اتغيّر، البيانات القديمة **مش** تنفع
