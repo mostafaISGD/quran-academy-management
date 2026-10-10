@@ -191,32 +191,62 @@ export function usePage<T>(
 function messageOf(err: unknown): string {
   return err instanceof Error ? err.message : "حدث خطأ غير متوقع";
 }
-
 /**
- * ⭐⭐⭐ **`reload` لكل الـ components بنفس الـ `key`.**
+ * ⭐⭐⭐ **نسخة مختصرة للصفحات اللي بترجع `Paginated<T>`.**
  *
- * لما صفحة تحفظ أو تحذف، بتطلب `reloadAll("expenses:1:")` بدل
- * ما كل صفحة تعمل `await load()`. كده **أي** نسخة من نفس
- * البيانات بتتحدّث — حتى لو في تاب تاني مفتوح.
+ * ═══════════════════════════════════════════════════════════════
+ * ⭐ ليه دي موجودة؟
+ *
+ * نص الصفحات بترجع نفس الشكل بالظبط:
+ *
+ *     const r = await getExpenses({ page, per_page });
+ *     setItems(r.data);
+ *     setMeta({ total: r.total, last_page: r.last_page });
+ *
+ * تكرار ده في كل صفحة. فهنا لفّيناه، والصفحة تكتب سطرين.
+ *
+ * @example
+ * ```tsx
+ * const [page, setPage] = useState(1);
+ * const fetch = useCallback(() => getExpenses({ page, per_page: 100 }), [page]);
+ *
+ * const { items, lastPage, total, loading, error, reload } =
+ *   usePaginated(`expenses:${page}`, fetch);
+ * ```
  */
-export function reloadAll(prefix: string): void {
-  reloadListeners.forEach((fn) => fn(prefix));
-}
+export function usePaginated<T>(
+  key: string,
+  fetcher: () => Promise<{
+    data: T[];
+    total?: number;
+    last_page?: number;
+    current_page?: number;
+    per_page?: number;
+  }>,
+  options: { enabled?: boolean } = {},
+): {
+  items: T[];
+  total: number;
+  lastPage: number;
+  currentPage: number;
+  loading: boolean;
+  error: string | null;
+  reload: () => void;
+} {
+  const { enabled = true } = options;
 
-const reloadListeners = new Set<(prefix: string) => void>();
+  const { data, loading, error, reload } = usePage(key, fetcher, {
+    enabled,
+    initial: { data: [] as T[], total: 0, last_page: 1, current_page: 1 },
+  });
 
-/** ⭐ داخلي: يشترك الـ hook في طلبات إعادة التحميل */
-export function useReloadBus(key: string): void {
-  const [, force] = useState(0);
-
-  useEffect(() => {
-    const listener = (prefix: string) => {
-      if (key.startsWith(prefix)) force((n) => n + 1);
-    };
-
-    reloadListeners.add(listener);
-    return () => {
-      reloadListeners.delete(listener);
-    };
-  }, [key]);
+  return {
+    items: data.data,
+    total: data.total ?? 0,
+    lastPage: data.last_page ?? 1,
+    currentPage: data.current_page ?? 1,
+    loading,
+    error,
+    reload,
+  };
 }

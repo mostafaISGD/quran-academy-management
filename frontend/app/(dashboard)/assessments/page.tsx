@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { getAssessments, createAssessment, updateAssessmentResult, type Assessment } from "@/lib/api";
+import { usePage, usePaginated } from "@/lib/use-page";
 import { dateSmart, text } from "@/lib/format";
 import Pagination from "@/components/Pagination";
 
@@ -12,49 +13,74 @@ const RESULT_LABEL: Record<string, string> = {
 const PAGE_SIZE = 100;
 
 export default function AssessmentsPage() {
-  const [assessments, setAssessments] = useState<Assessment[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [selectedAssessment, setSelectedAssessment] = useState<Assessment | null>(null);
+  /** ⭐ خطأ العمليات (مش خطأ تحميل) — بيظهر تحت */
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const [form, setForm] = useState({ lead_id: "", teacher_id: "", scheduled_at: "" });
   const [resultForm, setResultForm] = useState({ reading_score: "", tajweed_score: "", memorization_score: "", recommended_level: "", notes: "", result: "" as Assessment["result"] | "" });
 
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
-  const [resultCounts, setResultCounts] = useState<Record<string, number>>({});
 
-  const loadAssessments = useCallback(async (targetPage = 1) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await getAssessments({ per_page: PAGE_SIZE, page: targetPage });
-      setAssessments(r.data);
-      setMeta({ total: r.total, last_page: r.last_page });
-      const c = r.counts as Record<string, unknown> | undefined;
-      const rs = c?.result;
-      setResultCounts((rs && typeof rs === "object" ? rs : {}) as Record<string, number>);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  /**
+   * ⭐ الجلب عن طريق `usePaginated` بدل `useEffect`.
+   *
+   * `loading` بيبدأ `true` جوه الـ hook، فمفيش
+   * `setLoading(true)` متزامن — وده اللي كان بيعمل رسم إضافي.
+   *
+   * ⭐ `counts` كمان بتيجي مع البيانات (مش طلب لوحده) —
+   * فهي بتتحدّث مع كل صفحة تلقائياً.
+   *
+   * @see usePaginated
+   */
+  const fetchAssessments = useCallback(
+    () => getAssessments({ per_page: PAGE_SIZE, page }),
+    [page],
+  );
 
-  useEffect(() => { loadAssessments(1); }, [loadAssessments]);
+  const {
+    items: assessments,
+    lastPage,
+    total,
+    loading,
+    error,
+    reload: reloadAssessments,
+  } = usePaginated<Assessment>(`assessments:${page}`, fetchAssessments);
+
+  /**
+   * ⭐ العدّادات (جاهز/متابعة/غير مناسب) بتتجيب مع أول صفحة.
+   *
+   * ⭐⭐ بتطلب **مرة واحدة** بمفتاح ثابت — مش مع كل صفحة. لو
+   * ربطناها بـ `key` الصفحة، كل تنقل بين الصفحات هيطلبها تاني
+   * وهي **ما بتتغيّرش** أصلاً (دي إحصائية على كل النتائج).
+   */
+  const fetchCounts = useCallback(() => getAssessments({ per_page: 1 }).then(r => {
+    const c = r.counts as Record<string, unknown> | undefined;
+    const rs = c?.result;
+    return { result: (rs && typeof rs === "object" ? rs : {}) as Record<string, number> };
+  }), []);
+
+  const { data: countsData } = usePage<{ result: Record<string, number> }>(
+    "assessments:counts",
+    fetchCounts,
+    { initial: { result: {} as Record<string, number> } },
+  );
+
+  const resultCounts = countsData.result;
+
+  const meta = { total, last_page: lastPage };
 
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    loadAssessments(target);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    try { await createAssessment({ lead_id: Number(form.lead_id), teacher_id: Number(form.teacher_id), scheduled_at: form.scheduled_at }); setShowForm(false); loadAssessments(1); }
-    catch (err) { setError(err instanceof Error ? err.message : "فشل إنشاء التقييم"); }
+    try { await createAssessment({ lead_id: Number(form.lead_id), teacher_id: Number(form.teacher_id), scheduled_at: form.scheduled_at }); setShowForm(false); reloadAssessments(); }
+    catch (err) { setActionError(err instanceof Error ? err.message : "فشل إنشاء التقييم"); }
   }
 
   async function handleResult(e: React.FormEvent) {
@@ -71,8 +97,8 @@ export default function AssessmentsPage() {
       });
       setSelectedAssessment(null);
       setResultForm({ reading_score: "", tajweed_score: "", memorization_score: "", recommended_level: "", notes: "", result: "" });
-      loadAssessments(page);
-    } catch (err) { setError(err instanceof Error ? err.message : "فشل حفظ النتيجة"); }
+      reloadAssessments();
+    } catch (err) { setActionError(err instanceof Error ? err.message : "فشل حفظ النتيجة"); }
   }
 
   return (
@@ -103,6 +129,13 @@ export default function AssessmentsPage() {
       </div>
       {loading && <p className="text-sm text-slate-500">جارٍ التحميل...</p>}
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+      {/* ⭐ خطأ العمليات منفصل عن خطأ التحميل — عشان المستخدم
+          يفرق بين "السيرفر واقع" و"الحفظ فشل" */}
+      {actionError && (
+        <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          {actionError}
+        </p>
+      )}
       {showForm && (
         <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="mb-4 text-sm font-semibold text-slate-800">حجز تقييم</h2>

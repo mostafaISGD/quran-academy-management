@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   DndContext, DragOverlay, closestCorners, PointerSensor,
   useSensor, useSensors, type DragStartEvent, type DragEndEvent,
@@ -13,6 +13,7 @@ import {
   getPrograms, getSubscriptions,
   type Lesson, type Student, type Teacher, type Program, type Subscription,
 } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import { date, dateSmart, monthYear, time } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
@@ -51,13 +52,6 @@ const DAYS_SHORT = ["أحد", "إثنين", "ثلاثاء", "أربعاء", "خ�
 export default function SchedulePage() {
   const { toast, prompt } = useUI();
 
-  const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [programs, setPrograms] = useState<Program[]>([]);
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showQuickAdd, setShowQuickAdd] = useState(false);
@@ -82,22 +76,49 @@ export default function SchedulePage() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  const loadSchedule = useCallback(() => {
-    setLoading(true);
-    const view = viewMode === "day" ? "day" : viewMode === "week" ? "week" : "month";
-    getSchedule({ view, date: currentDate.toISOString().split("T")[0] })
-      .then(setLessons)
-      .catch((err) => setError(err instanceof Error ? err.message : "تعذر تحميل الجدول"))
-      .finally(() => setLoading(false));
-  }, [viewMode, currentDate]);
+  /**
+   * ⭐⭐⭐ **الجدول alone بيتغيّر مع التاريخ — فبياخد `usePage`.**
+   *
+   * الـ `key` فيه التاريخ والعرض، فكل تنقل بين الأيام بيطلب
+   * البيانات الجديدة. والمستخدم بيشوف `loading` على طول.
+   *
+   * @see usePage
+   */
+  const view = viewMode === "day" ? "day" : viewMode === "week" ? "week" : "month";
+  const isoDate = currentDate.toISOString().split("T")[0];
 
-  useEffect(() => {
-    loadSchedule();
-    getStudents().then((r) => setStudents(r.data)).catch(() => {});
-    getTeachers().then((r) => setTeachers(r.data)).catch(() => {});
-    getPrograms().then((r) => setPrograms(r.data)).catch(() => {});
-    getSubscriptions().then((r) => setSubscriptions(r.data)).catch(() => {});
-  }, [loadSchedule]);
+  const fetchSchedule = useCallback(
+    () => getSchedule({ view, date: isoDate }),
+    [view, isoDate],
+  );
+
+  const { data: lessons, loading, error, reload: reloadSchedule } =
+    usePage<Lesson[]>(`schedule:${view}:${isoDate}`, fetchSchedule, { initial: [] });
+
+  /**
+   * ⭐⭐⭐ **القوائم المرجعية بأربع `usePage` — مش `Promise.all`.**
+   *
+   * ⚠️ ليه مش نجمعهم في fetcher واحد؟
+   *
+   * لأنهم **ما بتتغيّرش** مع التاريخ. لو جمعناهم، تغيير التاريخ
+   * كان هيخليهم يتحملوا تاني — ٤ طلبات ضايزة كل مرة.
+   *
+   * ⭐ وكمان: الخطأ في واحد منهم **مش** بيوقّف الباقي. قبل كده
+   * لو فشل `getStudents` كان الـ `Promise.all` كله بيرمي
+   * والجدول **مش** بيظهر. دلوقتي كل واحد مستقل.
+   *
+   * ⭐ وكل واحد بيتطلب **مرة واحدة** بس: `inFlight` بيمنع
+   * التكرار، والمفتاح ثابت ومش فيه تاريخ.
+   */
+  const fetchStudents = useCallback(() => getStudents().then((r) => r.data), []);
+  const fetchTeachers = useCallback(() => getTeachers().then((r) => r.data), []);
+  const fetchPrograms = useCallback(() => getPrograms().then((r) => r.data), []);
+  const fetchSubscriptions = useCallback(() => getSubscriptions().then((r) => r.data), []);
+
+  const { data: students } = usePage<Student[]>("schedule-ref:students", fetchStudents, { initial: [] });
+  const { data: teachers } = usePage<Teacher[]>("schedule-ref:teachers", fetchTeachers, { initial: [] });
+  const { data: programs } = usePage<Program[]>("schedule-ref:programs", fetchPrograms, { initial: [] });
+  const { data: subscriptions } = usePage<Subscription[]>("schedule-ref:subs", fetchSubscriptions, { initial: [] });
 
   // Stats
   const stats = useMemo(() => {
@@ -207,8 +228,8 @@ export default function SchedulePage() {
         });
       }
       setShowQuickAdd(false);
-      loadSchedule();
-    } catch (err) { setError(err instanceof Error ? err.message : "فشل إنشاء الحصة"); }
+      reloadSchedule();
+    } catch { /* الخطأ بيظهر في الـ toast */ }
   }
 
   async function handleCancel(lesson: Lesson) {
@@ -238,11 +259,10 @@ export default function SchedulePage() {
     try {
       await cancelLesson(lesson.id, reason);
       toast.success("تم إلغاء الحصة", `${who} — ${reason}`);
-      loadSchedule();
+      reloadSchedule();
       return true;
     } catch (err) {
       toast.error("فشل الإلغاء", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل الإلغاء");
       return false;
     }
   }
@@ -251,20 +271,18 @@ export default function SchedulePage() {
     try {
       await completeLesson(lesson.id);
       toast.success("تم تعليم الحصة كمكتملة");
-      loadSchedule();
+      reloadSchedule();
     } catch (err) {
       toast.error("فشل الإكمال", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل الإكمال");
     }
   }
 
   async function handleAttendance(lesson: Lesson, status: string) {
     try {
       await markAttendance(lesson.id, status);
-      loadSchedule();
+      reloadSchedule();
     } catch (err) {
       toast.error("فشل تسجيل الحضور", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل تسجيل الحضور");
     }
   }
 
@@ -291,8 +309,8 @@ export default function SchedulePage() {
       if (oldDate.getTime() === newDate.getTime()) return;
       try {
         await apiFetch(`/lessons/${lesson.id}`, { method: "PUT", body: JSON.stringify({ scheduled_start: newDate.toISOString() }) });
-        loadSchedule();
-      } catch (err) { setError(err instanceof Error ? err.message : "فشل إعادة الجدولة"); }
+        reloadSchedule();
+      } catch { /* الخطأ بيظهر في الـ toast */ }
     }
   }
 
