@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { usePage } from "@/lib/use-page";
 import {
   getAttendanceDay,
   saveAttendance,
@@ -50,33 +51,56 @@ function shiftDay(iso: string, delta: number): string {
 
 export default function AttendancePage() {
   const [date, setDate] = useState(() => toIso(new Date()));
-  const [day, setDay] = useState<AttendanceDay | null>(null);
   /** المسودّة المحلية — اللي بيتعرض و بيتحفظ */
   const [draft, setDraft] = useState<Record<number, AttendanceDayRow["record"]>>({});
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const { toast, confirm } = useUI();
 
-  const load = useCallback(async (targetDate: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await getAttendanceDay(targetDate);
-      setDay(r);
-      // المسودّة تبدأ من المحفوظ
-      const next: Record<number, AttendanceDayRow["record"]> = {};
-      for (const row of r.rows) next[row.employee.id] = row.record;
-      setDraft(next);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "تعذر تحميل اليوم");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * الـ `key` هو التاريخ — كل ما الأدمن بيتنقل بين
+   * الأيام البيانات بتتحدّث. و`loading` و`error`
+   * `usePage` بيتعامل معاهم لوحده.
+   *
+   * @see usePage
+   */
+  const fetchDay = useCallback(() => getAttendanceDay(date), [date]);
 
-  useEffect(() => { load(date); }, [date, load]);
+  const {
+    data: day,
+    loading,
+    error,
+    reload,
+  } = usePage<AttendanceDay | null>(`attendance:${date}`, fetchDay, {
+    initial: null,
+  });
+
+  /**
+   * ⭐ المسودّة تُبنى من المحفوظ — **أثناء الرسم**، مش في effect.
+   *
+   * دي الطريقة الرسمية من توثيق React لاشتقاق حالة من
+   * بيانات متغيّرة: نقارن `day` بالنسخة اللي بنينا
+   * المسودّة عليها، ولو اتغيّرت نبنيها من الأول.
+   * React بيحسب الرسم التاني فوراً قبل ما يلمّس الـ
+   * DOM — فمفيش ومضة.
+   *
+   * ⚠️ بنتبّع **هوية** `day` مش التاريخ: بعد الحفظ
+   * (`reload`) السيرفر بيرجّع كائن جديد، والمسودّة
+   * لازم ترجع للمحفوظ — بالظبط زي ما `load` كان
+   * بيعمل قبل كده.
+   */
+  const [draftFor, setDraftFor] = useState<AttendanceDay | null>(null);
+
+  if (day !== draftFor) {
+    setDraftFor(day);
+    const next: Record<number, AttendanceDayRow["record"]> = {};
+    if (day) {
+      for (const row of day.rows) next[row.employee.id] = row.record;
+    }
+    setDraft(next);
+  }
 
   /**
    * هل في تعديلات غير محفوظة؟
@@ -215,10 +239,13 @@ export default function AttendancePage() {
     try {
       const r = await saveAttendance(date, records);
       toast.success(r.message, day.is_friday ? "الجمعة إجازة أسبوعية" : undefined);
-      load(date);
+      // ⭐ `reload` بتجيب اليوم من السيرفر تاني —
+      // والمسودّة بتترجع للمحفوظ لوحدها (الـ `draftFor` فوق)
+      reload();
     } catch (e) {
+      // ⭐ الخطأ بيتعرض في الـ toast — الـ `error` اللي
+      // فوق بقى خاص بالجلب بس ومش قابل للتعديل من هنا
       toast.apiError("فشل الحفظ", e);
-      setError(e instanceof Error ? e.message : "فشل الحفظ");
     } finally {
       setSaving(false);
     }

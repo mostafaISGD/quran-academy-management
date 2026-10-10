@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { date, egp } from "@/lib/format";
+import { usePage } from "@/lib/use-page";
 import {
   getExpenses,
   createExpense,
@@ -33,17 +34,30 @@ const METHOD_LABEL: Record<string, string> = {
 /** ⭐ alias — التنسيق في `lib/format` (كان `toLocaleString` مكرر هنا) */
 const fmtMoney = egp;
 
+/**
+ * ⭐ كل حاجة بيجيبها الطلب في كومة واحدة — عشان `usePage`
+ * بترجع `data` واحد بس.
+ */
+type ExpensesBundle = {
+  items: Expense[];
+  total: number;
+  lastPage: number;
+  totalAmount: number;
+  statusCounts: Record<string, number>;
+};
+
+const EMPTY_BUNDLE: ExpensesBundle = {
+  items: [],
+  total: 0,
+  lastPage: 1,
+  totalAmount: 0,
+  statusCounts: {},
+};
+
 export default function ExpensesPage() {
-  const [expenses, setExpenses] = useState<Expense[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
-  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
-  const [totalAmount, setTotalAmount] = useState(0);
-
   const [statusFilter, setStatusFilter] = useState("");
 
   const [form, setForm] = useState({
@@ -54,65 +68,76 @@ export default function ExpensesPage() {
     category_id: "",
   });
   const [saving, setSaving] = useState(false);
+  /** ⭐ خطأ النموذج — منفصل عن `error` (اللي بقى خاص بالجلب) */
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const load = useCallback(
-    async (targetPage = 1, status = "") => {
-      setLoading(true);
-      setError(null);
-      try {
-        const r = await getExpenses({
-          per_page: PAGE_SIZE,
-          page: targetPage,
-          status: status || undefined,
-        });
-        setExpenses(r.data);
-        setMeta({ total: r.total, last_page: r.last_page });
-        setTotalAmount(r.sums?.amount ?? 0);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * الـ `key` بيتضمن الصفحة **والفلتر** — أي تغيير
+   * فيهم بيحدّث البيانات. والأرقام الإحصائية
+   * (`statusCounts` و`totalAmount`) بتيجي من
+   * نفس الطلب.
+   *
+   * @see usePage
+   */
+  const fetchExpenses = useCallback(async (): Promise<ExpensesBundle> => {
+    const r = await getExpenses({
+      per_page: PAGE_SIZE,
+      page,
+      status: statusFilter || undefined,
+    });
+    const c = r.counts as Record<string, unknown> | undefined;
+    const st = c?.status;
+    return {
+      items: r.data,
+      total: r.total,
+      lastPage: r.last_page,
+      totalAmount: r.sums?.amount ?? 0,
+      statusCounts: (st && typeof st === "object" ? st : {}) as Record<string, number>,
+    };
+  }, [page, statusFilter]);
 
-        const c = r.counts as Record<string, unknown> | undefined;
-        const st = c?.status;
-        setStatusCounts((st && typeof st === "object" ? st : {}) as Record<string, number>);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
-      } finally {
-        setLoading(false);
-      }
-    },
-    /**
-     * ⭐⭐ فاضية عن قصد.
-     *
-     * ⚠️ `statusFilter` كان هنا، وهو **مش مستخدم جوه `load`** —
-     * الفيشن بتاخد `status` كـ parameter وبتحدّث مع كل نداء.
-     *
-     * ووجوده كان بيوهم إن `load` بتتغيّر مع الفلتر. وهي مش
-     * بتتغيّر أصلاً، فكان الـ `useEffect` تحت بيعتمد على هوية
-     * `load` عشان يعيد التشغيل.
-     *
-     * ⭐ دلوقتي `load` ثابتة، والتأثير بيعتمد على `statusFilter`
-     * مباشرة — أوضح، وبيشتغل نفس الحاجة بالظبط.
-     *
-     * جوه `load` مفيش حاجة من برّه غير `PAGE_SIZE` (ثابت في
-     * الموديول) والـ setters — فمفيش اعتماديات لازم تتتبع.
-     */
-    [],
-  );
+  const {
+    data: bundle,
+    loading,
+    error,
+    reload,
+  } = usePage<ExpensesBundle>(`expenses:${page}:${statusFilter}`, fetchExpenses, {
+    initial: EMPTY_BUNDLE,
+  });
 
-  useEffect(() => {
+  const expenses = bundle.items;
+  const meta = { total: bundle.total, last_page: bundle.lastPage };
+  const statusCounts = bundle.statusCounts;
+  const totalAmount = bundle.totalAmount;
+
+  /**
+   * ⭐ الفلتر الجديد بيرجّعنا لأول صفحة — **أثناء الرسم**.
+   *
+   * ده كان بيتعمل في الـ `useEffect` القديم
+   * (`setPage(1)`). دلوقتي بنقارن الفلتر الحالي
+   * باللي قبله، ولو اتغيّر نصفّر الصفحة فوراً —
+   * React بيحسب الرسم التاني قبل ما يلمّس الـ
+   * DOM، فالمستخدم مش هيشوف صفحة غلط.
+   */
+  const [filterFor, setFilterFor] = useState(statusFilter);
+
+  if (statusFilter !== filterFor) {
+    setFilterFor(statusFilter);
     setPage(1);
-    load(1, statusFilter);
-  }, [load, statusFilter]);
+  }
 
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    load(target, statusFilter);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    setError(null);
+    setFormError(null);
     try {
       await createExpense({
         amount: Number(form.amount),
@@ -129,9 +154,12 @@ export default function ExpensesPage() {
         payment_method: "cash",
         category_id: "",
       });
-      load(1, statusFilter);
+      // ⭐ نرجع لأول صفحة ونعيد الجلب — لو كنا
+      // فيها أصلاً `reload` لوحدها كافية
+      setPage(1);
+      reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الإنشاء");
+      setFormError(err instanceof Error ? err.message : "فشل الإنشاء");
     } finally {
       setSaving(false);
     }
@@ -187,7 +215,7 @@ export default function ExpensesPage() {
       {error && (
         <div className="mb-4 flex items-center justify-between rounded-lg bg-red-50 px-4 py-2.5">
           <p className="text-sm text-red-700">{error}</p>
-          <button onClick={() => load(page, statusFilter)} className="text-sm font-medium text-red-700 underline">
+          <button onClick={reload} className="text-sm font-medium text-red-700 underline">
             إعادة المحاولة
           </button>
         </div>
@@ -196,6 +224,9 @@ export default function ExpensesPage() {
       {showForm && (
         <form onSubmit={handleCreate} className="mb-5 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="mb-4 text-sm font-semibold text-slate-800">إضافة مصروف</h2>
+          {formError && (
+            <div className="mb-4 rounded-lg bg-red-50 px-4 py-2.5 text-sm text-red-700">{formError}</div>
+          )}
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <input
               type="number" step="0.01" min="0.01" required placeholder="المبلغ *"
