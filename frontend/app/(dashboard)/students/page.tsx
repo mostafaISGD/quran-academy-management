@@ -1035,6 +1035,22 @@ export default function StudentsPage() {
   }, [selectedStudent, subscriptions]);
 
   // Stats
+  /**
+   * ⭐⭐⭐ ليش `meta.total` و `students.length` في الاعتماديات؟
+   *
+   * ⚠️⚠️ الاتنين مستخدمين **جوّه** الـ memo:
+   *
+   *     total: countsAll.total || meta.total || students.length
+   *
+   * كانوا مش في القائمة، فـ React كان بيحسب الـ memo مرة واحدة
+   * وبيخزّنها — فلما الطلاب يتحمّلوا أو الـ pagination يتغيّر،
+   * **الإجمالي بيفضل الرقم القديم**.
+   *
+   * ⭐ الـ `||` معناها إن الأولوية للأعلى:
+   *   1. `countsAll.total`  — عدّاد السيرفر الدقيق
+   *   2. `meta.total`       — إجمالي الصفحة من السيرفر
+   *   3. `students.length`  — آخر حل (طول اللي في الذاكرة)
+   */
   const stats = useMemo(() => ({
     // الإجمالي = العدد الكلي في النظام (مش المتفلتر)
     total: countsAll.total || meta.total || students.length,
@@ -1042,7 +1058,7 @@ export default function StudentsPage() {
     paused: counts.paused ?? 0,
     expired: counts.inactive ?? 0,
     trials: counts.lead ?? 0,
-  }), [counts, countsAll]);
+  }), [counts, countsAll, meta.total, students.length]);
 
   // Filtered students
   const filteredStudents = useMemo(() => {

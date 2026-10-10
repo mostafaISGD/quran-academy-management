@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { weekdaysKey, parseWeekdaysKey } from "@/lib/weekdays";
 import {
   getAvailableTeachers,
   type AvailableTeacher,
@@ -50,6 +51,20 @@ export default function TeacherPicker({
 
   const hasSlot = weekdays.length > 0 && /^\d{2}:\d{2}$/.test(startTime) && durationMinutes > 0;
 
+  /**
+   * ⭐⭐⭐ **مفتاح نصّي مش مصفوفة — وده مقصود.**
+   *
+   * لو حطينا `weekdays` (مصفوفة) في مصفوفة الاعتماديات مباشرة،
+   * وكل أب بيرسل مصفوفة جديدة في كل رسم، الـ effect هيتشغّل
+   * ويسبّب setState → إعادة رسم → ♾️ طلبات بلا نهاية.
+   *
+   * النص بيتساوى **بالقيمة** في `Object.is`، فمش بيتغيّر إلا
+   * لما المحتوى يتغيّر فعلاً.
+   *
+   * @see weekdaysKey
+   */
+  const daysKey = weekdaysKey(weekdays);
+
   /** بنطلب بعد ما المستخدم يختار المواعيد، مع debounce بسيط */
   useEffect(() => {
     if (!hasSlot) {
@@ -63,7 +78,10 @@ export default function TeacherPicker({
 
     const timer = window.setTimeout(() => {
       getAvailableTeachers({
-        weekdays,
+        // ⭐ بنعيد بناء المصفوفة من المفتاح — مش بناخد `weekdays`
+        // مباشرة، عشان الـ effect ميحسبش من مصفوفة جاية من
+        // الـ render (دي اللي بتسبب الطلبات المكررة).
+        weekdays: parseWeekdaysKey(daysKey),
         start_time: startTime,
         duration: durationMinutes,
         on_date: fromDate || undefined,
@@ -87,7 +105,7 @@ export default function TeacherPicker({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [hasSlot, weekdays.join(","), startTime, durationMinutes, fromDate, toDate]);
+  }, [hasSlot, daysKey, startTime, durationMinutes, fromDate, toDate]);
 
   const available = useMemo(() => teachers.filter((t) => t.available), [teachers]);
   const busy = useMemo(() => teachers.filter((t) => !t.available), [teachers]);
