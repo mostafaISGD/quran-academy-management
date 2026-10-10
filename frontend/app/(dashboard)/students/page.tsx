@@ -144,6 +144,439 @@ type SubscriptionReport = {
   }>;
 };
 
+/**
+ * ⭐⭐⭐ **نوع بيانات فورم الطالب.**
+ *
+ * معرّف **بره** الصفحة عن قصد — لأن `PhoneManagerLocal`
+ * محتاجه وهو component مستقل.
+ *
+ * @see PhoneManagerLocal
+ */
+type StudentFormState = {
+  first_name: string;
+  last_name: string;
+  middle_name: string;
+  date_of_birth: string;
+  gender: string;
+  country_code: string;
+  email: string;
+  status: Student["status"];
+  notes: string;
+  program_id: string;
+  teacher_id: string;
+  start_date: string;
+  end_date: string;
+  /** أيام الحصص الأسبوعية (0=الأحد) — بتتحدد قبل اختيار المعلم */
+  weekdays: number[];
+  /** وقت بداية الحصة HH:MM */
+  start_time: string;
+  billing_type: "monthly" | "per_lesson";
+  price: number;
+  currency: string;
+  lesson_duration_minutes: number;
+  lessons_included: number;
+  phones: FormPhone[];
+  // Temp fields for phone management in new student form
+  phones_temp_country?: string;
+  phones_temp_personal?: boolean;
+  phones_temp_whatsapp?: boolean;
+  phones_temp_call?: boolean;
+  phones_temp_parent?: boolean;
+  phones_temp_primary?: boolean;
+  phones_temp_parent_name?: string;
+  phones_temp_parent_relationship?: string;
+  phones_temp_number?: string;
+};
+
+/** ⭐ شكل رقم واحد في فورم الطالب — كان مكتوب مكرر جوّه `any` */
+type FormPhone = {
+  phone_number: string;
+  country_code: string;
+  is_personal: boolean;
+  is_parent: boolean;
+  is_whatsapp: boolean;
+  is_call: boolean;
+  is_primary: boolean;
+  parent_name: string;
+  parent_relationship: string;
+};
+/**
+ * ⭐⭐⭐ **مدير أرقام الهاتف للطالب الجديد.**
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * ⭐ ليه المكوّن ده **بره** الصفحة؟
+ *
+ * ⚠️⚠️⚠️ **كان جوّه `StudentsPage`.**
+ *
+ * كل مرة الصفحة ترسم، الكود ده بينفّذ `memo(...)` من جديد —
+ * يعني React بيشوف **نوع component مختلف** كل مرة. ولما النوع
+ * يتغيّر، React بيعمل:
+ *
+ *     ① يشيل الشجرة القديمة بالكامل (unmount)
+ *     ② يبني شجرة جديدة من الأول (mount)
+ *
+ * ⭐ النتيجة العملية: **أي رقم كتبته بيطير أول ما الصفحة
+ * ترسم تاني** — عشان state بتاع المكوّن بيتصفّر مع كل رسم.
+ *
+ * وكمان الـ `memo` كان **مش بيعمل حاجة** أصلاً، لأن `memo`
+ * بيقارن النوع — والنوع بيتغيّر كل مرة فمافيش مقارنة أصلاً.
+ *
+ * الحل: نعرّفها مرة واحدة بره الـ component. كده React بيعرف
+ * إنها نفس النوع، فبيحدّث مكان ما يعيدش البناء.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * ⭐ وكل الـ state بتاعه `local`.
+ *
+ * القيم بتتخزّن جوّه المكوّن، و**مفيش** `setForm` غير لحظة
+ * إضافة الرقم فعلاً. عشان المستخدم لو غيّر checkbox وراح من غير
+ * ما يضغط "إضافة" — ما يحصلش تعديل على الفورم.
+ */
+const PhoneManagerLocal = memo(function PhoneManagerLocal({
+  form,
+  setForm,
+}: {
+  form: StudentFormState;
+  setForm: React.Dispatch<React.SetStateAction<StudentFormState>>;
+}) {
+  const { toast } = useUI();
+  const phones = form.phones || [];
+  const phoneInputRef = useRef<HTMLInputElement>(null);
+  const parentNameInputRef = useRef<HTMLInputElement>(null);
+
+  // Use local state for ALL temporary fields - no setForm until adding phone
+  const [localPhoneValue, setLocalPhoneValue] = useState("");
+  const [localCountryCode, setLocalCountryCode] = useState("+20");
+  const [localIsPersonal, setLocalIsPersonal] = useState(true);
+  const [localIsParent, setLocalIsParent] = useState(false);
+  const [localIsWhatsapp, setLocalIsWhatsapp] = useState(false);
+  const [localIsCall, setLocalIsCall] = useState(true);
+  const [localIsPrimary, setLocalIsPrimary] = useState(false);
+  const [localParentName, setLocalParentName] = useState("");
+  const [localParentRelationship, setLocalParentRelationship] = useState("");
+  const [localCustomRelationship, setLocalCustomRelationship] = useState("");
+
+  // الإكمال التلقائي: بحث في أولياء الأمر
+  const [suggestions, setSuggestions] = useState<(Parent & { students_count: number })[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
+  useEffect(() => {
+    if (!localIsParent || localPhoneValue.replace(/\D/g, "").length < 3) {
+      setSuggestions([]);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      searchParents(localPhoneValue)
+        .then((r) => setSuggestions(r.data))
+        .catch(() => setSuggestions([]));
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [localPhoneValue, localIsParent]);
+
+  const applySuggestion = (parent: Parent & { students_count: number }) => {
+    setLocalParentName(parent.name);
+    setLocalIsParent(true);
+    setSuggestions([]);
+    setShowSuggestions(false);
+  };
+
+  const validatePhone = (number: string, countryCode: string): boolean => {
+    const cleaned = number.replace(/[\s\-\(\)]/g, "");
+
+    if (!/^\d+$/.test(cleaned)) {
+      toast.error("الرقم يجب أن يحتوي على أرقام فقط", "شيل المسافات والرموز واكتب الأرقام فقط.");
+      return false;
+    }
+
+    const lengths: Record<string, { min: number; max: number }> = {
+      "+20": { min: 10, max: 11 },
+      "+966": { min: 9, max: 10 },
+      "+971": { min: 9, max: 10 },
+      "+965": { min: 8, max: 8 },
+      "+974": { min: 8, max: 8 },
+      "+962": { min: 9, max: 10 },
+      "+212": { min: 9, max: 10 },
+      "+216": { min: 8, max: 8 },
+      "+249": { min: 9, max: 10 },
+    };
+
+    const rule = lengths[countryCode] ?? { min: 7, max: 15 };
+    if (cleaned.length < rule.min || cleaned.length > rule.max) {
+      toast.error(
+        "رقم غير صحيح",
+        `أرقام الدولة ${countryCode} لازم تكون من ${rule.min} لـ ${rule.max} رقماً — دلوقتي ${cleaned.length}.`,
+      );
+      return false;
+    }
+
+    return true;
+  };
+
+  const addPhone = () => {
+    const number = localPhoneValue.trim();
+    if (!number) {
+      toast.error("الرقم مطلوب", "اكتب رقم التليفون الأول.");
+      return;
+    }
+
+    if (!validatePhone(number, localCountryCode)) return;
+
+    // لو رقم لولي أمر → الاسم والصلة مطلوبين
+    if (localIsParent) {
+      if (!localParentName.trim()) {
+        toast.error("اسم ولي الأمر مطلوب", "اكتب اسم صاحب الرقم.");
+        return;
+      }
+      const rel = localParentRelationship === "other" ? localCustomRelationship.trim() : localParentRelationship;
+      if (!rel) {
+        toast.error("صلة القرابة مطلوبة", "اختر صلة القرابة بين الطالب وولي الأمر.");
+        return;
+      }
+    }
+
+    const newPhone: FormPhone = {
+      phone_number: number,
+      country_code: localCountryCode,
+      is_personal: localIsPersonal,
+      is_parent: localIsParent,
+      is_whatsapp: localIsWhatsapp,
+      is_call: localIsCall,
+      is_primary: localIsPrimary,
+      parent_name: localParentName || "",
+      parent_relationship:
+        localParentRelationship === "other"
+          ? localCustomRelationship.trim()
+          : localParentRelationship || "",
+    };
+
+    // Only call setForm when actually adding a phone
+    setForm((prev) => ({
+      ...prev,
+      phones: [...prev.phones, newPhone],
+    }));
+
+    // Reset local state
+    setLocalPhoneValue("");
+    setLocalCountryCode("+20");
+    setLocalIsPersonal(true);
+    setLocalIsParent(false);
+    setLocalIsWhatsapp(false);
+    setLocalIsCall(true);
+    setLocalIsPrimary(false);
+    setLocalParentName("");
+    setLocalParentRelationship("");
+    setLocalCustomRelationship("");
+    setSuggestions([]);
+
+    setTimeout(() => phoneInputRef.current?.focus(), 0);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addPhone();
+    }
+  };
+
+  const handleParentNameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      addPhone();
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg bg-slate-50 p-4 space-y-3">
+        <h5 className="font-medium text-slate-700 flex items-center gap-2">
+          إضافة رقم جديد
+          <span className="text-xs text-slate-400">(اضغط Enter للإضافة)</span>
+        </h5>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="relative">
+            <label className="mb-1 block text-xs text-slate-500">الرقم *</label>
+            <input
+              type="tel"
+              placeholder="01xxxxxxxxx"
+              ref={phoneInputRef}
+              value={localPhoneValue}
+              onChange={(e) => {
+                setLocalPhoneValue(e.target.value);
+                setShowSuggestions(true);
+              }}
+              onFocus={() => setShowSuggestions(true)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dir-ltr"
+              dir="ltr"
+              onKeyDown={handleKeyDown}
+            />
+
+            {/* الإكمال التلقائي: أولياء أمر موجودين بنفس الرقم */}
+            {showSuggestions && localIsParent && suggestions.length > 0 && (
+              <ul className="absolute z-30 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                {suggestions.map((s) => (
+                  <li key={s.id}>
+                    <button
+                      type="button"
+                      onClick={() => applySuggestion(s)}
+                      className="flex w-full items-center justify-between px-3 py-2 text-start text-sm hover:bg-slate-50"
+                    >
+                      <span>
+                        <span className="font-medium text-slate-800">{s.name}</span>
+                        <span className="ms-2 text-xs text-slate-400" dir="ltr">{s.phone}</span>
+                      </span>
+                      <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                        {s.students_count} طالب
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-slate-500">الدولة</label>
+            <select
+              value={localCountryCode}
+              onChange={(e) => setLocalCountryCode(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            >
+              {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.flag} {c.name} ({c.code})</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={localIsPersonal} onChange={(e) => setLocalIsPersonal(e.target.checked)} className="rounded" />
+            شخصي
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={localIsWhatsapp} onChange={(e) => setLocalIsWhatsapp(e.target.checked)} className="rounded" />
+            واتساب 💬
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={localIsCall} onChange={(e) => setLocalIsCall(e.target.checked)} className="rounded" />
+            تواصل 📞
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={localIsParent} onChange={(e) => setLocalIsParent(e.target.checked)} className="rounded" />
+            ولي أمر 👨‍👩‍👧
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={localIsPrimary} onChange={(e) => setLocalIsPrimary(e.target.checked)} className="rounded" />
+            أساسي ⭐
+          </label>
+        </div>
+        {localIsParent && (
+          <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200">
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">اسم ولي الأمر *</label>
+              <input
+                placeholder="مثال: فاطمة أحمد"
+                ref={parentNameInputRef}
+                value={localParentName}
+                onChange={(e) => setLocalParentName(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                onKeyDown={handleParentNameKeyDown}
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-slate-500">صلة القرابة *</label>
+              <select
+                value={localParentRelationship}
+                onChange={(e) => {
+                  setLocalParentRelationship(e.target.value);
+                  if (e.target.value !== "other") setLocalCustomRelationship("");
+                }}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="">اختر الصلة</option>
+                {PARENT_RELATIONSHIPS.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* خانة الكتابة الحرة لو اختار "أخرى" */}
+        {localIsParent && localParentRelationship === "other" && (
+          <div className="pt-2">
+            <label className="mb-1 block text-xs text-slate-500">اكتب صلة القرابة *</label>
+            <input
+              placeholder="مثال: قرابة، زوجة الأب، مدرّبة..."
+              value={localCustomRelationship}
+              onChange={(e) => setLocalCustomRelationship(e.target.value)}
+              onKeyDown={handleParentNameKeyDown}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            />
+          </div>
+        )}
+
+        {/* تنبيه: نفس الرقم ممكن يكون عند أكتر من طالب */}
+        {localIsParent && suggestions.length > 0 && (
+          <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
+            الرقم ده مسجل بالفعل لأولياء أمر — لو حد منهم، اختار اسمه من الاقتراحات.
+          </p>
+        )}
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={addPhone}
+            className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          >
+            ➕ إضافة الرقم
+          </button>
+          {form.phones.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setForm((prev) => ({ ...prev, phones: [] }))}
+              className="rounded-lg bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100"
+            >
+              🗑 مسح الكل
+            </button>
+          )}
+        </div>
+      </div>
+
+      {phones.length > 0 && (
+        <div className="rounded-xl border border-slate-200">
+          <h5 className="px-4 py-3 border-b border-slate-200 font-medium text-slate-800">أرقام الهاتف ({phones.length})</h5>
+          <ul className="divide-y divide-slate-100">
+            {phones.map((phone: FormPhone, idx: number) => (
+              <li key={`phone-${idx}`} className="p-4 hover:bg-slate-50">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-lg font-medium text-slate-800" dir="ltr">{phone.phone_number}</span>
+                    <div className="flex gap-1.5">
+                      {phone.is_personal && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700">👤 شخصي</span>}
+                      {phone.is_whatsapp && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-green-50 text-green-700">💬 واتساب</span>}
+                      {phone.is_call && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">📞 تواصل</span>}
+                      {phone.is_parent && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-purple-50 text-purple-700">👨‍👩‍👧 ولي أمر</span>}
+                      {phone.is_primary && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700">⭐ أساسي</span>}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {phone.is_parent && phone.parent_name && (
+                      <span className="text-xs text-purple-600">{phone.parent_name} ({parentRelationshipLabel(phone.parent_relationship)})</span>
+                    )}
+                    <button onClick={() => setForm((prev) => ({ ...prev, phones: prev.phones.filter((_, i) => i !== idx) }))} className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100" title="حذف">🗑</button>
+                  </div>
+                </div>
+                {phone.is_parent && phone.parent_name && (
+                  <p className="mt-1 text-xs text-purple-600">{phone.parent_name} ({parentRelationshipLabel(phone.parent_relationship)})</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+});
+
+
 export default function StudentsPage() {
   const { toast, confirm, prompt } = useUI();
 
@@ -219,51 +652,6 @@ export default function StudentsPage() {
   });
 
   // Form state type with temp phone fields for new student creation
-  type StudentFormState = {
-    first_name: string;
-    last_name: string;
-    middle_name: string;
-    date_of_birth: string;
-    gender: string;
-    country_code: string;
-    email: string;
-    status: Student["status"];
-    notes: string;
-    program_id: string;
-    teacher_id: string;
-    start_date: string;
-    end_date: string;
-    /** أيام الحصص الأسبوعية (0=الأحد) — بتتحدد قبل اختيار المعلم */
-    weekdays: number[];
-    /** وقت بداية الحصة HH:MM */
-    start_time: string;
-    billing_type: "monthly" | "per_lesson";
-    price: number;
-    currency: string;
-    lesson_duration_minutes: number;
-    lessons_included: number;
-    phones: Array<{
-      phone_number: string;
-      country_code: string;
-      is_personal: boolean;
-      is_parent: boolean;
-      is_whatsapp: boolean;
-      is_call: boolean;
-      is_primary: boolean;
-      parent_name: string;
-      parent_relationship: string;
-    }>;
-    // Temp fields for phone management in new student form
-    phones_temp_country?: string;
-    phones_temp_personal?: boolean;
-    phones_temp_whatsapp?: boolean;
-    phones_temp_call?: boolean;
-    phones_temp_parent?: boolean;
-    phones_temp_primary?: boolean;
-    phones_temp_parent_name?: string;
-    phones_temp_parent_relationship?: string;
-    phones_temp_number?: string;
-  };
 
   const emptyForm: StudentFormState = {
     // البيانات الأساسية
@@ -395,345 +783,6 @@ export default function StudentsPage() {
   };
 
 
-  // Local Phone Manager Component for new students
-const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.Dispatch<React.SetStateAction<any>> }) => {
-    const { toast } = useUI();
-    const phones = form.phones || [];
-    const phoneInputRef = useRef<HTMLInputElement>(null);
-    const parentNameInputRef = useRef<HTMLInputElement>(null);
-    
-    // Use local state for ALL temporary fields - no setForm until adding phone
-    const [localPhoneValue, setLocalPhoneValue] = useState("");
-    const [localCountryCode, setLocalCountryCode] = useState("+20");
-    const [localIsPersonal, setLocalIsPersonal] = useState(true);
-    const [localIsParent, setLocalIsParent] = useState(false);
-    const [localIsWhatsapp, setLocalIsWhatsapp] = useState(false);
-    const [localIsCall, setLocalIsCall] = useState(true);
-    const [localIsPrimary, setLocalIsPrimary] = useState(false);
-    const [localParentName, setLocalParentName] = useState("");
-    const [localParentRelationship, setLocalParentRelationship] = useState("");
-    const [localCustomRelationship, setLocalCustomRelationship] = useState("");
-
-    // الإكمال التلقائي: بحث في أولياء الأمر
-    const [suggestions, setSuggestions] = useState<(Parent & { students_count: number })[]>([]);
-    const [showSuggestions, setShowSuggestions] = useState(false);
-
-    useEffect(() => {
-      if (!localIsParent || localPhoneValue.replace(/\D/g, '').length < 3) {
-        setSuggestions([]);
-        return;
-      }
-
-      const timer = setTimeout(() => {
-        searchParents(localPhoneValue)
-          .then((r) => setSuggestions(r.data))
-          .catch(() => setSuggestions([]));
-      }, 300);
-
-      return () => clearTimeout(timer);
-    }, [localPhoneValue, localIsParent]);
-
-    const applySuggestion = (parent: Parent & { students_count: number }) => {
-      setLocalParentName(parent.name);
-      setLocalIsParent(true);
-      setSuggestions([]);
-      setShowSuggestions(false);
-    };
-
-    const validatePhone = (number: string, countryCode: string): boolean => {
-      const cleaned = number.replace(/[\s\-\(\)]/g, '');
-      
-      if (!/^\d+$/.test(cleaned)) {
-        toast.error("الرقم يجب أن يحتوي على أرقام فقط", "شيل المسافات والرموز واكتب الأرقام فقط.");
-        return false;
-      }
-      
-      const lengths: Record<string, { min: number; max: number }> = {
-        '+20': { min: 10, max: 11 },
-        '+966': { min: 9, max: 10 },
-        '+971': { min: 9, max: 10 },
-        '+965': { min: 8, max: 8 },
-        '+974': { min: 8, max: 8 },
-        '+962': { min: 9, max: 10 },
-        '+212': { min: 9, max: 10 },
-        '+216': { min: 8, max: 8 },
-        '+249': { min: 9, max: 10 },
-      };
-      
-      const rule = lengths[countryCode] ?? { min: 7, max: 15 };
-      if (cleaned.length < rule.min || cleaned.length > rule.max) {
-        toast.error(
-          "رقم غير صحيح",
-          `أرقام الدولة ${countryCode} لازم تكون من ${rule.min} لـ ${rule.max} رقماً — دلوقتي ${cleaned.length}.`,
-        );
-        return false;
-      }
-      
-      return true;
-    };
-
-    const addPhone = () => {
-      const number = localPhoneValue.trim();
-      if (!number) {
-        toast.error("الرقم مطلوب", "اكتب رقم التليفون الأول.");
-        return;
-      }
-
-      if (!validatePhone(number, localCountryCode)) return;
-
-      // لو رقم لولي أمر → الاسم والصلة مطلوبين
-      if (localIsParent) {
-        if (!localParentName.trim()) {
-          toast.error("اسم ولي الأمر مطلوب", "اكتب اسم صاحب الرقم.");
-          return;
-        }
-        const rel = localParentRelationship === "other" ? localCustomRelationship.trim() : localParentRelationship;
-        if (!rel) {
-          toast.error("صلة القرابة مطلوبة", "اختر صلة القرابة بين الطالب وولي الأمر.");
-          return;
-        }
-      }
-
-      const newPhone = {
-        phone_number: number,
-        country_code: localCountryCode,
-        is_personal: localIsPersonal,
-        is_parent: localIsParent,
-        is_whatsapp: localIsWhatsapp,
-        is_call: localIsCall,
-        is_primary: localIsPrimary,
-        parent_name: localParentName || "",
-        parent_relationship:
-          localParentRelationship === "other"
-            ? localCustomRelationship.trim()
-            : localParentRelationship || "",
-      };
-      
-      // Only call setForm when actually adding a phone
-      setForm((prev: any) => ({ 
-        ...prev, 
-        phones: [...prev.phones, newPhone],
-      }));
-      
-      // Reset local state
-      setLocalPhoneValue("");
-      setLocalCountryCode("+20");
-      setLocalIsPersonal(true);
-      setLocalIsParent(false);
-      setLocalIsWhatsapp(false);
-      setLocalIsCall(true);
-      setLocalIsPrimary(false);
-      setLocalParentName("");
-      setLocalParentRelationship("");
-      setLocalCustomRelationship("");
-      setSuggestions([]);
-
-      setTimeout(() => phoneInputRef.current?.focus(), 0);
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        addPhone();
-      }
-    };
-
-    const handleParentNameKeyDown = (e: React.KeyboardEvent) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        addPhone();
-      }
-    };
-
-    return (
-      <div className="space-y-3">
-        <div className="rounded-lg bg-slate-50 p-4 space-y-3">
-          <h5 className="font-medium text-slate-700 flex items-center gap-2">
-            إضافة رقم جديد
-            <span className="text-xs text-slate-400">(اضغط Enter للإضافة)</span>
-          </h5>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="relative">
-              <label className="mb-1 block text-xs text-slate-500">الرقم *</label>
-              <input
-                type="tel"
-                placeholder="01xxxxxxxxx"
-                ref={phoneInputRef}
-                value={localPhoneValue}
-                onChange={(e) => {
-                  setLocalPhoneValue(e.target.value);
-                  setShowSuggestions(true);
-                }}
-                onFocus={() => setShowSuggestions(true)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm dir-ltr"
-                dir="ltr"
-                onKeyDown={handleKeyDown}
-              />
-
-              {/* الإكمال التلقائي: أولياء أمر موجودين بنفس الرقم */}
-              {showSuggestions && localIsParent && suggestions.length > 0 && (
-                <ul className="absolute z-30 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
-                  {suggestions.map((s) => (
-                    <li key={s.id}>
-                      <button
-                        type="button"
-                        onClick={() => applySuggestion(s)}
-                        className="flex w-full items-center justify-between px-3 py-2 text-start text-sm hover:bg-slate-50"
-                      >
-                        <span>
-                          <span className="font-medium text-slate-800">{s.name}</span>
-                          <span className="ms-2 text-xs text-slate-400" dir="ltr">{s.phone}</span>
-                        </span>
-                        <span className="shrink-0 rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
-                          {s.students_count} طالب
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div>
-              <label className="mb-1 block text-xs text-slate-500">الدولة</label>
-              <select
-                value={localCountryCode}
-                onChange={(e) => setLocalCountryCode(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              >
-                {COUNTRIES.map((c) => <option key={c.code} value={c.code}>{c.flag} {c.name} ({c.code})</option>)}
-              </select>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
-              <input type="checkbox" checked={localIsPersonal} onChange={(e) => setLocalIsPersonal(e.target.checked)} className="rounded" />
-              شخصي
-            </label>
-            <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
-              <input type="checkbox" checked={localIsWhatsapp} onChange={(e) => setLocalIsWhatsapp(e.target.checked)} className="rounded" />
-              واتساب 💬
-            </label>
-            <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
-              <input type="checkbox" checked={localIsCall} onChange={(e) => setLocalIsCall(e.target.checked)} className="rounded" />
-              تواصل 📞
-            </label>
-            <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
-              <input type="checkbox" checked={localIsParent} onChange={(e) => setLocalIsParent(e.target.checked)} className="rounded" />
-              ولي أمر 👨‍👩‍👧
-            </label>
-            <label className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer">
-              <input type="checkbox" checked={localIsPrimary} onChange={(e) => setLocalIsPrimary(e.target.checked)} className="rounded" />
-              أساسي ⭐
-            </label>
-          </div>
-          {localIsParent && (
-            <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200">
-              <div>
-                <label className="mb-1 block text-xs text-slate-500">اسم ولي الأمر *</label>
-                <input
-                  placeholder="مثال: فاطمة أحمد"
-                  ref={parentNameInputRef}
-                  value={localParentName}
-                  onChange={(e) => setLocalParentName(e.target.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                  onKeyDown={handleParentNameKeyDown}
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs text-slate-500">صلة القرابة *</label>
-                <select
-                  value={localParentRelationship}
-                  onChange={(e) => {
-                    setLocalParentRelationship(e.target.value);
-                    if (e.target.value !== "other") setLocalCustomRelationship("");
-                  }}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                >
-                  <option value="">اختر الصلة</option>
-                  {PARENT_RELATIONSHIPS.map((r) => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          )}
-
-          {/* خانة الكتابة الحرة لو اختار "أخرى" */}
-          {localIsParent && localParentRelationship === "other" && (
-            <div className="pt-2">
-              <label className="mb-1 block text-xs text-slate-500">اكتب صلة القرابة *</label>
-              <input
-                placeholder="مثال: قرابة، زوجة الأب، مدرّبة..."
-                value={localCustomRelationship}
-                onChange={(e) => setLocalCustomRelationship(e.target.value)}
-                onKeyDown={handleParentNameKeyDown}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              />
-            </div>
-          )}
-
-          {/* تنبيه: نفس الرقم ممكن يكون عند أكتر من طالب */}
-          {localIsParent && suggestions.length > 0 && (
-            <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs text-blue-700">
-              الرقم ده مسجل بالفعل لأولياء أمر — لو حد منهم، اختار اسمه من الاقتراحات.
-            </p>
-          )}
-
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={addPhone}
-              className="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-            >
-              ➕ إضافة الرقم
-            </button>
-            {form.phones.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setForm((prev: any) => ({ ...prev, phones: [] }))}
-                className="rounded-lg bg-red-50 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-100"
-              >
-                🗑 مسح الكل
-              </button>
-            )}
-          </div>
-        </div>
-
-        {phones.length > 0 && (
-          <div className="rounded-xl border border-slate-200">
-            <h5 className="px-4 py-3 border-b border-slate-200 font-medium text-slate-800">أرقام الهاتف ({phones.length})</h5>
-            <ul className="divide-y divide-slate-100">
-              {phones.map((phone: { phone_number: string; country_code: string; is_personal: boolean; is_parent: boolean; is_whatsapp: boolean; is_call: boolean; is_primary: boolean; parent_name: string; parent_relationship: string }, idx: number) => (
-                <li key={`phone-${idx}`} className="p-4 hover:bg-slate-50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <span className="font-mono text-lg font-medium text-slate-800" dir="ltr">{phone.phone_number}</span>
-                      <div className="flex gap-1.5">
-                        {phone.is_personal && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700">👤 شخصي</span>}
-                        {phone.is_whatsapp && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-green-50 text-green-700">💬 واتساب</span>}
-                        {phone.is_call && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">📞 تواصل</span>}
-                        {phone.is_parent && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-purple-50 text-purple-700">👨‍👩‍👧 ولي أمر</span>}
-                        {phone.is_primary && <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-amber-50 text-amber-700">⭐ أساسي</span>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {phone.is_parent && phone.parent_name && (
-                        <span className="text-xs text-purple-600">{phone.parent_name} ({parentRelationshipLabel(phone.parent_relationship)})</span>
-                      )}
-                      <button onClick={() => setForm((prev: any) => ({ ...prev, phones: prev.phones.filter((_: any, i: number) => i !== idx) }))} className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100" title="حذف">🗑</button>
-                    </div>
-                  </div>
-                  {phone.is_parent && phone.parent_name && (
-                    <p className="mt-1 text-xs text-purple-600">{phone.parent_name} ({parentRelationshipLabel(phone.parent_relationship)})</p>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </div>
-    );
-  });
 
   const editPhone = (phone: StudentPhone) => {
     setPhoneForm({
