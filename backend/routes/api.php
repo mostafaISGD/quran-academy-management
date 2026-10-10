@@ -67,13 +67,25 @@ Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
 
     // ============================================================
     // ⭐⭐ الأكواد الترويجية (Promo Codes)
+    //
+    // ⚠️⚠️⚠️ **كلهم محتاجين `auth:sanctum` — ومن غيره 403!**
+    //
+    // middleware الـ `permission` لوحده **مش كافي**: هو بيشتغل
+    // على `$request->user()`، فلو الـ token مش متأكد من الـ
+    // middleware بيفضل null وبيرجع «غير مصرح» — حتى لو الـ token
+    // **صالح** والصلاحية موجودة.
+    //
+    // ⭐ اللي حصل فعلاً: `/promo-codes` كان بيرجع 403 للمدير
+    // نفسه، مع إن `pricing.view` كانت في التوكن.
+    //
+    // والترتيب مهم: `auth:sanctum` **قبل** `permission`.
     // ============================================================
     Route::get('/promo-codes', [PromoCodeController::class, 'index'])
-        ->middleware('permission:pricing.view');
+        ->middleware(['auth:sanctum', 'permission:pricing.view']);
     Route::post('/promo-codes', [PromoCodeController::class, 'store'])
         ->middleware(['auth:sanctum', 'permission:pricing.manage']);
     Route::get('/promo-codes/{promoCode}', [PromoCodeController::class, 'show'])
-        ->middleware('permission:pricing.view');
+        ->middleware(['auth:sanctum', 'permission:pricing.view']);
     Route::put('/promo-codes/{promoCode}', [PromoCodeController::class, 'update'])
         ->middleware(['auth:sanctum', 'permission:pricing.manage']);
     Route::delete('/promo-codes/{promoCode}', [PromoCodeController::class, 'destroy'])
@@ -82,7 +94,7 @@ Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
     Route::post('/promo-codes/validate', [PromoCodeController::class, 'validate'])
         ->middleware(['auth:sanctum', 'permission:pricing.view']);
     Route::get('/promo-codes/{promoCode}/stats', [PromoCodeController::class, 'stats'])
-        ->middleware('permission:pricing.view');
+        ->middleware(['auth:sanctum', 'permission:pricing.view']);
 
     // ===== المجموعات الأونلاين + قائمة الانتظار =====
     //

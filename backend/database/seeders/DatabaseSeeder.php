@@ -43,44 +43,32 @@ class DatabaseSeeder extends Seeder
             'status' => 'active',
         ]);
 
-        // Create permissions
-        $permissions = [
-            ['name' => 'students.view', 'slug' => 'students-view', 'module' => 'students'],
-            ['name' => 'students.create', 'slug' => 'students-create', 'module' => 'students'],
-            ['name' => 'students.edit', 'slug' => 'students-edit', 'module' => 'students'],
-            ['name' => 'students.delete', 'slug' => 'students-delete', 'module' => 'students'],
-            ['name' => 'teachers.view', 'slug' => 'teachers-view', 'module' => 'teachers'],
-            ['name' => 'teachers.create', 'slug' => 'teachers-create', 'module' => 'teachers'],
-            ['name' => 'teachers.edit', 'slug' => 'teachers-edit', 'module' => 'teachers'],
-            ['name' => 'teachers.delete', 'slug' => 'teachers-delete', 'module' => 'teachers'],
-            ['name' => 'lessons.view', 'slug' => 'lessons-view', 'module' => 'lessons'],
-            ['name' => 'lessons.create', 'slug' => 'lessons-create', 'module' => 'lessons'],
-            ['name' => 'lessons.edit', 'slug' => 'lessons-edit', 'module' => 'lessons'],
-            ['name' => 'lessons.cancel', 'slug' => 'lessons-cancel', 'module' => 'lessons'],
-            ['name' => 'payments.view', 'slug' => 'payments-view', 'module' => 'payments'],
-            ['name' => 'payments.create', 'slug' => 'payments-create', 'module' => 'payments'],
-            ['name' => 'payments.refund', 'slug' => 'payments-refund', 'module' => 'payments'],
-            ['name' => 'payments.edit', 'slug' => 'payments-edit', 'module' => 'payments'],
-            ['name' => 'leads.view', 'slug' => 'leads-view', 'module' => 'leads'],
-            ['name' => 'leads.create', 'slug' => 'leads-create', 'module' => 'leads'],
-            ['name' => 'leads.edit', 'slug' => 'leads-edit', 'module' => 'leads'],
-            ['name' => 'reports.view', 'slug' => 'reports-view', 'module' => 'reports'],
-            ['name' => 'programs.view', 'slug' => 'programs-view', 'module' => 'programs'],
-            ['name' => 'attendance.view', 'slug' => 'attendance-view', 'module' => 'attendance'],
-            ['name' => 'attendance.manage', 'slug' => 'attendance-manage', 'module' => 'attendance'],
-            ['name' => 'payroll.manage', 'slug' => 'payroll-manage', 'module' => 'payroll'],
-            ['name' => 'settings.manage', 'slug' => 'settings-manage', 'module' => 'settings'],
-        ];
-
-        // ⚠️ التوست عندي: دي نسخة ثانية من نفس قائمة الصلاحيات.
-        // المصدر الحقيقي هو `SeedRolesPermissions::PERMISSIONS` — لو
-        // أضفت صلاحية هنا بس، مش هتظهر لما `RealisticDataSeeder`
-        // يشتغل. المفروض الاتنين يتّحدوا في مصدر واحد.
-
-        foreach ($permissions as $perm) {
+        /**
+         * ⭐⭐⭐ **المصدر الحقيقي للصلاحيات: `SeedRolesPermissions`.**
+         *
+         * ⚠️⚠️ كان هنا **قائمة ثانية مكتوبة يدوي** بنفس الأسماء.
+         * النتيجة اللي ظهرت فعلاً في القاعدة:
+         *
+         *     إجمالي الصلاحيات: ٢٥  (من الليستة القديمة)
+         *     ناقص: finance.* · groups.* · pricing.* · leads.*
+         *
+         * يعني `/accounts` و `/finance` و `/pricing-admin` كانوا
+         * بيرجعوا **403** للمدير نفسه.
+         *
+         * ⭐ دلوقتي في **مصدر واحد**. ضيف صلاحية في
+         * `SeedRolesPermissions::PERMISSIONS` وخلاص — مش هتحتاج
+         * تفتكر مكان تاني.
+         *
+         * @see \Database\Seeders\SeedRolesPermissions::PERMISSIONS
+         */
+        foreach (SeedRolesPermissions::PERMISSIONS as $perm) {
             Permission::firstOrCreate(
                 ['name' => $perm['name'], 'guard_name' => 'web'],
-                [...$perm, 'guard_name' => 'web']
+                [
+                    'slug' => str_replace('.', '-', $perm['name']),
+                    'module' => $perm['module'],
+                    'guard_name' => 'web',
+                ]
             );
         }
 

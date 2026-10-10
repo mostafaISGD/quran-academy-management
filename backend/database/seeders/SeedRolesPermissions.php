@@ -21,8 +21,19 @@ use Spatie\Permission\Models\Role;
  */
 class SeedRolesPermissions extends Seeder
 {
-    /** @var array<int, array{name:string, module:string}> */
-    private const PERMISSIONS = [
+    /**
+     * ⭐⭐⭐ **المصدر الرسمي الوحيد لصلاحيات النظام.**
+     *
+     * ⚠️ **أي صلاحية جديدة بتتخزّن هنا** — في أي مكان تاني هتكون
+     * مكرّرة ومش هتوصلك القاعدة.
+     *
+     * ⭐ `public` عشان أمر `permissions:sync` يقدر يقراها ويطبّقها
+     * على قواعد قائمة من غير ما نعمل `migrate:fresh`.
+     *
+     * @see \App\Console\Commands\SyncPermissions
+     * @var array<int, array{name:string, module:string}>
+     */
+    public const PERMISSIONS = [
         ['name' => 'students.view', 'module' => 'students'],
         ['name' => 'students.create', 'module' => 'students'],
         ['name' => 'students.edit', 'module' => 'students'],
@@ -55,6 +66,18 @@ class SeedRolesPermissions extends Seeder
         // حساب) — بس تعديلها لازم يكون صلاحية. فبنخليها للإدارة
         // بس: ده قرار تجاري، مش شغل محاسب ولا موظف استقبال.
         ['name' => 'pricing.manage', 'module' => 'pricing'],
+
+        // ⭐⭐⭐ `pricing.view` — **كانت ناقصة وظهرت بالاختبار**
+        //
+        // ⚠️ الـ routes بتستخدمها في ٤ مواضع (صفحة `/pricing`)
+        // وكلها لازم تكون مسجّلة، وإلا أي حد غير المدير يقابل
+        // 403 «غير مصرح».
+        //
+        // ⭐ الفصل عن `pricing.manage` مقصود زي باقي الصلاحيات:
+        // الموظف يقدر **يشوف** الأسعار (عشان يجاوب على سؤال) من غير
+        // ما يقدر **يغيّرها**.
+        ['name' => 'pricing.view', 'module' => 'pricing'],
+
         // ===== المجموعات وقائمة الانتظار =====
         // ⭐ الفصل مهم هنا زي الحضور: **الاستقبال** بياخد الطلب
         // العام (وده عام من غير صلاحية أصلاً)، بس **اللي بيدخّل حد**
