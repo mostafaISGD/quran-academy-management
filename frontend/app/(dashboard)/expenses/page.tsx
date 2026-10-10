@@ -6,7 +6,6 @@ import {
   getExpenses,
   createExpense,
   type Expense,
-  type Paginated,
 } from "@/lib/api";
 import Pagination from "@/components/Pagination";
 

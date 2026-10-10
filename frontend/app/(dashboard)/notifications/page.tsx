@@ -27,7 +27,13 @@ export default function NotificationsPage() {
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [eventFilter, setEventFilter] = useState("");
 
-  const loadNotifications = useCallback(async (targetPage = 1, unread = false, event = "") => {
+  /**
+   * ⭐ مفيش `event` هنا عن قصد.
+   *
+   * الفلترة بنوع الحدث بتحصل في العرض (`visible` تحت) مش في
+   * السيرفر — فالمعامل كان ميّت بس بيوحّي إنه بيفلتر.
+   */
+  const loadNotifications = useCallback(async (targetPage = 1, unread = false) => {
     setLoading(true);
     setError(null);
     try {
@@ -41,22 +47,22 @@ export default function NotificationsPage() {
     }
   }, []);
 
-  useEffect(() => { loadNotifications(1, unreadOnly, eventFilter); }, [loadNotifications, unreadOnly, eventFilter]);
+  useEffect(() => { loadNotifications(1, unreadOnly); }, [loadNotifications, unreadOnly, eventFilter]);
 
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    loadNotifications(target, unreadOnly, eventFilter);
+    loadNotifications(target, unreadOnly);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function handleMarkRead(id: number) {
-    try { await markNotificationRead(id); loadNotifications(page, unreadOnly, eventFilter); }
+    try { await markNotificationRead(id); loadNotifications(page, unreadOnly); }
     catch (err) { setError(err instanceof Error ? err.message : "فشل"); }
   }
 
   async function handleMarkAllRead() {
-    try { await markAllNotificationsRead(); loadNotifications(1, unreadOnly, eventFilter); }
+    try { await markAllNotificationsRead(); loadNotifications(1, unreadOnly); }
     catch (err) { setError(err instanceof Error ? err.message : "فشل"); }
   }
 

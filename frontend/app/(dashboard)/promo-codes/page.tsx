@@ -10,7 +10,7 @@ import {
   type PromoCode,
   type PromoCodeStats,
 } from "@/lib/api";
-import { date, egp, num, text } from "@/lib/format";
+import { egp, num, text } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
 /**

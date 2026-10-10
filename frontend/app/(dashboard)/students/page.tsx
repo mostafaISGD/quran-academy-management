@@ -5,7 +5,7 @@ import { currencyLabel, date, dateNoYear, dateSmart, egp, money, monthYear, num,
 import {
   apiFetch, getStudents, createStudent, updateStudent, deleteStudent,
   getTeachers, getPrograms, getSubscriptions, getSchedule, getStudent,
-  getParents, getStudentPhones, addStudentPhone, updateStudentPhone,
+  getStudentPhones, addStudentPhone, updateStudentPhone,
   deleteStudentPhone, setPrimaryPhone,
   bulkChangeTeacher, bulkCreateInvoices, bulkNotify,
   createSubscription, updateSubscription,
@@ -151,7 +151,6 @@ export default function StudentsPage() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [parents, setParents] = useState<Parent[]>([]);
   const [studentPhones, setStudentPhones] = useState<Record<number, StudentPhone[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -852,19 +851,6 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
     }
   };
 
-  const handleTogglePhoneField = async (phoneId: number, field: keyof StudentPhone) => {
-    if (!phoneManagerStudent) return;
-    try {
-      const phone = studentPhones[phoneManagerStudent.id]?.find(p => p.id === phoneId);
-      if (!phone) return;
-      await updateStudentPhone(phoneManagerStudent.id, phoneId, { [field]: !phone[field] });
-      const phones = await getStudentPhones(phoneManagerStudent.id);
-      setStudentPhones((prev) => ({ ...prev, [phoneManagerStudent.id]: phones.data }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل التحديث");
-    }
-  };
-
   const ALL_COLUMNS = [
     { key: "student", label: "الطالب", visible: true },
     { key: "program", label: "البرنامج", visible: true },
@@ -950,7 +936,6 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
       getTeachers().then((r) => setTeachers(r.data)).catch(() => {});
       getPrograms().then((r) => setPrograms(r.data)).catch(() => {});
       getSubscriptions().then((r) => setSubscriptions(r.data)).catch(() => {});
-      getParents().then((r) => setParents(r.data)).catch(() => {});
       loadUnfilteredTotal();
     };
     initialize();
@@ -1318,7 +1303,6 @@ const PhoneManagerLocal = memo(({ form, setForm }: { form: any; setForm: React.D
     });
     if (!picked) return;
 
-    const teacher = teachers.find((t) => String(t.id) === picked);
     setBulkBusy("teacher");
     try {
       const r = await bulkChangeTeacher({ student_ids: selectedIds, teacher_id: Number(picked) });

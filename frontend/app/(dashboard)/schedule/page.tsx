@@ -9,11 +9,11 @@ import { CSS } from "@dnd-kit/utilities";
 import { useSortable } from "@dnd-kit/sortable";
 import {
   apiFetch, getSchedule, createLesson, cancelLesson, completeLesson,
-  markAttendance, recordMemorization, getStudents, getTeachers,
+  markAttendance, getStudents, getTeachers,
   getPrograms, getSubscriptions,
   type Lesson, type Student, type Teacher, type Program, type Subscription,
 } from "@/lib/api";
-import { date, dateSmart, monthYear, num, time } from "@/lib/format";
+import { date, dateSmart, monthYear, time } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
 type ViewMode = "day" | "week" | "teachers";
@@ -61,12 +61,17 @@ export default function SchedulePage() {
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [showQuickAdd, setShowQuickAdd] = useState(false);
-  const [quickAddSlot, setQuickAddSlot] = useState<{ hour: number; dayIndex?: number } | null>(null);
+  /**
+   * ⭐ فاضي في خانة القراءة عن قصد.
+   *
+   * الشاشة بتفتح الفورم وتكتب في `showQuickAdd` بس، من غير ما
+   * تقرأ الخانة نفسها — فمش محتاجة تخزّن القيمة.
+   */
+  const [, setQuickAddSlot] = useState<{ hour: number; dayIndex?: number } | null>(null);
   const [selectedLesson, setSelectedLesson] = useState<Lesson | null>(null);
   const [activeLesson, setActiveLesson] = useState<Lesson | null>(null);
   const [filter, setFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [showProblems, setShowProblems] = useState(false);
 
   // Quick add form
   const [qaForm, setQaForm] = useState({
@@ -403,7 +408,7 @@ export default function SchedulePage() {
               <div className="min-w-[800px]">
                 <div className="grid grid-cols-8 gap-1">
                   <div className="p-2 text-center text-xs text-slate-400">الوقت</div>
-                  {DAYS_AR.map((day, i) => (
+                  {DAYS_AR.map((day) => (
                     <div key={day} className="p-2 text-center text-xs font-medium text-slate-600">{day}</div>
                   ))}
                   {HOURS.map((hour) => (

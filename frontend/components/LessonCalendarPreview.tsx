@@ -124,7 +124,6 @@ export default function LessonCalendarPreview({
 
   const lessonCount = days.filter((d) => d?.hasLesson).length;
   const weeksTotal = Math.ceil((hasEnd ? Math.round((end!.getTime() - start.getTime()) / 86400000) : 29) / 7);
-  const maxMinutes = weekdays.length * durationMinutes;
 
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-3">

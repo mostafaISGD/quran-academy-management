@@ -56,7 +56,6 @@ export default function AttendancePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showTimes, setShowTimes] = useState<number | null>(null);
 
   const { toast, confirm } = useUI();
 

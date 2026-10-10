@@ -4,8 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getEmployees,
   getRoles,
-  createEmployee,
-  updateEmployee,
   deleteEmployee,
   type Employee,
   type EmployeeStatus,
@@ -365,7 +363,6 @@ export default function EmployeesPage() {
           onClose={() => setSelectedId(null)}
           onEdit={(emp) => { setSelectedId(null); setEditing(emp); setShowForm(true); }}
           onDelete={(emp) => { setSelectedId(null); handleDelete(emp); }}
-          roles={roles}
         />
       )}
 

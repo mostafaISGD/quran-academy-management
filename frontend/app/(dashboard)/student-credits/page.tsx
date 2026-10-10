@@ -6,11 +6,9 @@ import {
   createStudentCredit,
   getStudentCredits,
   refundStudentCredit,
-  type CreditNoteApplication,
   type StudentCredit,
-  type StudentCreditsResponse,
 } from "@/lib/api";
-import { egp, num, date, text } from "@/lib/format";
+import { egp, date, text } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
 /**

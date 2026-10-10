@@ -89,13 +89,6 @@ export default function ReminderSettingsPage() {
     }
   };
 
-  const togglePeriod = (periods: number[], value: number) => {
-    const set = new Set(periods);
-    if (set.has(value)) set.delete(value);
-    else set.add(value);
-    return Array.from(set).sort((a, b) => a - b);
-  };
-
   if (loading) {
     return (
       <div className="space-y-4">

@@ -11,7 +11,6 @@ import {
   type EmployeeStatus,
   type AttendanceMonth,
   type AttendanceStatus,
-  type RoleOption,
 } from "@/lib/api";
 
 /**
@@ -149,13 +148,12 @@ function Skeleton() {
 // ============================================================
 
 export default function EmployeeProfile({
-  employeeId, onClose, onEdit, onDelete, roles,
+  employeeId, onClose, onEdit, onDelete,
 }: {
   employeeId: number;
   onClose: () => void;
   onEdit: (e: Employee) => void;
   onDelete: (e: Employee) => void;
-  roles: RoleOption[];
 }) {
   const [employee, setEmployee] = useState<Employee | null>(null);
   const [granted, setGranted] = useState<Record<string, { name: string; granted: boolean }[]>>({});

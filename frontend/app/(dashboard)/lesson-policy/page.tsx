@@ -6,7 +6,6 @@ import {
   updateLessonPolicy,
   type LessonPolicy,
 } from "@/lib/api";
-import { num } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
 /**
@@ -38,19 +37,6 @@ export default function LessonPolicyPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await getLessonPolicy();
-      setPolicy(res.data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "تعذر تحميل السياسات");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
     getLessonPolicy()
