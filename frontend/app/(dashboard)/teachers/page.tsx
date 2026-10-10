@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback, memo } from "react";
+import { useState, useMemo, useCallback, memo } from "react";
+import { usePage } from "@/lib/use-page";
 import {
   getTeachers, createTeacher, updateTeacher, deleteTeacher,
   getTeacherOverview, getTeacherStudents, getTeacherLessonsSummary, getTeacherFinancialSummary,
@@ -176,19 +177,21 @@ function Stars({ value, size = "sm" }: { value: number; size?: "sm" | "lg" }) {
 // ============================================================
 
 function OverviewTab({ teacherId }: { teacherId: number }) {
-  const [data, setData] = useState<TeacherOverview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * الـ `key` هو `teacherId` — كل ما نفتح معلم تاني
+   * البيانات بتتحدّث.
+   *
+   * @see usePage
+   */
+  const fetchOverview = useCallback(() => getTeacherOverview(teacherId), [teacherId]);
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    getTeacherOverview(teacherId)
-      .then((r) => { if (active) setData(r); })
-      .catch((e) => { if (active) setError(e instanceof Error ? e.message : "تعذر التحميل"); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [teacherId]);
+  const { data, loading, error } = usePage<TeacherOverview | null>(
+    `overview:${teacherId}`,
+    fetchOverview,
+    { initial: null },
+  );
 
   if (loading) return <TabSkeleton />;
   if (error) return <p className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>;
@@ -311,20 +314,21 @@ function Empty({ text }: { text: string }) {
 // ============================================================
 
 function StudentsTab({ teacherId }: { teacherId: number }) {
-  const [students, setStudents] = useState<TeacherStudent[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    getTeacherStudents(teacherId)
-      .then((r) => { if (active) setStudents(r.students); })
-      .catch((e) => { if (active) setError(e instanceof Error ? e.message : "تعذر التحميل"); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [teacherId]);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * @see usePage
+   */
+  const fetchStudents = useCallback(() => getTeacherStudents(teacherId), [teacherId]);
+
+  const { data: studentsData, loading, error } = usePage<{ students: TeacherStudent[] } | null>(
+    `students:${teacherId}`,
+    fetchStudents,
+    { initial: null },
+  );
+  const students = studentsData?.students ?? null;
 
   const filtered = useMemo(() => {
     if (!students) return [];
@@ -417,19 +421,18 @@ function LessonRow({ lesson, isPast }: { lesson: Lesson; isPast?: boolean }) {
 }
 
 function LessonsTab({ teacherId }: { teacherId: number }) {
-  const [data, setData] = useState<TeacherLessonsSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * @see usePage
+   */
+  const fetchLessons = useCallback(() => getTeacherLessonsSummary(teacherId), [teacherId]);
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    getTeacherLessonsSummary(teacherId)
-      .then((r) => { if (active) setData(r); })
-      .catch((e) => { if (active) setError(e instanceof Error ? e.message : "تعذر التحميل"); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [teacherId]);
+  const { data, loading, error } = usePage<TeacherLessonsSummary | null>(
+    `lessons:${teacherId}`,
+    fetchLessons,
+    { initial: null },
+  );
 
   if (loading) return <TabSkeleton />;
   if (error) return <p className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>;
@@ -515,9 +518,6 @@ const DAY_ORDER = [0, 1, 2, 3, 4, 5, 6];
 
 function ScheduleTab({ teacherId }: { teacherId: number }) {
   const { toast, confirm } = useUI();
-  const [blocks, setBlocks] = useState<TeacherScheduleBlock[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<TeacherScheduleBlock | null>(null);
   const [openForm, setOpenForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -529,16 +529,21 @@ function ScheduleTab({ teacherId }: { teacherId: number }) {
     title: "",
   });
 
-  const load = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    getTeacherAvailability(teacherId)
-      .then((r) => setBlocks(r.blocks))
-      .catch((e) => setError(e instanceof Error ? e.message : "تعذر التحميل"))
-      .finally(() => setLoading(false));
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * @see usePage
+   */
+  const fetchBlocks = useCallback(async () => {
+    const r = await getTeacherAvailability(teacherId);
+    return r.blocks;
   }, [teacherId]);
 
-  useEffect(() => { load(); }, [load]);
+  const { data: blocks, loading, error, reload } = usePage<TeacherScheduleBlock[]>(
+    `availability:${teacherId}`,
+    fetchBlocks,
+    { initial: [] },
+  );
 
   const byDay = useMemo(() => {
     const map = new Map<number, TeacherScheduleBlock[]>(DAY_ORDER.map((d) => [d, []]));
@@ -567,7 +572,7 @@ function ScheduleTab({ teacherId }: { teacherId: number }) {
       }
       setOpenForm(false);
       setEditing(null);
-      load();
+      reload();
     } catch (err) {
       toast.error("فشل الحفظ", err instanceof Error ? err.message : undefined);
     } finally {
@@ -587,7 +592,7 @@ function ScheduleTab({ teacherId }: { teacherId: number }) {
     try {
       await deleteScheduleBlock(teacherId, b.id);
       toast.success("تم حذف الفترة");
-      load();
+      reload();
     } catch (err) {
       toast.error("فشل الحذف", err instanceof Error ? err.message : undefined);
     }
@@ -804,19 +809,18 @@ function ScheduleTab({ teacherId }: { teacherId: number }) {
 // ============================================================
 
 function FinanceTab({ teacherId }: { teacherId: number }) {
-  const [data, setData] = useState<TeacherFinancialSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * @see usePage
+   */
+  const fetchFinance = useCallback(() => getTeacherFinancialSummary(teacherId), [teacherId]);
 
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    getTeacherFinancialSummary(teacherId)
-      .then((r) => { if (active) setData(r); })
-      .catch((e) => { if (active) setError(e instanceof Error ? e.message : "تعذر التحميل"); })
-      .finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [teacherId]);
+  const { data, loading, error } = usePage<TeacherFinancialSummary | null>(
+    `finance:${teacherId}`,
+    fetchFinance,
+    { initial: null },
+  );
 
   if (loading) return <TabSkeleton />;
   if (error) return <p className="rounded-lg bg-red-50 p-3 text-sm text-red-600">{error}</p>;
@@ -1064,7 +1068,7 @@ function TeacherDrawer({ teacher, onClose, onEdit, onRefresh }: {
   teacher: Teacher;
   onClose: () => void;
   onEdit: (teacher: Teacher) => void;
-  onRefresh: (teacherId: number) => void;
+  onRefresh: () => void;
 }) {
   const [tab, setTab] = useState<TabKey>("overview");
 
@@ -1148,7 +1152,7 @@ function TeacherDrawer({ teacher, onClose, onEdit, onRefresh }: {
             onClick={async () => {
               const next = teacher.status === "active" ? "inactive" : "active";
               await updateTeacher(teacher.id, { status: next });
-              onRefresh(teacher.id);
+              onRefresh();
               onClose();
             }}
             className={`rounded-lg px-4 py-2.5 text-sm font-medium transition ${
@@ -1171,10 +1175,6 @@ function TeacherDrawer({ teacher, onClose, onEdit, onRefresh }: {
 export default function TeachersPage() {
   const { toast, confirm } = useUI();
 
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [specializationFilter, setSpecializationFilter] = useState("");
@@ -1186,74 +1186,100 @@ export default function TeachersPage() {
 
   const PAGE_SIZE = 100;
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [countsAll, setCountsAll] = useState<{ total: number }>({ total: 0 });
 
-  const load = useCallback(async (targetPage = 1) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await getTeachers({
-        search: search.trim() || undefined,
-        status: statusFilter || undefined,
-        specialization: specializationFilter || undefined,
-        sort,
-        dir: sort === "display_name" || sort === "joined_at" ? "asc" : "desc",
-        page: targetPage,
-        per_page: PAGE_SIZE,
-      });
-      setTeachers(res.data);
-      setMeta({ total: res.total, last_page: res.last_page });
-      setCounts((res.counts ?? {}) as Record<string, number>);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
-    } finally {
-      setLoading(false);
-    }
-  }, [search, statusFilter, specializationFilter, sort]);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * الـ `key` بيتضمن الصفحة **وكل الفلاتر** — أي تغيير
+   * فيهم بيحدّث البيانات.
+   *
+   * @see usePage
+   */
+  const fetchTeachers = useCallback(async () => {
+    const res = await getTeachers({
+      search: search.trim() || undefined,
+      status: statusFilter || undefined,
+      specialization: specializationFilter || undefined,
+      sort,
+      dir: sort === "display_name" || sort === "joined_at" ? "asc" : "desc",
+      page,
+      per_page: PAGE_SIZE,
+    });
+    return {
+      items: res.data,
+      total: res.total,
+      lastPage: res.last_page,
+      counts: (res.counts ?? {}) as Record<string, number>,
+    };
+  }, [page, search, statusFilter, specializationFilter, sort]);
 
-  // أي تغيير في الفلاتر يرجّعنا للصفحة الأولى
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setPage(1);
-      load(1);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [load]);
+  const {
+    data: bundle,
+    loading,
+    error,
+    reload,
+  } = usePage<{
+    items: Teacher[];
+    total: number;
+    lastPage: number;
+    counts: Record<string, number>;
+  }>(`teachers:${page}:${search}:${statusFilter}:${specializationFilter}:${sort}`, fetchTeachers, {
+    initial: { items: [], total: 0, lastPage: 1, counts: {} },
+  });
+
+  const teachers = bundle.items;
+  const meta = { total: bundle.total, last_page: bundle.lastPage };
+  const counts = bundle.counts;
+
+  /**
+   * ⭐ الفلاتر الجديدة بتوصفّرنا لأول صفحة — **أثناء الرسم**.
+   *
+   * ده كان بيتعمل في الـ `useEffect` القديم بـ `setTimeout`.
+   * دلوقتي بنقارن الفلاتر الحالية باللي قبلها، ولو اتغيّرت
+   * نصفّر الصفحة فوراً.
+   */
+  const [filtersKey, setFiltersKey] = useState("");
+  const currentKey = `${search}|${statusFilter}|${specializationFilter}|${sort}`;
+  if (currentKey !== filtersKey) {
+    setFiltersKey(currentKey);
+    setPage(1);
+  }
+
+  /**
+   * ⭐ الإجمالي الكلي غير المتفلتر — `usePage` منفصل
+   * بثابت `key`، فبيتجاب مرة واحدة.
+   */
+  const fetchUnfilteredTotal = useCallback(async () => {
+    const res = await getTeachers({ per_page: 1 });
+    return { total: res.total };
+  }, []);
+
+  const { data: countsAllData } = usePage<{ total: number }>(
+    "teachers-total",
+    fetchUnfilteredTotal,
+    { initial: { total: 0 } },
+  );
+  const countsAllTotal = countsAllData?.total ?? 0;
 
   const goToPage = useCallback((target: number) => {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    load(target);
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [page, meta.last_page, load]);
-
-  // الإجمالي الكلي غير المتفلتر — مرة واحدة عند التحميل
-  const loadUnfilteredTotal = useCallback(async () => {
-    try {
-      const res = await getTeachers({ per_page: 1 });
-      setCountsAll({ total: res.total });
-    } catch {
-      // fallback للمتصفح
-    }
-  }, []);
-
-  useEffect(() => {
-    loadUnfilteredTotal();
-  }, [loadUnfilteredTotal]);
+  }, [page, meta.last_page]);
 
   // تحديث معلم واحد بدون إعادة تحميل القائمة كاملة
-  const refreshOne = useCallback((teacherId: number) => {
-    setTeachers((prev) => prev.map((t) => (t.id === teacherId ? { ...t, ...prev.find((p) => p.id === teacherId) } : t)));
-  }, []);
+  const refreshOne = useCallback(() => {
+    // ⭐ بنحدّث القائمة من السيرفر — التحديث المتفائل
+    // القديم كان بيعتمد على `setTeachers` اللي اتشال
+    reload();
+  }, [reload]);
 
   const stats = useMemo(() => ({
-    total: countsAll.total || meta.total || teachers.length,
+    total: countsAllTotal || meta.total || teachers.length,
     active: counts.active ?? 0,
     inactive: counts.inactive ?? 0,
     students: teachers.reduce((sum, t) => sum + (t.students_count ?? 0), 0),
-  }), [teachers, meta.total, counts, countsAll]);
+  }), [teachers, meta.total, counts, countsAllTotal]);
 
   const specializations = useMemo(
     () => [...new Set(teachers.map((t) => t.specialization).filter(Boolean))] as string[],
@@ -1292,10 +1318,9 @@ export default function TeachersPage() {
       await deleteTeacher(t.id);
       toast.success("تم حذف المعلم", t.display_name);
       setSelectedId(null);
-      load();
+      reload();
     } catch (err) {
       toast.error("فشل حذف المعلم", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل الحذف");
     }
   }
 
@@ -1355,7 +1380,7 @@ export default function TeachersPage() {
       {error && (
         <div className="mb-4 flex items-center justify-between rounded-lg bg-red-50 px-4 py-2.5">
           <p className="text-sm text-red-700">{error}</p>
-          <button onClick={() => load(page)} className="text-sm font-medium text-red-700 underline">إعادة المحاولة</button>
+          <button onClick={reload} className="text-sm font-medium text-red-700 underline">إعادة المحاولة</button>
         </div>
       )}
 
@@ -1453,7 +1478,7 @@ export default function TeachersPage() {
                       <button title={t.status === "active" ? "إيقاف" : "تفعيل"}
                         onClick={async () => {
                           await updateTeacher(t.id, { status: t.status === "active" ? "inactive" : "active" });
-                          load();
+                          reload();
                         }}
                         className="rounded px-2 py-1 text-xs text-amber-600 transition hover:bg-amber-50">
                         {t.status === "active" ? "⏸" : "▶"}
@@ -1486,7 +1511,7 @@ export default function TeachersPage() {
         <TeacherFormModal
           teacher={editing}
           onClose={() => { setFormOpen(false); setEditing(null); }}
-          onSaved={() => load(page)}
+          onSaved={() => reload()}
         />
       )}
 
