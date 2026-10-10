@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { getSettings, saveSetting, deleteSetting } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import { Modal, useUI, IconPencil, IconTrash } from "@/components/ui";
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState<Record<string, unknown>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [newKey, setNewKey] = useState("");
   const [newValue, setNewValue] = useState("");
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -15,15 +13,24 @@ export default function SettingsPage() {
 
   const { toast, confirm } = useUI();
 
-  function loadSettings() {
-    setLoading(true);
-    getSettings()
-      .then(setSettings)
-      .catch((err) => setError(err instanceof Error ? err.message : "تعذر التحميل"))
-      .finally(() => setLoading(false));
-  }
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * `loading` بيبدأ `true` جوه الـ hook، فمفيش
+   * `setLoading(true)` متزامن — وده اللي كان بيعمل رسم إضافي.
+   *
+   * @see usePage
+   */
+  const fetchSettings = useCallback(() => getSettings(), []);
 
-  useEffect(() => { loadSettings(); }, []);
+  const {
+    data: settings,
+    loading,
+    error,
+    reload: loadSettings,
+  } = usePage<Record<string, unknown>>("settings", fetchSettings, {
+    initial: {},
+  });
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -34,7 +41,6 @@ export default function SettingsPage() {
       setNewKey(""); setNewValue(""); loadSettings();
     } catch (err) {
       toast.error("فشل حفظ الإعداد", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل");
     }
   }
 
@@ -66,7 +72,6 @@ export default function SettingsPage() {
       loadSettings();
     } catch (err) {
       toast.error("فشل حذف الإعداد", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل");
     }
   }
 
@@ -86,7 +91,7 @@ export default function SettingsPage() {
             </form>
           </div>
           <div className="space-y-2">
-            {Object.keys(settings).length === 0 && <p className="text-slate-400">لا توجد إعدادات</p>}
+            {Object.keys(settings ?? {}).length === 0 && <p className="text-slate-400">لا توجد إعدادات</p>}
             {Object.entries(settings).map(([key, value]) => (
               <div key={key} className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4">
                 <div>

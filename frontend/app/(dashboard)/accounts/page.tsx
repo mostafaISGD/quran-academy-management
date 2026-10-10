@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { usePage } from "@/lib/use-page";
 import Pagination from "@/components/Pagination";
 import {
   createFinancialAccount,
@@ -94,18 +95,7 @@ function today(): string {
 type Modal = "transfer" | "account" | "lock" | null;
 
 export default function AccountsPage() {
-  const [accounts, setAccounts] = useState<FinancialAccount[]>([]);
-  const [meta, setMeta] = useState<AccountsResponse["meta"] | null>(null);
-
-  const [movements, setMovements] = useState<AccountMovement[]>([]);
-  const [movementMeta, setMovementMeta] = useState<MovementsResponse["meta"] | null>(null);
-
-  const [locks, setLocks] = useState<PeriodLock[]>([]);
-
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-
   const [modal, setModal] = useState<Modal>(null);
 
   // ═══ الفلاتر ═══
@@ -116,39 +106,79 @@ export default function AccountsPage() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [page, setPage] = useState(1);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [accs, moves, lockRows] = await Promise.all([
-        getFinancialAccounts({ from, to }),
-        getAccountMovements({
-          account_id: accountFilter === "" ? undefined : accountFilter,
-          direction: directionFilter || undefined,
-          category: categoryFilter || undefined,
-          from,
-          to,
-          page,
-          per_page: PAGE_SIZE,
-        }),
-        getPeriodLocks(),
-      ]);
-
-      setAccounts(accs.data);
-      setMeta(accs.meta);
-      setMovements(moves.data);
-      setMovementMeta(moves.meta);
-      setLocks(lockRows.data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تحميل الخزائن");
-    } finally {
-      setLoading(false);
-    }
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * الـ fetcher بيرجّع **الثلاث مصادر مع بعض** في وعد واحد —
+   * `usePage` شغّال مع أي `Promise`، فمش لازم نغيّره.
+   *
+   * ⚠️ `load` لسه موجود كـ `useCallback` لأن `refresh` (تحت)
+   * بتناديه بعد العمليات. هنا بنلفّه في `usePage` والـ `reload`
+   * بيرجّع النتيجة.
+   *
+   * @see usePage
+   */
+  const fetchAccounts = useCallback(async () => {
+    const [accs, moves, lockRows] = await Promise.all([
+      getFinancialAccounts({ from, to }),
+      getAccountMovements({
+        account_id: accountFilter === "" ? undefined : accountFilter,
+        direction: directionFilter || undefined,
+        category: categoryFilter || undefined,
+        from,
+        to,
+        page,
+        per_page: PAGE_SIZE,
+      }),
+      getPeriodLocks(),
+    ]);
+    return {
+      accounts: accs.data,
+      meta: accs.meta,
+      movements: moves.data,
+      movementMeta: moves.meta,
+      locks: lockRows.data,
+    };
   }, [from, to, accountFilter, directionFilter, categoryFilter, page]);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  type AccountsBundle = Awaited<ReturnType<typeof fetchAccounts>>;
+
+  /**
+   * ⭐ القيمة الابتدائية: بيانات فارغة **بأنواعها الصح**.
+   *
+   * الأرقام الصفرية هنا مقصودة — المستخدم لازم يشوف الصفحة
+   * فوراً بدل ما يستنى الـ fetch يخلص.
+   */
+  const EMPTY: AccountsBundle = {
+    accounts: [],
+    meta: { total: 0, by_currency: {} },
+    movements: [],
+    movementMeta: {
+      current_page: 1,
+      last_page: 1,
+      per_page: 0,
+      total: 0,
+      totals: { in: 0, out: 0 },
+    },
+    locks: [],
+  };
+
+  const {
+    data: bundle,
+    loading,
+    error,
+    reload: load,
+  } = usePage<AccountsBundle>(
+    `accounts:${from}:${to}:${accountFilter}:${directionFilter}:${categoryFilter}:${page}`,
+    fetchAccounts,
+    { initial: EMPTY },
+  );
+
+  const accounts = bundle.accounts;
+  const meta = bundle.meta;
+  const movements = bundle.movements;
+  const movementMeta = bundle.movementMeta;
+  const locks = bundle.locks;
 
   /** ⭐⭐ أي فترة مقفولة دلوقتي؟ — عشان نبيّن القفل على الشاشة */
   const activeLocks = useMemo(() => locks.filter((l) => l.is_active), [locks]);
