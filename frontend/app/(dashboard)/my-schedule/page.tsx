@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { usePage } from "@/lib/use-page";
+import { useCurrentUser } from "@/lib/use-current-user";
 import {
-  fetchMe,
-  getStoredUser,
   getTeacherLessons,
   logout,
   type Lesson,
@@ -19,39 +19,41 @@ import TeacherScheduleEditor from "@/components/TeacherScheduleEditor";
  */
 export default function MySchedulePage() {
   const router = useRouter();
-  const [teacher, setTeacher] = useState<ReturnType<typeof getStoredUser>>(() =>
-    getStoredUser(),
-  );
-  const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [loadingLessons, setLoadingLessons] = useState(true);
-  const [ready, setReady] = useState(false);
+  const { user: teacher } = useCurrentUser();
 
+  /**
+   * ⭐ الجدول بيتجلب بس لو المستخدم **معلّم فعلاً**.
+   *
+   * ⭐ `enabled` بيمنع طلب جدول معلم لحد مش معلم.
+   *
+   * @see usePage
+   */
+  const teacherId = teacher?.teacher?.id ?? null;
+
+  const fetchLessons = useCallback(async () => {
+    if (!teacherId) return [];
+    const r = await getTeacherLessons(teacherId);
+    return r.data ?? [];
+  }, [teacherId]);
+
+  const { data: lessons, loading: loadingLessons } = usePage<Lesson[]>(
+    `my-schedule:${teacherId ?? "none"}`,
+    fetchLessons,
+    { initial: [], enabled: teacherId !== null },
+  );
+
+  /** ⭐ اللي مش معلم — يرجع لصفحته */
   useEffect(() => {
-    // نجيب من السيرفر (هو المصدر) وبعدها نوجّه
-    fetchMe()
-      .then((user) => {
-        setTeacher(user);
-        if (!user.teacher) {
-          router.replace("/dashboard");
-          return;
-        }
-        return getTeacherLessons(user.teacher.id)
-          .then((r) => setLessons(r.data ?? []))
-          .catch(() => {});
-      })
-      .catch(() => {})
-      .finally(() => {
-        setLoadingLessons(false);
-        setReady(true);
-      });
-  }, [router]);
+    if (!teacher) return;
+    if (!teacher.teacher) router.replace("/dashboard");
+  }, [teacher, router]);
 
   async function handleLogout() {
     await logout();
     router.push("/login");
   }
 
-  if (!ready || !teacher?.teacher) return null;
+  if (!teacher?.teacher) return null;
 
   return (
     <div>

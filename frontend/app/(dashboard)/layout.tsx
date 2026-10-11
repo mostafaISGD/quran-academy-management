@@ -2,10 +2,10 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
-import { getGroupAlerts, logout } from "@/lib/api";
-import { usePage } from "@/lib/use-page";
+import { useEffect, useState } from "react";
+import { logout } from "@/lib/api";
 import { useCurrentUser } from "@/lib/use-current-user";
+import { useGroupAlerts } from "@/lib/use-group-alerts";
 import { num } from "@/lib/format";
 import { UIProvider } from "@/components/ui/UIProvider";
 
@@ -145,26 +145,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
    */
   const canManageGroups = Boolean(user?.permissions?.includes("groups.manage"));
 
-  const fetchAlerts = useCallback(async () => {
-    const r = await getGroupAlerts();
-    // ⭐ حماية: لو الـtoken اتبطل، الـcount بيرجع undefined
-    return typeof r?.count === "number" ? r.count : 0;
-  }, []);
-
   /**
    * ⭐ إعادة الحساب أول ما تفتح «المجموعات».
    *
-   * السبب: لولا كده، لو دخّلت حد، الجرس هيفضل بالرقم القديم لحد
-   * ما تعمل تحديث للصفحة كلها.
+   * ⭐ الـ key فيه المسار عشان أول ما تفتح الصفحة يتحدّث
+   * الرقم — لو دخّلت حد، الجرس هيفضل بالقديم غير كده.
    *
-   * ⭐ والـ `key` بيغطي الحالة: من غير صلاحية مفيش طلب خالص
-   * (`enabled`) — عشان ما نعملش 403 لكل موظف استقبال.
+   * @see useGroupAlerts
    */
-  const { data: groupAlerts } = usePage<number>(
-    `group-alerts:${canManageGroups ? (pathname === "/groups" ? "groups" : "main") : "off"}`,
-    fetchAlerts,
-    { initial: 0, enabled: canManageGroups },
-  );
+  const alertScope = pathname === "/groups" ? "groups" : "main";
+
+  const { count: groupAlerts } = useGroupAlerts(canManageGroups, alertScope);
 
   // اللي فتح رابط مش ليه — نرجّعه لصفحته
   useEffect(() => {

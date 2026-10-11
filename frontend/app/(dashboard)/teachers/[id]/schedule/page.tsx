@@ -1,30 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { use, useCallback } from "react";
 import Link from "next/link";
 import { getTeacher, getTeacherLessons, type Teacher, type Lesson } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import TeacherScheduleEditor from "@/components/TeacherScheduleEditor";
 
 /** الأدمن بيفتح جدول معلم معيّن */
 export default function TeacherSchedulePage({ params }: { params: Promise<{ id: string }> }) {
-  const [teacherId, setTeacherId] = useState<number | null>(null);
-  const [teacher, setTeacher] = useState<Teacher | null>(null);
-  const [lessons, setLessons] = useState<Lesson[]>([]);
-  const [loadingLessons, setLoadingLessons] = useState(true);
+  /**
+   * ⭐⭐⭐ `params` بقى **فوري** بدل `useEffect`.
+   *
+   * `params` في Next.js عبارة عن `Promise`، والطريقة القديمة
+   * كانت بتحلّه في effect وبعدين تستنى:
+   *
+   *     useEffect(() => { params.then(p => setTeacherId(Number(p.id))) }, [params])
+   *
+   * ⭐ `use()` بيفكّ الـ promise **جوه الرسم** — فالمعرف جاهز
+   * من أول render، والصفحة بتتجيب البيانات في نفس_LOAD.
+   *
+   * ⭐ النتيجة: شغلنا كان بيبدأ بعد رسم فاضي (الصفحة بتقول
+   * `null` لثانية). دلوقتي بتبدأ فورًا.
+   *
+   * @see usePage
+   */
+  const teacherId = Number(use(params).id);
 
-  useEffect(() => {
-    params.then((p) => {
-      const id = Number(p.id);
-      setTeacherId(id);
-      getTeacher(id).then(setTeacher).catch(() => {});
-      getTeacherLessons(id)
-        .then((r) => setLessons(r.data ?? []))
-        .catch(() => {})
-        .finally(() => setLoadingLessons(false));
-    });
-  }, [params]);
+  const fetchTeacher = useCallback(() => getTeacher(teacherId), [teacherId]);
 
-  if (teacherId === null) return null;
+  const { data: teacher } = usePage<Teacher | null>(
+    `teacher:${teacherId}`,
+    fetchTeacher,
+    { initial: null },
+  );
+
+  const fetchLessons = useCallback(async () => {
+    const r = await getTeacherLessons(teacherId);
+    return r.data ?? [];
+  }, [teacherId]);
+
+  const { data: lessons, loading: loadingLessons } = usePage<Lesson[]>(
+    `teacher-schedule:${teacherId}`,
+    fetchLessons,
+    { initial: [] },
+  );
 
   return (
     <div>

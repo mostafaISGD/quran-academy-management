@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { usePage } from "@/lib/use-page";
 import {
   createWaitlistEntry,
   deleteWaitlistEntry,
@@ -73,9 +74,6 @@ const EMPTY_FORM: WaitlistPayload = {
 export default function WaitlistPage() {
   const { toast, confirm } = useUI();
 
-  const [entries, setEntries] = useState<WaitlistEntry[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
 
   // ===== الفلاتر =====
@@ -85,8 +83,6 @@ export default function WaitlistPage() {
   const [search, setSearch] = useState("");
 
   // ===== بيانات الفلاتر =====
-  const [groups, setGroups] = useState<GroupOption[]>([]);
-  const [packages, setPackages] = useState<PackageOption[]>([]);
 
   // ===== المودال =====
   const [showModal, setShowModal] = useState(false);
@@ -94,80 +90,78 @@ export default function WaitlistPage() {
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState<WaitlistPayload>(EMPTY_FORM);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await getWaitlist({
-        ...(statusFilter ? { status: statusFilter } : {}),
-        ...(groupFilter ? { group_id: groupFilter } : {}),
-        ...(packageFilter ? { package_id: packageFilter } : {}),
-        ...(search.trim() ? { search: search.trim() } : {}),
-        per_page: 200,
-      });
-      setEntries(res.data);
-      setTotal(res.meta.total);
-    } catch (e) {
-      toast.error("تعذر تحميل الطلبات", e instanceof Error ? e.message : undefined);
-    } finally {
-      setLoading(false);
-    }
-    // ⭐ `toast` هو الـ provider نفسه — مش سبب تاني نعيد التحميل
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect` + `load`.
+   *
+   * ⭐ `debounceMs: 350` بيلغي الـ `setTimeout` القديم.
+   *
+   * @see usePage
+   */
+  const fetchWaitlist = useCallback(async () => {
+    const res = await getWaitlist({
+      ...(statusFilter ? { status: statusFilter } : {}),
+      ...(groupFilter ? { group_id: groupFilter } : {}),
+      ...(packageFilter ? { package_id: packageFilter } : {}),
+      ...(search.trim() ? { search: search.trim() } : {}),
+      per_page: 200,
+    });
+    return { items: res.data, total: res.meta.total };
   }, [statusFilter, groupFilter, packageFilter, search]);
 
+  const {
+    data: waitlistBundle,
+    loading,
+    reload: reloadEntries,
+  } = usePage<{ items: WaitlistEntry[]; total: number }>(
+    `waitlist:${statusFilter}:${groupFilter}:${packageFilter}:${search}`,
+    fetchWaitlist,
+    { initial: { items: [], total: 0 }, debounceMs: 350 },
+  );
+
+  const entries = waitlistBundle.items;
+  const total = waitlistBundle.total;
+
   /**
-   * ⭐ تحميل واحد بيشغّل التحميل الأول كمان.
+   * ⭐ القوائم المرجعية للمجموعات والباقات.
    *
-   * كان في `useEffect` تاني بيطلب على المونت — فكان في **طلبين**
-   * أول ما الصفحة تفتح. الـ timeout بتأخير شوية هو اللي بيتكفل
-   * بالتحميل الأول، ومكانش محتاجين اتنين.
+   * ⭐ الباقات من **جدول الأسعار** مش من الاشتراكات —
+   * الاشتراكات اشتراكات الناس، والباقات اللي بنعرضها للاختيار
+   * هي الكاتالوج نفسه.
    *
-   * ⭐ البحث بيتأخر ٣٥٠ مللي — من غيرها كل حرف كانت هتعمل طلب
-   * للسيرفر، وكمان الصقل بيقطع الكلمة في النص.
+   * @see usePage
    */
-  useEffect(() => {
-    const timer = setTimeout(load, 350);
-    return () => clearTimeout(timer);
-  }, [load]);
+  const fetchRefs = useCallback(async () => {
+    const [groupsRes, pricingRes] = await Promise.all([getGroups(), getPricing()]);
 
-  useEffect(() => {
-    let alive = true;
-
-    (async () => {
-      try {
-        const [groupsRes, pricingRes] = await Promise.all([getGroups(), getPricing()]);
-
-        if (!alive) return;
-
-        setGroups(groupsRes.data.map((g) => ({ id: g.id, name: g.name })));
-
-        // ⭐ الباقات من **جدول الأسعار** مش من الاشتراكات —
-        // الاشتراكات اشتراكات الناس، والباقات اللي بنعرضها
-        // للاختيار هي الكاتالوج نفسه.
-        const flat: PackageOption[] = [];
-        for (const group of pricingRes.groups as PricingGroup[]) {
-          for (const p of group.plans) {
-            flat.push({
-              id: p.id,
-              name: p.name,
-              price: p.price,
-              currency: p.currency,
-              lessons_count: p.lessons_count,
-              lesson_duration_minutes: p.lesson_duration_minutes,
-              category_label: group.label,
-            });
-          }
-        }
-        setPackages(flat);
-      } catch (e) {
-        if (alive) console.error("فشل تحميل المجموعات والباقات:", e);
+    const flat: PackageOption[] = [];
+    for (const group of pricingRes.groups as PricingGroup[]) {
+      for (const p of group.plans) {
+        flat.push({
+          id: p.id,
+          name: p.name,
+          price: p.price,
+          currency: p.currency,
+          lessons_count: p.lessons_count,
+          lesson_duration_minutes: p.lesson_duration_minutes,
+          category_label: group.label,
+        });
       }
-    })();
+    }
 
-    return () => {
-      alive = false;
+    return {
+      groups: groupsRes.data.map((g) => ({ id: g.id, name: g.name })),
+      packages: flat,
     };
   }, []);
+
+  const { data: refs } = usePage<{ groups: GroupOption[]; packages: PackageOption[] }>(
+    "waitlist-refs",
+    fetchRefs,
+    { initial: { groups: [], packages: [] } },
+  );
+
+  const groups = refs.groups;
+  const packages = refs.packages;
 
   const packageById = useMemo(
     () => new Map(packages.map((p) => [p.id, p])),
@@ -227,7 +221,7 @@ export default function WaitlistPage() {
         toast.success("تم إضافة الطلب");
       }
       closeModal();
-      load();
+      reloadEntries();
     } catch (e) {
       toast.error(editing ? "فشل التعديل" : "فشل الإضافة", e instanceof Error ? e.message : undefined);
     } finally {
@@ -259,7 +253,7 @@ export default function WaitlistPage() {
     try {
       await admitFromWaitlist(entry.id);
       toast.success("اتضاف الطالب للمجموعة واتعمل اشتراكه");
-      load();
+      reloadEntries();
     } catch (e) {
       toast.error("فشل الدخول", e instanceof Error ? e.message : undefined);
     } finally {
@@ -281,7 +275,7 @@ export default function WaitlistPage() {
     try {
       await deleteWaitlistEntry(entry.id);
       toast.success("تم الحذف");
-      load();
+      reloadEntries();
     } catch (e) {
       toast.error("فشل الحذف", e instanceof Error ? e.message : undefined);
     } finally {

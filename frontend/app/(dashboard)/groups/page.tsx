@@ -1,14 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { usePage } from "@/lib/use-page";
+import { useCurrentUser } from "@/lib/use-current-user";
+import { useGroupAlerts } from "@/lib/use-group-alerts";
 import {
-  fetchMe,
-  getGroupAlerts,
   getGroups,
   joinWaitingList,
   updateGroup,
-  type AuthUser,
-  type GroupAlert,
   type GroupListResponse,
   type GroupOccupancy,
   type GroupRow,
@@ -347,69 +346,39 @@ function GroupCard({
 
 export default function GroupsPage() {
   const { toast, prompt } = useUI();
+  const { user: me } = useCurrentUser();
 
-  const [data, setData] = useState<GroupListResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   // ⭐ صلاحية الإدارة — بتحدد إذا كنا نعرض زرار «إدارة»
-  const [me, setMe] = useState<AuthUser | null>(null);
   const canManage = Boolean(me?.permissions?.includes("groups.manage"));
 
   // ⭐ التنبيه — من المصدر الداخلي المحمي
-  const [alerts, setAlerts] = useState<GroupAlert[]>([]);
 
-  useEffect(() => {
-    getGroups()
-      .then(setData)
-      .catch((e) => setError(e instanceof Error ? e.message : "تعذر تحميل المجموعات"))
-      .finally(() => setLoading(false));
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * @see usePage
+   */
+  const fetchGroups = useCallback(() => getGroups(), []);
 
-    fetchMe()
-      .then(setMe)
-      .catch(() => setMe(null));
-  }, []);
+  const {
+    data,
+    loading,
+    error,
+    reload,
+  } = usePage<GroupListResponse | null>("groups", fetchGroups, { initial: null });
 
-  // ⭐ ما نطلبش التنبيهات قبل ما نعرف الصلاحية أختفي
-  useEffect(() => {
-    if (canManage) refreshAlerts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canManage]);
+  /**
+   * ⭐ التنبيهات — نفس الـ hook والـ key بتاع الـ layout،
+   * فبيطلبوا **مرة واحدة** وياخدوا نصيحهم.
+   *
+   * @see useGroupAlerts
+   */
+  const { groups: alerts, reload: reloadAlerts } = useGroupAlerts(canManage, "groups");
 
-  function refreshAlerts() {
-    if (!canManage) return;
-    getGroupAlerts()
-      // ⭐ لو رد 401 (token اتبطل) ما بيكونش فيه `groups`:
-      //   `r.groups` هيبقى `undefined` والشاشة كانت بتكشّر.
-      //   فبنحميه — `Array.isArray` مش `?? []` عشان لو
-      //   ردت شي تاني (رمز، نص) ما ينفجرش.
-      .then((r) => setAlerts(Array.isArray(r?.groups) ? r.groups : []))
-      .catch(() => setAlerts([]));
-  }
-
-  function patchOccupancy(groupId: number, occupancy: GroupOccupancy) {
-    setData((prev) =>
-      prev
-        ? {
-            ...prev,
-            data: prev.data.map((g) =>
-              g.id === groupId
-                ? {
-                    ...g,
-                    occupancy,
-                    capacity: occupancy.capacity,
-                    members_count: occupancy.members,
-                    waiting_count: occupancy.waiting,
-                    seats_left: occupancy.seats_left,
-                    is_full: occupancy.is_full,
-                    has_space: occupancy.has_space,
-                  }
-                : g,
-            ),
-          }
-        : prev,
-    );
-    refreshAlerts();
+  function patchOccupancy() {
+      reload();
+    reloadAlerts();
   }
 
   async function editCapacity(group: GroupRow) {
@@ -437,10 +406,9 @@ export default function GroupsPage() {
         program_id: group.program?.id,
       });
       toast.success(r.message);
-      setData((prev) =>
-        prev ? { ...prev, data: prev.data.map((g) => (g.id === group.id ? r.data : g)) } : prev,
-      );
-      refreshAlerts();
+      // ⭐ بنحدّث من السيرفر بعد التعديل
+      reload();
+      reloadAlerts();
     } catch (e) {
       toast.apiError("فشل التعديل", e);
     }
@@ -472,9 +440,8 @@ export default function GroupsPage() {
         program_id: group.program?.id,
       });
       toast.success(r.message);
-      setData((prev) =>
-        prev ? { ...prev, data: prev.data.map((g) => (g.id === group.id ? r.data : g)) } : prev,
-      );
+      // ⭐ بنحدّث من السيرفر بعد التعديل
+      reload();
     } catch (e) {
       toast.apiError("فشل تغيير الباقة", e);
     }
@@ -536,7 +503,7 @@ export default function GroupsPage() {
               group={g}
               canManage={canManage}
               needsAttention={attentionIds.has(g.id)}
-              onChanged={(o) => patchOccupancy(g.id, o)}
+              onChanged={() => patchOccupancy()}
               onEditCapacity={editCapacity}
               onEditPackage={editPackage}
             />

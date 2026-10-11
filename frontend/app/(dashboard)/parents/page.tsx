@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { usePage, useResetPageOnChange } from "@/lib/use-page";
 import {
   apiFetch,
   parentRelationshipLabel,
@@ -33,13 +34,8 @@ type Parent = {
 const PAGE_SIZE = 60;
 
 export default function ParentsPage() {
-  const [parents, setParents] = useState<Parent[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
-  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -49,52 +45,69 @@ export default function ParentsPage() {
 
   const [form, setForm] = useState({ name: "", phone: "", email: "", relationship: "mother" });
   const [saving, setSaving] = useState(false);
+  /** ⭐ خطأ الإضافة — منفصل عن `error` (الجلب) */
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const load = useCallback(
-    async (targetPage = 1) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const params = new URLSearchParams();
-        params.set("per_page", String(PAGE_SIZE));
-        params.set("page", String(targetPage));
-        if (statusFilter) params.set("status", statusFilter);
-        if (search.trim()) params.set("search", search.trim());
+  /** ⭐ كل الاستجابة في حزمة واحدة */
+  type ParentsBundle = {
+    items: Parent[];
+    total: number;
+    lastPage: number;
+    statusCounts: Record<string, number>;
+  };
 
-        const r = await apiFetch<Paginated<Parent>>(`/parents?${params.toString()}`);
-        setParents(r.data);
-        setMeta({ total: r.total, last_page: r.last_page });
-        const c = r.counts as Record<string, unknown> | undefined;
-        const st = c?.status;
-        setStatusCounts((st && typeof st === "object" ? st : {}) as Record<string, number>);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [search, statusFilter],
-  );
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect` + `load`.
+   *
+   * ⭐ `debounceMs: 300` بيلغي الـ `setTimeout` القديم.
+   *
+   * @see usePage
+   */
+  const fetchParents = useCallback(async (): Promise<ParentsBundle> => {
+    const params = new URLSearchParams();
+    params.set("per_page", String(PAGE_SIZE));
+    params.set("page", String(page));
+    if (statusFilter) params.set("status", statusFilter);
+    if (search.trim()) params.set("search", search.trim());
 
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setPage(1);
-      load(1);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [load]);
+    const r = await apiFetch<Paginated<Parent>>(`/parents?${params.toString()}`);
+    const c = r.counts as Record<string, unknown> | undefined;
+    const st = c?.status;
+    return {
+      items: r.data,
+      total: r.total,
+      lastPage: r.last_page,
+      statusCounts: (st && typeof st === "object" ? st : {}) as Record<string, number>,
+    };
+  }, [page, search, statusFilter]);
+
+  const {
+    data: bundle,
+    loading,
+    error,
+    reload,
+  } = usePage<ParentsBundle>(`parents:${page}:${search}:${statusFilter}`, fetchParents, {
+    initial: { items: [], total: 0, lastPage: 1, statusCounts: {} },
+    debounceMs: 300,
+  });
+
+  const parents = bundle.items;
+  const meta = { total: bundle.total, last_page: bundle.lastPage };
+  const statusCounts = bundle.statusCounts;
+
+  /** ⭐ تصفير الصفحة لمّا البحث أو الفلتر يتغيّر */
+  useResetPageOnChange(`${search}|${statusFilter}|${relationshipFilter}`, setPage);
 
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    load(target);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    setError(null);
+    setActionError(null);
     try {
       await apiFetch("/parents", {
         method: "POST",
@@ -108,9 +121,9 @@ export default function ParentsPage() {
       });
       setShowForm(false);
       setForm({ name: "", phone: "", email: "", relationship: "mother" });
-      load(1);
+      reload();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل الإضافة");
+      setActionError(err instanceof Error ? err.message : "فشل الإضافة");
     } finally {
       setSaving(false);
     }
@@ -193,10 +206,10 @@ export default function ParentsPage() {
         </select>
       </div>
 
-      {error && (
+      {(error || actionError) && (
         <div className="mb-4 flex items-center justify-between rounded-lg bg-red-50 px-4 py-2.5">
-          <p className="text-sm text-red-700">{error}</p>
-          <button onClick={() => load(page)} className="text-sm font-medium text-red-700 underline">
+          <p className="text-sm text-red-700">{error ?? actionError}</p>
+          <button onClick={reload} className="text-sm font-medium text-red-700 underline">
             إعادة المحاولة
           </button>
         </div>

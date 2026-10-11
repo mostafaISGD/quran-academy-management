@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { usePage, useResetPageOnChange } from "@/lib/use-page";
 import {
   deleteProgram,
   getPrograms,
@@ -29,10 +30,6 @@ type View = "cards" | "table";
 export default function ProgramsPage() {
   const { toast, confirm } = useUI();
 
-  const [programs, setPrograms] = useState<Program[]>([]);
-  const [categories, setCategories] = useState<ProgramCategoryFilter[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -41,66 +38,91 @@ export default function ProgramsPage() {
   const [view, setView] = useState<View>("cards");
 
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
-  const [counts, setCounts] = useState({ active: 0, inactive: 0 });
-  const [mismatchPrograms, setMismatchPrograms] = useState(0);
 
   const [openId, setOpenId] = useState<number | null>(null);
   const [editing, setEditing] = useState<Program | null | undefined>(undefined);
   const [showCats, setShowCats] = useState(false);
 
-  const load = useCallback(
-    async (
-      targetPage = 1,
-      filters: { status?: string; category_id?: number; search?: string; has_mismatches?: boolean },
-    ) => {
-      setLoading(true);
-      setError(null);
-      try {
-        const r = await getPrograms({ ...filters, page: targetPage, per_page: PAGE_SIZE });
-        setPrograms(r.data);
-        setCategories(r.filters?.categories ?? []);
-        setMeta({ total: r.total, last_page: r.last_page });
-        setCounts({ active: r.counts?.active ?? 0, inactive: r.counts?.inactive ?? 0 });
-        setMismatchPrograms(r.mismatch_programs ?? 0);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "تعذر تحميل البيانات");
-      } finally {
-        setLoading(false);
-      }
-    },
-    [],
-  );
+  /**
+   * ⭐ كل الاستجابة في حزمة واحدة — `usePage` بترجع `data` واحد بس.
+   */
+  type ProgramsBundle = {
+    items: Program[];
+    categories: ProgramCategoryFilter[];
+    total: number;
+    lastPage: number;
+    counts: { active: number; inactive: number };
+    mismatches: number;
+  };
 
-  // ندز الفلتر الحالي مرة واحدة في كل حقل — نتفادى تكرار ternary
-  // في ٣ أماكن اللي كل واحد طوّل.
-  const currentFilters = useCallback(
-    () => ({
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect` + `load`.
+   *
+   * ⭐ `debounceMs` بيلغي الـ `setTimeout` القديم. والقديم كان
+   * `search ? 300 : 0` — يعني التأخير للبحث بس. هنا نفس المنطق:
+   * `search` فاضي يبقى ٠، وفيه بحث يبقى ٣٠٠.
+   *
+   * @see usePage
+   */
+  const fetchPrograms = useCallback(async (): Promise<ProgramsBundle> => {
+    const r = await getPrograms({
       status: statusFilter || undefined,
       category_id: categoryFilter ?? undefined,
       search: search.trim() || undefined,
       has_mismatches: onlyMismatched || undefined,
-    }),
-    [statusFilter, categoryFilter, search, onlyMismatched],
+      page,
+      per_page: PAGE_SIZE,
+    });
+    return {
+      items: r.data,
+      categories: r.filters?.categories ?? [],
+      total: r.total,
+      lastPage: r.last_page,
+      counts: { active: r.counts?.active ?? 0, inactive: r.counts?.inactive ?? 0 },
+      mismatches: r.mismatch_programs ?? 0,
+    };
+  }, [page, statusFilter, categoryFilter, search, onlyMismatched]);
+
+  const {
+    data: bundle,
+    loading,
+    error,
+    reload,
+  } = usePage<ProgramsBundle>(
+    `programs:${page}:${search}:${statusFilter}:${categoryFilter}:${onlyMismatched}`,
+    fetchPrograms,
+    {
+      initial: {
+        items: [],
+        categories: [],
+        total: 0,
+        lastPage: 1,
+        counts: { active: 0, inactive: 0 },
+        mismatches: 0,
+      },
+      debounceMs: search ? 300 : 0,
+    },
   );
 
-  // debounce للبحث — عشان كل حرف متعملش request
-  useEffect(() => {
-    const t = setTimeout(
-      () => load(1, currentFilters()),
-      search ? 300 : 0,
-    );
-    return () => clearTimeout(t);
-  }, [load, currentFilters, search]);
+  const programs = bundle.items;
+  const categories = bundle.categories;
+  const meta = { total: bundle.total, last_page: bundle.lastPage };
+  const counts = bundle.counts;
+  const mismatchPrograms = bundle.mismatches;
+
+  /** ⭐ تصفير الصفحة لمّا أي فلتر يتغيّر */
+  useResetPageOnChange(
+    `${search}|${statusFilter}|${categoryFilter}|${onlyMismatched}`,
+    setPage,
+  );
 
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    load(target, currentFilters());
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  const refresh = () => load(page, currentFilters());
+  const refresh = () => reload();
 
   async function handleDelete(p: Program) {
     const ok = await confirm({

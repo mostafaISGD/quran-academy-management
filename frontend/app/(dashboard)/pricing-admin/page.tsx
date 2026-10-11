@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { usePage } from "@/lib/use-page";
 import {
   createPricingPlan,
   deletePricingPlan,
@@ -38,9 +39,6 @@ const BTN_DANGER =
 
 export default function PricingAdminPage() {
   const { toast } = useUI();
-  const [groups, setGroups] = useState<PricingGroup[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<"create" | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -57,27 +55,23 @@ export default function PricingAdminPage() {
     description: "",
   });
 
-  const load = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getPricing();
-      setGroups(data.groups);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "تعذر تحميل الباقات");
-    } finally {
-      setLoading(false);
-    }
-  };
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect` + `load`.
+   *
+   * ⭐⭐ الكود القديم كان فيه **نسختين** من نفس الشغل: `load`
+   * و `useEffect` بيعمل نفس الجلب بالظبط.
+   *
+   * @see usePage
+   */
+  const fetchPricing = useCallback(() => getPricing(), []);
 
-  useEffect(() => {
-    getPricing()
-      .then((data) => {
-        setGroups(data.groups);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "تعذر تحميل الباقات"))
-      .finally(() => setLoading(false));
-  }, []);
+  const { data, loading, error, reload } = usePage<{ groups: PricingGroup[] } | null>(
+    "pricing-admin",
+    fetchPricing,
+    { initial: null },
+  );
+
+  const groups = data?.groups ?? [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -97,7 +91,7 @@ export default function PricingAdminPage() {
         sort_order: 0,
         description: "",
       });
-      await load();
+      await reload();
     } catch (e) {
       toast.apiError("فشل إنشاء الباقة", e);
     } finally {
@@ -110,7 +104,7 @@ export default function PricingAdminPage() {
     try {
       await deletePricingPlan(plan.id);
       toast.success("تم الحذف");
-      await load();
+      await reload();
     } catch (e) {
       toast.apiError("فشل الحذف", e);
     }

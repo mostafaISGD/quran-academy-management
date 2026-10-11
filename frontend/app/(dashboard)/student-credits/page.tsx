@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { usePage } from "@/lib/use-page";
 import {
   applyCreditNote,
   createStudentCredit,
@@ -29,9 +30,6 @@ const BTN_GHOST =
 
 export default function StudentCreditsPage() {
   const { toast } = useUI();
-  const [credits, setCredits] = useState<StudentCredit[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<"create" | "apply" | "refund" | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedCredit, setSelectedCredit] = useState<StudentCredit | null>(null);
@@ -59,27 +57,24 @@ export default function StudentCreditsPage() {
     reason: "",
   });
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getStudentCredits();
-      setCredits(data.data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "تعذر تحميل الأرصدة");
-    } finally {
-      setLoading(false);
-    }
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect` + `load`.
+   *
+   * ⭐⭐ الكود القديم كان فيه **两份** من نفس الشغل: `load`
+   * useCallback و `useEffect` بيعمل نفس الجلب بالظبط.
+   *
+   * @see usePage
+   */
+  const fetchCredits = useCallback(async () => {
+    const data = await getStudentCredits();
+    return data.data;
   }, []);
 
-  useEffect(() => {
-    getStudentCredits()
-      .then((data) => {
-        setCredits(data.data);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "تعذر تحميل الأرصدة"))
-      .finally(() => setLoading(false));
-  }, []);
+  const { data: credits, loading, error, reload } = usePage<StudentCredit[]>(
+    "student-credits",
+    fetchCredits,
+    { initial: [] },
+  );
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -96,7 +91,7 @@ export default function StudentCreditsPage() {
         source_type: "manual",
         expires_at: "",
       });
-      await load();
+      await reload();
     } catch (e) {
       toast.apiError("فشل إنشاء الرصيد", e);
     } finally {
@@ -114,7 +109,7 @@ export default function StudentCreditsPage() {
       setModal(null);
       setApplyForm({ invoice_id: 0, amount: 0 });
       setSelectedCredit(null);
-      await load();
+      await reload();
     } catch (e) {
       toast.apiError("فشل تطبيق الرصيد", e);
     } finally {
@@ -132,7 +127,7 @@ export default function StudentCreditsPage() {
       setModal(null);
       setRefundForm({ amount: 0, reason: "" });
       setSelectedCredit(null);
-      await load();
+      await reload();
     } catch (e) {
       toast.apiError("فشل الاسترداد", e);
     } finally {

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { usePage, useResetPageOnChange } from "@/lib/use-page";
 import {
   getEmployees,
   getRoles,
@@ -102,14 +103,8 @@ function StatCard({ label, value, tone = "slate", hint }: {
 // ============================================================
 
 export default function EmployeesPage() {
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
-  const [counts, setCounts] = useState({ active: 0, inactive: 0, on_leave: 0 });
-  const [filters, setFilters] = useState<{ departments: string[]; job_titles: string[] }>({ departments: [], job_titles: [] });
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -119,42 +114,84 @@ export default function EmployeesPage() {
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Employee | null>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [roles, setRoles] = useState<RoleOption[]>([]);
 
   const { toast, confirm } = useUI();
 
-  const load = useCallback(async (targetPage = 1) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await getEmployees({
-        page: targetPage,
-        per_page: PAGE_SIZE,
-        status: statusFilter || undefined,
-        department: departmentFilter || undefined,
-        job_title: jobTitleFilter || undefined,
-        search: search.trim() || undefined,
-      });
-      setEmployees(r.data);
-      setMeta({ total: r.total, last_page: r.last_page });
-      setCounts(r.counts);
-      setFilters(r.filters);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تحميل الموظفين");
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, departmentFilter, jobTitleFilter, search]);
+  /** ⭐ كل الاستجابة في حزمة واحدة */
+  type EmployeesBundle = {
+    items: Employee[];
+    total: number;
+    lastPage: number;
+    counts: { active: number; inactive: number; on_leave: number };
+    filters: { departments: string[]; job_titles: string[] };
+  };
 
-  // بحث بعد توقف الكتابة
-  useEffect(() => {
-    const t = window.setTimeout(() => load(1), 300);
-    return () => window.clearTimeout(t);
-  }, [load]);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect` + `load`.
+   *
+   * ⭐ `debounceMs: 300` بيلغي الـ `setTimeout` القديم.
+   * ⭐ وقائمة الأدوار في `usePage` منفصل بثابت key.
+   *
+   * @see usePage
+   */
+  const fetchEmployees = useCallback(async (): Promise<EmployeesBundle> => {
+    const r = await getEmployees({
+      page,
+      per_page: PAGE_SIZE,
+      status: statusFilter || undefined,
+      department: departmentFilter || undefined,
+      job_title: jobTitleFilter || undefined,
+      search: search.trim() || undefined,
+    });
+    return {
+      items: r.data,
+      total: r.total,
+      lastPage: r.last_page,
+      counts: r.counts,
+      filters: r.filters,
+    };
+  }, [page, statusFilter, departmentFilter, jobTitleFilter, search]);
 
-  useEffect(() => {
-    getRoles().then((r) => setRoles(r.data ?? [])).catch(() => setRoles([]));
+  const {
+    data: bundle,
+    loading,
+    error,
+    reload,
+  } = usePage<EmployeesBundle>(
+    `employees:${page}:${search}:${statusFilter}:${departmentFilter}:${jobTitleFilter}`,
+    fetchEmployees,
+    {
+      initial: {
+        items: [],
+        total: 0,
+        lastPage: 1,
+        counts: { active: 0, inactive: 0, on_leave: 0 },
+        filters: { departments: [], job_titles: [] },
+      },
+      debounceMs: 300,
+    },
+  );
+
+  const employees = bundle.items;
+  const meta = { total: bundle.total, last_page: bundle.lastPage };
+  const counts = bundle.counts;
+  const filters = bundle.filters;
+
+  /** ⭐ الأدوار — طلب واحد ثابت مش بتتغيّر مع الفلاتر */
+  const fetchRoles = useCallback(async () => {
+    const r = await getRoles();
+    return r.data ?? [];
   }, []);
+
+  const { data: roles } = usePage<RoleOption[]>("employee-roles", fetchRoles, {
+    initial: [],
+  });
+
+  /** ⭐ تصفير الصفحة لمّا أي فلتر يتغيّر */
+  useResetPageOnChange(
+    `${search}|${statusFilter}|${departmentFilter}|${jobTitleFilter}`,
+    setPage,
+  );
 
   const selected = useMemo(
     () => employees.find((e) => e.id === selectedId) ?? null,
@@ -164,7 +201,6 @@ export default function EmployeesPage() {
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    load(target);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -182,7 +218,7 @@ export default function EmployeesPage() {
       await deleteEmployee(employee.id);
       toast.success("تم حذف الموظف", employee.name);
       setSelectedId(null);
-      load(page);
+      reload();
     } catch (err) {
       toast.error("فشل الحذف", err instanceof Error ? err.message : undefined);
     }
@@ -247,9 +283,8 @@ export default function EmployeesPage() {
       {error && (
         <div className="mb-4 flex items-center justify-between rounded-lg bg-red-50 px-4 py-2.5">
           <p className="text-sm text-red-700">{error}</p>
-          <button onClick={() => load(page)} className="text-sm font-medium text-red-700 underline">
-            إعادة المحاولة
-          </button>
+          <button onClick={reload} className="text-sm font-medium text-red-700 underline">
+            إعادة المحاولة</button>
         </div>
       )}
 
@@ -377,7 +412,7 @@ export default function EmployeesPage() {
             setShowForm(false);
             if (saved.warning) toast.warning("الموظف اتحفظ", saved.warning, 9000);
             else toast.success(editing ? "تم تعديل الموظف" : "تم إضافة الموظف", saved.name);
-            load(1);
+      reload();
           }}
         />
       )}

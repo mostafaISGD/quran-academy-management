@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
   getLessonPolicy,
   updateLessonPolicy,
   type LessonPolicy,
 } from "@/lib/api";
 import { useUI } from "@/components/ui";
+import { usePage } from "@/lib/use-page";
 
 /**
  * ⭐ سياسات الحصة — غياب الطالب، غياب المعلم، التعويض.
@@ -30,20 +31,43 @@ type PolicyForm = {
   max_makeup_per_month: number;
   max_makeup_days: number;
 };
-
 export default function LessonPolicyPage() {
-  const { toast } = useUI();
-  const [policy, setPolicy] = useState<LessonPolicy | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    getLessonPolicy()
-      .then((res: { data: LessonPolicy }) => setPolicy(res.data))
-      .catch((e: Error) => setError(e.message || "تعذر تحميل السياسات"))
-      .finally(() => setLoading(false));
-  }, []);
+  const { toast } = useUI();
+  const [saving, setSaving] = useState(false);
+
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * @see usePage
+   */
+  const fetchPolicy = useCallback(() => getLessonPolicy(), []);
+
+  const { data: policyRes, loading, error, reload } = usePage<{ data: LessonPolicy } | null>(
+    "lesson-policy",
+    fetchPolicy,
+    { initial: null },
+  );
+
+  const saved = policyRes?.data ?? null;
+
+  /**
+   * ⭐ المسودة القابلة للتعديل — بتتبني من المحفوظ **أثناء الرسم**.
+   *
+   * ⭐⭐ دي نفس فكرة `attendance`: بنقارن البيانات المحملة
+   * بالنسخة اللي قبلنا، ولو اتغيّرت بننسخ تانية.
+   *
+   * ⭐ لازم نتبع **هوية** `saved` مش التاريخ: بعد الحفظ
+   * (`reload`) السيرفر بيرجّع كائن جديد، والمسودة لازم
+   * ترجع للمصدر.
+   */
+  const [policy, setPolicy] = useState<LessonPolicy | null>(null);
+  const [forSaved, setForSaved] = useState<LessonPolicy | null>(null);
+
+  if (saved !== forSaved) {
+    setForSaved(saved);
+    setPolicy(saved);
+  }
 
   const handleChange = <K extends keyof PolicyForm>(
     key: K,
@@ -53,7 +77,6 @@ export default function LessonPolicyPage() {
       prev ? { ...prev, [key]: value } : null,
     );
   };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!policy) return;
@@ -74,6 +97,8 @@ export default function LessonPolicyPage() {
 
       await updateLessonPolicy(payload);
       toast.success("تم حفظ السياسات");
+      // ⭐ بنجيب السياسة المحفوظة تاني — المسودة بتتبعها
+      reload();
     } catch (e) {
       toast.apiError("فشل الحفظ", e);
     } finally {

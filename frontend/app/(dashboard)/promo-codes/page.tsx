@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { usePage } from "@/lib/use-page";
 import {
   createPromoCode,
   deletePromoCode,
@@ -65,34 +66,30 @@ const EMPTY_FORM: FormState = {
 
 export default function PromoCodesPage() {
   const { toast } = useUI();
-  const [promos, setPromos] = useState<PromoCode[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<"create" | "edit" | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [stats, setStats] = useState<PromoCodeStats | null>(null);
   const [statsPromo, setStatsPromo] = useState<PromoCode | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await getPromoCodes({ per_page: 100 });
-      setPromos(res.data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "تعذر تحميل الأكواد");
-    } finally {
-      setLoading(false);
-    }
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect` + `load`.
+   *
+   * ⭐⭐ الكود القديم كان فيه **نسختين** من نفس الشغل: `load`
+   * useCallback و `useEffect` بيعمل نفس الجلب بالظبط.
+   *
+   * @see usePage
+   */
+  const fetchPromos = useCallback(async () => {
+    const res = await getPromoCodes({ per_page: 100 });
+    return res.data;
   }, []);
 
-  useEffect(() => {
-    getPromoCodes({ per_page: 100 })
-      .then((res) => setPromos(res.data))
-      .catch((e) => setError(e instanceof Error ? e.message : "تعذر تحميل الأكواد"))
-      .finally(() => setLoading(false));
-  }, []);
+  const { data: promos, loading, error, reload } = usePage<PromoCode[]>(
+    "promo-codes",
+    fetchPromos,
+    { initial: [] },
+  );
 
   const openCreate = () => {
     setForm(EMPTY_FORM);
@@ -148,7 +145,7 @@ export default function PromoCodesPage() {
         toast.success("تم تحديث الكود");
       }
       setModal(null);
-      await load();
+      await reload();
     } catch (e) {
       toast.apiError("فشل الحفظ", e);
     } finally {
@@ -161,7 +158,7 @@ export default function PromoCodesPage() {
     try {
       await deletePromoCode(promo.id);
       toast.success("تم الحذف");
-      await load();
+      await reload();
     } catch (e) {
       toast.apiError("فشل الحذف", e);
     }

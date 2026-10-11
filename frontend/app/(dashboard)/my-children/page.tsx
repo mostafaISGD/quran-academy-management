@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { usePage } from "@/lib/use-page";
+import { useCurrentUser } from "@/lib/use-current-user";
 import {
-  fetchMe,
   getMyChildren,
-  getStoredUser,
   logout,
   type ParentChildView,
 } from "@/lib/api";
@@ -40,46 +40,45 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function MyChildrenPage() {
   const router = useRouter();
-  const [parent, setParent] = useState(getStoredUser());
-  const [children, setChildren] = useState<ParentChildView[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [ready, setReady] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await getMyChildren();
-      setChildren(r.children ?? []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "تعذر تحميل البيانات");
-    } finally {
-      setLoading(false);
-    }
+  const { user: parent } = useCurrentUser();
+
+  /**
+   * ⭐ الأبناء بيتجلبوا بس لو المستخدم **ولي أمر فعلاً**.
+   *
+   * ⭐ `enabled` بيمنع الطلب على حد تاني — موسوعة الاستقبال
+   * مثلاً ما عندهوش حق ياخد بيانات الأولاد.
+   *
+   * @see usePage
+   */
+  const isParent = Boolean(parent?.is_parent && parent?.parent);
+
+  const fetchChildren = useCallback(async () => {
+    const r = await getMyChildren();
+    return r.children ?? [];
   }, []);
 
+  const {
+    data: children,
+    loading,
+    error,
+  } = usePage<ParentChildView[]>("my-children", fetchChildren, {
+    initial: [],
+    enabled: isParent,
+  });
+
+  /** ⭐ اللي مش ولي أمر — يرجع لصفحته */
   useEffect(() => {
-    // السيرفر هو مصدر الحقيقة — هو اللي بيعرف إن الحساب ده ولي أمر
-    fetchMe()
-      .then((user) => {
-        setParent(user);
-        if (!user.is_parent || !user.parent) {
-          router.replace("/dashboard");
-          return;
-        }
-        return load();
-      })
-      .catch(() => router.replace("/login"))
-      .finally(() => setReady(true));
-  }, [router, load]);
+    if (!parent) return;
+    if (!isParent) router.replace("/dashboard");
+  }, [parent, isParent, router]);
 
   async function handleLogout() {
     await logout();
     router.push("/login");
   }
 
-  if (!ready || !parent?.is_parent) return null;
+  if (!parent) return null;
 
   return (
     <div className="mx-auto max-w-4xl p-4 sm:p-6">
