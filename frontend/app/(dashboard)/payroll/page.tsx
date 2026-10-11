@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { usePage } from "@/lib/use-page";
+import { autoSelectPeriod, periodsKeyOf } from "@/lib/auto-select";
 import {
   approvePayroll,
   closePayrollPeriod,
@@ -102,15 +103,22 @@ export default function PayrollPage() {
   const periods = periodsData?.periods ?? [];
 
   /**
-   * ⭐ اختيار الفترة — **أثناء الرسم**، مش في effect.
+   * ⭐⭐⭐ **اختيار الفترة — أثناء الرسم، مش في effect.**
    *
-   * بنختار أول فترة مفتوحة لو فيه، وإلا أحدث فترة. ولو
-   * الفترة المختارة اتمسحت (مثلاً بعد إقفال)، بنرجع
-   * للاختيار التلقائي.
+   * الحارس على **بصمة القائمة** مش على صحة الاختيار.
+   * بدونه الشرط بيفضل `true` طول ما مفيش فترات، وReact بيعيد
+   * الرسم على كل `setState` أثناء الرسم → «Too many re-renders».
+   *
+   * القرار نفسه في `lib/auto-select.ts` وبيتشتغل باختبارات.
+   *
+   * @see autoSelectPeriod
+   * @see periodsKeyOf
    */
-  if (!periodId || !periods.some((p) => p.id === periodId)) {
-    const open = periods.find((p) => p.status === "open");
-    setPeriodId(open?.id ?? periods[0]?.id ?? null);
+  const [autoFor, setAutoFor] = useState<string | null>(null);
+
+  if (autoFor !== periodsKeyOf(periods)) {
+    setAutoFor(periodsKeyOf(periods));
+    setPeriodId(autoSelectPeriod(periods, periodId));
   }
 
   const fetchLines = useCallback(
