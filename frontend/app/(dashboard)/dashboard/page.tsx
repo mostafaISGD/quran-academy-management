@@ -1,27 +1,45 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 import { getDashboardSummary } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import { egp, num } from "@/lib/format";
 
-export default function DashboardPage() {
-  // ⭐ `monthly_revenue` **رقم** — كان نص من `number_format`
-  const [summary, setSummary] = useState<{
-    today: { lessons_total: number; lessons_completed: number; lessons_upcoming: number };
-    totals: { active_students: number; active_teachers: number; monthly_revenue: number };
-    alerts: { subscriptions_expiring_soon: number; pending_teacher_payments: number; unscheduled_leads: number };
-  } | null>(null);
-  const [loading, setLoading] = useState(true);
+/**
+ * ⭐ شكل الرد — `monthly_revenue` **رقم** (كان نص من `number_format`)
+ */
+type DashboardSummary = {
+  today: { lessons_total: number; lessons_completed: number; lessons_upcoming: number };
+  totals: { active_students: number; active_teachers: number; monthly_revenue: number };
+  alerts: { subscriptions_expiring_soon: number; pending_teacher_payments: number; unscheduled_leads: number };
+};
 
-  useEffect(() => {
-    getDashboardSummary()
-      .then(setSummary)
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, []);
+const EMPTY: DashboardSummary = {
+  today: { lessons_total: 0, lessons_completed: 0, lessons_upcoming: 0 },
+  totals: { active_students: 0, active_teachers: 0, monthly_revenue: 0 },
+  alerts: { subscriptions_expiring_soon: 0, pending_teacher_payments: 0, unscheduled_leads: 0 },
+};
+
+export default function DashboardPage() {
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * ⭐ `usePage` بيمنع تكرار الطلب: لو الـ effect اتنفذ مرتين،
+   * الطلب التاني بيستنى نفس النتيجة. قبل كده كانت الصفحة
+   * بتطلب `/dashboard/summary` **مرتين** في التطوير.
+   *
+   * @see usePage
+   */
+  const fetchSummary = useCallback(() => getDashboardSummary(), []);
+
+  const { data: summary, loading, error } = usePage<DashboardSummary>(
+    "dashboard-summary",
+    fetchSummary,
+    { initial: EMPTY },
+  );
 
   if (loading) return <p className="text-sm text-slate-500">جارٍ التحميل...</p>;
-  if (!summary) return <p className="text-sm text-red-600">تعذر تحميل البيانات</p>;
+  if (error) return <p className="text-sm text-red-600">{error}</p>;
 
   return (
     <div>

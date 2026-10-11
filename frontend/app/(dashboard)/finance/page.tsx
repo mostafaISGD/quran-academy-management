@@ -1,22 +1,46 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 import { getFinancialReport, getAcademicReport, getSalesReport } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import { egp, num } from "@/lib/format";
 
-export default function FinancePage() {
-  const [financial, setFinancial] = useState<Awaited<ReturnType<typeof getFinancialReport>> | null>(null);
-  const [academic, setAcademic] = useState<Awaited<ReturnType<typeof getAcademicReport>> | null>(null);
-  const [sales, setSales] = useState<Awaited<ReturnType<typeof getSalesReport>> | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+type Financial = Awaited<ReturnType<typeof getFinancialReport>>;
+type Academic = Awaited<ReturnType<typeof getAcademicReport>>;
+type Sales = Awaited<ReturnType<typeof getSalesReport>>;
 
-  useEffect(() => {
-    Promise.all([getFinancialReport(), getAcademicReport(), getSalesReport()])
-      .then(([fin, acad, sal]) => { setFinancial(fin); setAcademic(acad); setSales(sal); })
-      .catch((err) => setError(err instanceof Error ? err.message : "تعذر تحميل البيانات"))
-      .finally(() => setLoading(false));
+/** ⭐ التلاتة في حزمة واحدة — `usePage` بترجع `data` واحد بس */
+type FinanceBundle = {
+  financial: Financial | null;
+  academic: Academic | null;
+  sales: Sales | null;
+};
+
+const EMPTY: FinanceBundle = { financial: null, academic: null, sales: null };
+
+export default function FinancePage() {
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * التلاتة تقرير في **طلب واحد** لـ `usePage` — فمفيش تكرار
+   * في التطوير (كان كل تقرير بيتنفذ مرتين).
+   *
+   * @see usePage
+   */
+  const fetchReports = useCallback(async (): Promise<FinanceBundle> => {
+    const [financial, academic, sales] = await Promise.all([
+      getFinancialReport(),
+      getAcademicReport(),
+      getSalesReport(),
+    ]);
+    return { financial, academic, sales };
   }, []);
+
+  const {
+    data: { financial, academic, sales },
+    loading,
+    error,
+  } = usePage<FinanceBundle>("finance-reports", fetchReports, { initial: EMPTY });
 
   if (loading) return <p className="text-sm text-slate-500">جارٍ التحميل...</p>;
   if (error) return <p className="text-sm text-red-600">{error}</p>;
