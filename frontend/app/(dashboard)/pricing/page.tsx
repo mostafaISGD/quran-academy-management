@@ -1,18 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import {
-  fetchMe,
   getPricing,
   getPricingCsvUrl,
   updatePlanPrice,
-  type AuthUser,
   type PlanCategory,
   type PricingGroup,
   type PricingPlan,
   type PricingResponse,
 } from "@/lib/api";
 import { egp, num, toNumber } from "@/lib/format";
+import { usePage } from "@/lib/use-page";
+import { useCurrentUser } from "@/lib/use-current-user";
 import { useUI } from "@/components/ui";
 
 /**
@@ -62,22 +62,25 @@ const CATEGORY_STYLE: Record<
 
 export default function PricingPage() {
   const { toast } = useUI();
-  const [data, setData] = useState<PricingResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  // ⭐ مين يقدر يعدّل؟ هنجيبها من `auth/me` — الأهل مافيش ليهم
-  // حساب أصلاً، والأدمن هو اللي عنده `pricing.manage`.
-  const [me, setMe] = useState<AuthUser | null>(null);
 
-  useEffect(() => {
-    getPricing()
-      .then(setData)
-      .catch((e) => setError(e instanceof Error ? e.message : "تعذر تحميل الأسعار"))
-      .finally(() => setLoading(false));
+  /**
+   * المستخدم الحالي — من الـ hook المشترك، فالطلب بيشارك
+   * مع الـ layout (نفس الـ key) بدل ما يتنادى مرتين.
+   */
+  const { user: me } = useCurrentUser();
 
-    fetchMe().then(setMe).catch(() => setMe(null));
-  }, []);
+  /**
+   * الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * @see usePage
+   */
+  const fetchPricing = useCallback(() => getPricing(), []);
 
+  const { data, loading, error, reload } = usePage<PricingResponse | null>(
+    "pricing",
+    fetchPricing,
+    { initial: null },
+  );
   const canEdit = Boolean(me?.permissions?.includes("pricing.manage"));
 
   /**
@@ -89,17 +92,8 @@ export default function PricingPage() {
   async function savePrice(planId: number, price: number) {
     try {
       const res = await updatePlanPrice(planId, price);
-      setData((prev) =>
-        prev
-          ? {
-              ...prev,
-              groups: prev.groups.map((g) => ({
-                ...g,
-                plans: g.plans.map((p) => (p.id === planId ? res.plan : p)),
-              })),
-            }
-          : prev,
-      );
+      // ⭐ بنحدّث من السيرفر — البيانات جاية من `usePage` فمالهاش setter
+      reload();
       toast.success(res.message);
     } catch (e) {
       toast.apiError("فشل حفظ السعر", e);

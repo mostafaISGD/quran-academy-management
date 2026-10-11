@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { getGroupAlerts, logout, fetchMe, type AuthUser } from "@/lib/api";
+import { getGroupAlerts, logout } from "@/lib/api";
 import { usePage } from "@/lib/use-page";
+import { useCurrentUser } from "@/lib/use-current-user";
 import { num } from "@/lib/format";
 import { UIProvider } from "@/components/ui/UIProvider";
 
@@ -123,11 +124,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
    *
    * @see usePage
    */
-  const fetchMeOnce = useCallback(() => fetchMe(), []);
+  const { user } = useCurrentUser();
 
-  const { data: user } = usePage<AuthUser | null>("auth-me", fetchMeOnce, {
-    initial: null,
-  });
 
   const isTeacherOnly = Boolean(user?.is_teacher && user?.teacher);
   const isParentOnly = Boolean(user?.is_parent && user?.parent);
