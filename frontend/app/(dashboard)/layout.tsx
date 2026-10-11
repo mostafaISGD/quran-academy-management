@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getGroupAlerts, logout, fetchMe, type AuthUser } from "@/lib/api";
+import { usePage } from "@/lib/use-page";
 import { num } from "@/lib/format";
 import { UIProvider } from "@/components/ui/UIProvider";
 
@@ -108,7 +109,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     "الأشخاص": true,
     "المالية": true,
   });
-  const [user, setUser] = useState<AuthUser | null>(null);
+
+  /**
+   * ⭐ مين داخل؟ المعلّم بياخد واجهة مختصرة بجدوله، وولي الأمر بصفحة أبناؤه.
+   *
+   * ⭐⭐⭐ **كان فيه طلبين لنفس الحاجة.**
+   *
+   * الـ layout كان فيه **تنين** `useEffect` بيعملوا `fetchMe()`
+   * — واحد بيجيب الجرس معاه وواحد لوحده. يعني **كل فتح صفحة
+   * بيعمل طلبين لـ `/auth/me`** والاثنين نفس النتيجة.
+   *
+   * اتدمجوا في `usePage` واحد: طلب واحد، ومفيش طلب تاني.
+   *
+   * @see usePage
+   */
+  const fetchMeOnce = useCallback(() => fetchMe(), []);
+
+  const { data: user } = usePage<AuthUser | null>("auth-me", fetchMeOnce, {
+    initial: null,
+  });
+
+  const isTeacherOnly = Boolean(user?.is_teacher && user?.teacher);
+  const isParentOnly = Boolean(user?.is_parent && user?.parent);
+
+  // صفحة ولي الأمر — مختلفة عن صفحة المعلّم
+  const homeFor = isParentOnly ? "/my-children" : "/my-schedule";
+
   /**
    * ⭐ رقم الجرس: «فيه ناس مستنية وفيه مقعد فاضي».
    *
@@ -119,22 +145,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
    * بيرجّع 403 لموظف الاستقبال أصلاً. ما ينفعش طلب بيفشل يبقى
    * سبب إنه يفضل يطلب كل ثانية.
    */
-  const [groupAlerts, setGroupAlerts] = useState(0);
+  const canManageGroups = Boolean(user?.permissions?.includes("groups.manage"));
 
-  // مين داخل؟ المعلّم بياخد واجهة مختصرة بجدوله، وولي الأمر بصفحة أبناؤه
-  useEffect(() => {
-    fetchMe()
-      .then((u) => {
-        setUser(u);
-        // ⭐ بس لو ليه صلاحية — عشان ما نعملش طلبات 403 لكل موظف
-        if (u.permissions?.includes("groups.manage")) {
-          getGroupAlerts()
-            // ⭐ حماية: لو الـtoken اتبطل، الـcount بيرجع undefined
-            .then((r) => setGroupAlerts(typeof r?.count === "number" ? r.count : 0))
-            .catch(() => setGroupAlerts(0));
-        }
-      })
-      .catch(() => setUser(null));
+  const fetchAlerts = useCallback(async () => {
+    const r = await getGroupAlerts();
+    // ⭐ حماية: لو الـtoken اتبطل، الـcount بيرجع undefined
+    return typeof r?.count === "number" ? r.count : 0;
   }, []);
 
   /**
@@ -142,28 +158,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
    *
    * السبب: لولا كده، لو دخّلت حد، الجرس هيفضل بالرقم القديم لحد
    * ما تعمل تحديث للصفحة كلها.
+   *
+   * ⭐ والـ `key` بيغطي الحالة: من غير صلاحية مفيش طلب خالص
+   * (`enabled`) — عشان ما نعملش 403 لكل موظف استقبال.
    */
-  useEffect(() => {
-    if (!user?.permissions?.includes("groups.manage")) return;
-    if (pathname !== "/groups") return;
-
-    getGroupAlerts()
-      .then((r) => setGroupAlerts(typeof r?.count === "number" ? r.count : 0))
-      .catch(() => setGroupAlerts(0));
-  }, [pathname, user]);
-
-  // مين داخل؟ المعلّم بياخد واجهة مختصرة بجدوله، وولي الأمر بصفحة أبناؤه
-  useEffect(() => {
-    fetchMe()
-      .then(setUser)
-      .catch(() => setUser(null));
-  }, []);
-
-  const isTeacherOnly = Boolean(user?.is_teacher && user?.teacher);
-  const isParentOnly = Boolean(user?.is_parent && user?.parent);
-
-  // صفحة ولي الأمر — مختلفة عن صفحة المعلّم
-  const homeFor = isParentOnly ? "/my-children" : "/my-schedule";
+  const { data: groupAlerts } = usePage<number>(
+    `group-alerts:${canManageGroups ? (pathname === "/groups" ? "groups" : "main") : "off"}`,
+    fetchAlerts,
+    { initial: 0, enabled: canManageGroups },
+  );
 
   // اللي فتح رابط مش ليه — نرجّعه لصفحته
   useEffect(() => {
