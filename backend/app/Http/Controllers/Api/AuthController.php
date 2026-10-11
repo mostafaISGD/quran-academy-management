@@ -81,7 +81,31 @@ class AuthController extends Controller
             // بتخفي الزرار وبعدين تطلع رسالة. دلوقتي تقدر تعرض
             // الزرار بس لللي له الصلاحية.
             'permissions' => $user->getAllPermissions()->pluck('name'),
-            'is_teacher' => $user->teacher !== null,
+                        /**
+             * ⭐⭐⭐ `is_teacher` معناها «المستخدم **بيشتغل** معلم» —
+             * مش «فيه سجل معلم في الداتابيز».
+             *
+             * ⚠️⚠️ المشكلة اللي اتكشفت:
+             *
+             *     'is_teacher' => $user->teacher !== null,
+             *
+             * أي `user_id` مربوط بسجل `teachers` كان بيحسب
+             * معلم — حتى لو الحساب أصلاً **إداري**.
+             *
+             * ⭐ النتيجة الفعلية في القاعدة: حساب المدير نفسه
+             * مربوط بمعلم #1. والواجهة بتحسب
+             * `isTeacherOnly = is_teacher && teacher` وبتوديه
+             * `/my-schedule` — يعني **المدير مش بيوصل أي صفحة
+             * إدارية خالص**.
+             *
+             * ⭐ الفصل الصح: **الدور** هو اللي بيقول الشخص ده
+             * معلم ولا إداري. ربط السجل بيقول «فيه بيانات» بس.
+             *
+             * ⭐ وأ-condition واحد بيكفي:
+             *   - لازم يكون مربوط بسجل معلم
+             *   - ولازم **مش** يكون عنده دور إداري
+             */
+            'is_teacher' => $user->teacher !== null && !$user->hasRole('admin'),
             'teacher' => $user->teacher ? [
                 'id' => $user->teacher->id,
                 'teacher_code' => $user->teacher->teacher_code,

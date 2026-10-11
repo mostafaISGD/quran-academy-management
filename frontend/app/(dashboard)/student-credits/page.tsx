@@ -60,7 +60,7 @@ export default function StudentCreditsPage() {
   /**
    * ⭐ الجلب عن طريق `usePage` بدل `useEffect` + `load`.
    *
-   * ⭐⭐ الكود القديم كان فيه **两份** من نفس الشغل: `load`
+   * ⭐⭐ الكود القديم كان فيه **نسختين** من نفس الشغل: `load`
    * useCallback و `useEffect` بيعمل نفس الجلب بالظبط.
    *
    * @see usePage

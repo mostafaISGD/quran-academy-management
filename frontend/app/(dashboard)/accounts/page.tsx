@@ -191,7 +191,7 @@ export default function AccountsPage() {
   /** ⭐⭐ subclasses: الأيقونة قبل المبلغ، والاتجاه بلون */
   const amountLine = (m: AccountMovement) => {
     const positive = m.direction === "in";
-    // ⭐ الحركات المعلّقة بتتعرض مشفّتة — عشان形的 المستخدم يفهم
+    // ⭐ الحركات المعلّقة بتعرض مشفّتة — عشان المستخدم يفهم
     // إن المبلغ ده **لسه** في الخزينة
     const muted = m.status === "pending";
 

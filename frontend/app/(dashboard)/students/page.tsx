@@ -1590,7 +1590,7 @@ export default function StudentsPage() {
     const printWindow = window.open("", "_blank");
     if (!printWindow) {
       toast.warning(
-        "المتصفح 막ّ نافذة الطباعة",
+        "المتصفح منع نافذة الطباعة",
         "اسمح بالنوافذ المنبثقة (Popups) للموقع من إعدادات المتصفح وبعدين جرّب تاني.",
         8000,
       );
