@@ -16,7 +16,7 @@ import {
   type Student, type Teacher, type Program, type Subscription, type Lesson, type StudentPhone,
   type StudentParent,
 } from "@/lib/api";
-import { usePage } from "@/lib/use-page";
+import { usePage, useResetPageOnChange } from "@/lib/use-page";
 import Pagination from "@/components/Pagination";
 import LessonCalendarPreview, { WEEKDAY_NAMES } from "@/components/LessonCalendarPreview";
 import TeacherPicker from "@/components/TeacherPicker";
@@ -600,22 +600,15 @@ const PhoneManagerLocal = memo(function PhoneManagerLocal({
 export default function StudentsPage() {
   const { toast, confirm, prompt } = useUI();
 
-  const [students, setStudents] = useState<Student[]>([]);
-  const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [programs, setPrograms] = useState<Program[]>([]);
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [studentPhones, setStudentPhones] = useState<Record<number, StudentPhone[]>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   // === Pagination ===
   const PAGE_SIZE = 100;
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
   /** الإحصائيات الحقيقية من الداتابيز على كل النتائج (مش الصفحة الحالية) */
-  const [counts, setCounts] = useState<Record<string, number>>({});
   /** الإجمالي الكلي غير المتفلتر — للكارت "إجمالي الطلاب" */
-  const [countsAll, setCountsAll] = useState<{ total: number }>({ total: 0 });
+  /** ⭐ خطأ الإجراءات — منفصل عن `error` (الجلب) */
+  const [actionError, setActionError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -878,7 +871,7 @@ export default function StudentsPage() {
       resetPhoneForm();
     } catch (err) {
       toast.error("فشل حفظ الرقم", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل الحفظ");
+      setActionError(err instanceof Error ? err.message : "فشل الحفظ");
     }
   };
 
@@ -901,7 +894,7 @@ export default function StudentsPage() {
       setStudentPhones((prev) => ({ ...prev, [phoneManagerStudent.id]: phones.data }));
     } catch (err) {
       toast.error("فشل حذف الرقم", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل الحذف");
+      setActionError(err instanceof Error ? err.message : "فشل الحذف");
     }
   };
 
@@ -914,7 +907,7 @@ export default function StudentsPage() {
       toast.success("تم تعيين الرقم الأساسي");
     } catch (err) {
       toast.error("فشل التحديث", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل التحديث");
+      setActionError(err instanceof Error ? err.message : "فشل التحديث");
     }
   };
 
@@ -943,7 +936,29 @@ export default function StudentsPage() {
     [searchQuery, filterStatus],
   );
 
-  const fetchPage = useCallback(async (targetPage: number) => {
+  /**
+   * ⭐ كل الاستجابة في حزمة واحدة.
+   */
+  type StudentsBundle = {
+    items: Student[];
+    total: number;
+    lastPage: number;
+    counts: Record<string, number>;
+  };
+
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect` + `fetchPage`.
+   *
+   * ⭐⭐ الصفحة دي كانت بتطلب `/students` **٣ مرات** عند الفتح:
+   * `loadStudents` في effect التحميل الأول، و `fetchPage(1)` في
+   * effect الـ debounce، والاتنين بيتشغّلوا مع StrictMode.
+   *
+   * ⭐ دلوقتي طلب واحد — و `usePage` بيشارك رده لو الـ effect
+   * اتنفذ مرتين.
+   *
+   * @see usePage
+   */
+  const fetchStudents = useCallback(async (targetPage: number): Promise<StudentsBundle> => {
     const r = await getStudents({
       per_page: PAGE_SIZE,
       page: targetPage,
@@ -951,76 +966,83 @@ export default function StudentsPage() {
       search: apiFilters.search,
       branch_id: apiFilters.branch_id,
     });
-    setStudents(r.data);
-    setMeta({ total: r.total, last_page: r.last_page });
-    // StudentsController بيبني counts مسطّحة بنفسه (مش عن طريق
-    // paginatedWithCounts زي باقي الصفحات) — فمفيش تداخل هنا
-    setCounts((r.counts ?? {}) as Record<string, number>);
+    return {
+      items: r.data,
+      total: r.total,
+      lastPage: r.last_page,
+      // StudentsController بيجيب counts مناستعلام منفصل
+      // (مش paginatedWithCounts) — فبنقراها من نفس الرد.
+      counts: (r.counts ?? {}) as Record<string, number>,
+    };
   }, [apiFilters]);
 
-  /** الإجمالي الكلي غير المتفلتر — بيتحسب مرة واحدة عند التحميل الأول */
-  const loadUnfilteredTotal = useCallback(async () => {
-    try {
-      const r = await getStudents({ per_page: 1 });
-      setCountsAll({ total: r.total });
-    } catch {
-      // لو فشل نخلي الإجمالي fallback لعدد الصفحة
-    }
+  const {
+    data: bundle,
+    loading,
+    error,
+    reload,
+  } = usePage<StudentsBundle>(
+    `students:${page}:${apiFilters.status ?? ""}:${apiFilters.search ?? ""}`,
+    () => fetchStudents(page),
+    {
+      initial: { items: [], total: 0, lastPage: 1, counts: {} },
+      debounceMs: 300,
+    },
+  );
+
+  const students = bundle.items;
+  const meta = { total: bundle.total, last_page: bundle.lastPage };
+  const counts = bundle.counts;
+
+  /**
+   * ⭐ الإجمالي الكلي غير المتفلتر — مرة واحدة.
+   *
+   * @see usePage
+   */
+  const fetchUnfilteredTotal = useCallback(async () => {
+    const r = await getStudents({ per_page: 1 });
+    return { total: r.total };
   }, []);
 
-  const loadStudents = useCallback(async () => {
-    try {
-      await fetchPage(1);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
-    } finally {
-      setLoading(false);
-    }
-  }, [fetchPage]);
+  const { data: countsAll } = usePage<{ total: number }>(
+    "students-total",
+    fetchUnfilteredTotal,
+    { initial: { total: 0 } },
+  );
 
-  const goToPage = useCallback(async (target: number) => {
+  /**
+   * ⭐ القوائم المرجعية (معلمين / برامج / اشتراكات).
+   *
+   * ⭐ كانت جوه `useEffect` التحميل الأول — بتتقاس مع الصفحة
+   * الأولى وبتاخد loading بتاعها.
+   *
+   * @see usePage
+   */
+  const fetchRefs = useCallback(async () => {
+    const [t, pr, sub] = await Promise.all([getTeachers(), getPrograms(), getSubscriptions()]);
+    return { teachers: t.data, programs: pr.data, subscriptions: sub.data };
+  }, []);
+
+  const { data: refs } = usePage<{
+    teachers: Teacher[];
+    programs: Program[];
+    subscriptions: Subscription[];
+  }>("students-refs", fetchRefs, {
+    initial: { teachers: [], programs: [], subscriptions: [] },
+  });
+
+  const teachers = refs.teachers;
+  const programs = refs.programs;
+  const subscriptions = refs.subscriptions;
+
+  /** ⭐ تصفير الصفحة لمّا البحث أو الفلتر يتغيّر */
+  useResetPageOnChange(`${searchQuery}|${filterStatus}`, setPage);
+
+  const goToPage = useCallback((target: number) => {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    setLoading(true);
-    setError(null);
-    try {
-      await fetchPage(target);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
-    } finally {
-      setLoading(false);
-    }
-  }, [page, meta.last_page, fetchPage]);
-
-  // Initial data load - only run once
-  useEffect(() => {
-    let mounted = true;
-    const initialize = async () => {
-      setLoading(true);
-      await loadStudents();
-      if (!mounted) return;
-      getTeachers().then((r) => setTeachers(r.data)).catch(() => {});
-      getPrograms().then((r) => setPrograms(r.data)).catch(() => {});
-      getSubscriptions().then((r) => setSubscriptions(r.data)).catch(() => {});
-      loadUnfilteredTotal();
-    };
-    initialize();
-    return () => { mounted = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // إعادة التحميل + الرجوع للصفحة الأولى عند تغيير الفلاتر
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setPage(1);
-      setLoading(true);
-      fetchPage(1)
-        .catch((err) => setError(err instanceof Error ? err.message : "تعذر تحميل البيانات"))
-        .finally(() => setLoading(false));
-    }, 300);
-    return () => clearTimeout(t);
-  }, [fetchPage]);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [page, meta.last_page]);
 
   // Load student detail when selected
   useEffect(() => {
@@ -1143,7 +1165,7 @@ export default function StudentsPage() {
       await setPrimaryParent(selectedStudent.id, parentId);
       reloadGuardians();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تغيير ولي الأمر الأساسي");
+      setActionError(err instanceof Error ? err.message : "تعذر تغيير ولي الأمر الأساسي");
     } finally {
       setGuardianBusyId(null);
     }
@@ -1191,7 +1213,7 @@ export default function StudentsPage() {
     try {
       // Validation: New student must have at least one phone number
       if (!editingId && (!form.phones || form.phones.length === 0)) {
-        setError("يجب إضافة رقم هاتف واحد على الأقل للطالب الجديد");
+        setActionError("يجب إضافة رقم هاتف واحد على الأقل للطالب الجديد");
         return;
       }
 
@@ -1326,8 +1348,8 @@ export default function StudentsPage() {
         }
       }
       setShowForm(false);
-      loadStudents();
-    } catch (err) { setError(err instanceof Error ? err.message : "فشل الحفظ"); }
+      reload();
+    } catch (err) { setActionError(err instanceof Error ? err.message : "فشل الحفظ"); }
   }
 
   async function handleDelete(id: number, name: string) {
@@ -1343,10 +1365,10 @@ export default function StudentsPage() {
       await deleteStudent(id);
       toast.success("تم حذف الطالب", name);
       setSelectedIds((prev) => prev.filter((i) => i !== id));
-      loadStudents();
+      reload();
     } catch (err) {
       toast.error("فشل حذف الطالب", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل الحذف");
+      setActionError(err instanceof Error ? err.message : "فشل الحذف");
     }
   }
 
@@ -1392,7 +1414,7 @@ export default function StudentsPage() {
         `${r.subscriptions_updated} اشتراك · ${r.lessons_updated} حصة مجدولة`,
       );
       setSelectedIds([]);
-      loadStudents();
+      reload();
     } catch (err) {
       toast.error("فشل تغيير المدرس", err instanceof Error ? err.message : undefined);
     } finally {
@@ -1438,7 +1460,7 @@ export default function StudentsPage() {
         );
       }
       setSelectedIds([]);
-      loadStudents();
+      reload();
     } catch (err) {
       toast.error("فشل إنشاء الفواتير", err instanceof Error ? err.message : undefined);
     } finally {
@@ -1527,7 +1549,7 @@ export default function StudentsPage() {
         );
       }
       setSelectedIds([]);
-      loadStudents();
+      reload();
     } finally {
       setBulkBusy(null);
     }
@@ -1543,7 +1565,7 @@ export default function StudentsPage() {
       });
       setAttendanceReport(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل تحميل تقرير الحضور");
+      setActionError(err instanceof Error ? err.message : "فشل تحميل تقرير الحضور");
     } finally {
       setReportLoading(false);
     }
@@ -1558,7 +1580,7 @@ export default function StudentsPage() {
       });
       setSubscriptionReport(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "فشل تحميل تقرير الاشتراكات");
+      setActionError(err instanceof Error ? err.message : "فشل تحميل تقرير الاشتراكات");
     } finally {
       setReportLoading(false);
     }
@@ -1881,7 +1903,9 @@ export default function StudentsPage() {
       )}
 
       {loading && <p className="text-sm text-slate-500">جارٍ التحميل...</p>}
-      {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+      {(error || actionError) && (
+        <p className="mb-4 text-sm text-red-600">{error ?? actionError}</p>
+      )}
 
       {/* Students Table */}
       {!loading && !error && (
