@@ -282,3 +282,76 @@ export function usePaginated<T>(
     reload,
   };
 }
+
+/**
+ * ⭐⭐⭐ **تصفير الصفحة لمّا الفلاتر تتغيّر — أثناء الرسم.**
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * ⭐ المشكلة اللي بيحلّها
+ *
+ * الكود القديم في كل صفحة القوائم كان بالشكل ده:
+ *
+ *     useEffect(() => {
+ *       const t = setTimeout(() => {
+ *         setPage(1);
+ *         load(1);
+ *       }, 300);
+ *       return () => clearTimeout(t);
+ *     }, [load]);
+ *
+ * وفيه ناس كاتبينه **من غير تأخير**:
+ *
+ *     useEffect(() => {
+ *       setPage(1);
+ *       load(1, filterStatus);
+ *     }, [load, filterStatus]);
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * ⭐⭐⭐ ليه `ref` مش `useState`؟
+ *
+ * ⚠️⚠️⚠️ **ده بالظبط اللي عمل «Too many re-renders» في `/payroll`.**
+ *
+ * أول ما نعمل التصفير بـ `useState`، الشرط بيبقى:
+ *
+ *     if (page !== 1) setPage(1);        // ❌ بيفضل true
+ *
+ * و`setState` جوّه الرسم بيعيد الرسم **فوراً** — فكل دورة
+ * بتعمل `setPage` وكل دورة بتعيد الرسم… للأبد.
+ *
+ * ⭐ الـ `ref` مختلف: تعديله **مش حالة**، فالـ `setPage`
+ * بيتصلّى مرة واحدة بس لكل بصمة فلاتر جديدة. وبعدها
+ * `lastKey.current === filtersKey` فمفيش أي نداء تاني —
+ * حتى لو الصفحة فضلت ١.
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * ⭐ ليه مش `useState` مع مقارنة البصمة؟
+ *
+ * ممكن، بس بيحتاج رسم **إضافي** (حالة جديدة بتتغيّر).
+ * الـ `ref` بيحفظ نفس الضمان بصفر تكلفة رسم.
+ *
+ * @param filtersKey بصمة الفلاتر — لازم تتغيّر مع أي فلتر
+ * @param setPage الـ setter — بياخد `1` أو `null` (المعنى: مش هيتغير)
+ *
+ * @example
+ * ```tsx
+ * useResetPageOnChange(
+ *   `${search}|${statusFilter}|${specialization}`,
+ *   setPage === undefined ? null : setPage,
+ * );
+ * ```
+ */
+export function useResetPageOnChange(
+  filtersKey: string,
+  setPage: ((fn: (page: number) => number) => void) | null,
+): void {
+  /**
+   * ⭐ `ref` مش `state`: تعديله ما بيعملش إعادة رسم، فالشرط
+   * بيتقيّم مرة واحدة لكل بصمة فعلاً.
+   */
+  const lastKey = useRef<string | null>(null);
+
+  if (setPage && lastKey.current !== filtersKey) {
+    lastKey.current = filtersKey;
+    setPage(() => 1);
+  }
+}

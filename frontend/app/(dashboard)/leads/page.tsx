@@ -1,11 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { getLeads, createLead, updateLeadStatus, deleteLead, type Lead } from "@/lib/api";
+import { usePage, useResetPageOnChange } from "@/lib/use-page";
 import Pagination from "@/components/Pagination";
 import { useUI } from "@/components/ui";
 
 const PAGE_SIZE = 100;
+
+/** ⭐ كل حاجة من الطلب في حزمة — `usePage` بترجع `data` واحد بس */
+type LeadsBundle = {
+  items: Lead[];
+  total: number;
+  lastPage: number;
+  counts: Record<string, number>;
+};
+
+const EMPTY_LEADS: LeadsBundle = { items: [], total: 0, lastPage: 1, counts: {} };
 
 const STATUS_LABEL: Record<Lead["status"], string> = {
   new: "جديد", contacted: "تم التواصل", qualified: "مؤهل", trial_booked: "حجز تجريبي",
@@ -21,65 +32,75 @@ const STATUS_COLORS: Record<Lead["status"], string> = {
 const SOURCE_LABEL: Record<string, string> = { facebook: "فيسبوك", instagram: "إنستغرام", website: "الموقع", referral: "إحالة", other: "أخرى" };
 
 export default function LeadsPage() {
-  const [leads, setLeads] = useState<Lead[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [filterStatus, setFilterStatus] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [meta, setMeta] = useState({ total: 0, last_page: 1 });
-  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [actionError, setActionError] = useState<string | null>(null);
   const [form, setForm] = useState({ full_name: "", phone: "", email: "", country_code: "", student_age: "", interested_program_id: "", source: "" as Lead["source"] | "" });
 
   const { toast, confirm } = useUI();
 
-  const loadLeads = useCallback(async (targetPage = 1, status = "", q = "") => {
-    setLoading(true);
-    setError(null);
-    try {
-      const r = await getLeads({
-        per_page: PAGE_SIZE,
-        page: targetPage,
-        status: status || undefined,
-        search: q.trim() || undefined,
-      });
-      setLeads(r.data);
-      setMeta({ total: r.total, last_page: r.last_page });
-      // counts متداخلة تحت اسم العمود — راجع صفحة الاشتراكات
-      const c = r.counts as Record<string, unknown> | undefined;
-      const st = c?.status;
-      setCounts((st && typeof st === "object" ? st : {}) as Record<string, number>);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تحميل البيانات");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  /**
+   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
+   *
+   * ⭐ `debounceMs: 300` بيلغي الـ `setTimeout` القديم — البحث
+   * أثناء الكتابة بقى طلب واحد بدل طلب لكل حرف.
+   *
+   * @see usePage
+   */
+  const fetchLeads = useCallback(async (): Promise<LeadsBundle> => {
+    const r = await getLeads({
+      per_page: PAGE_SIZE,
+      page,
+      status: filterStatus || undefined,
+      search: search.trim() || undefined,
+    });
+    // counts متداخلة تحت اسم العمود — راجع صفحة الاشتراكات
+    const c = r.counts as Record<string, unknown> | undefined;
+    const st = c?.status;
+    return {
+      items: r.data,
+      total: r.total,
+      lastPage: r.last_page,
+      counts: (st && typeof st === "object" ? st : {}) as Record<string, number>,
+    };
+  }, [page, filterStatus, search]);
 
-  useEffect(() => {
-    const t = setTimeout(() => { setPage(1); loadLeads(1, filterStatus, search); }, 300);
-    return () => clearTimeout(t);
-  }, [loadLeads, filterStatus, search]);
+  const {
+    data: bundle,
+    loading,
+    error,
+    reload,
+  } = usePage<LeadsBundle>(`leads:${page}:${filterStatus}:${search}`, fetchLeads, {
+    initial: EMPTY_LEADS,
+    debounceMs: 300,
+  });
+
+  const leads = bundle.items;
+  const meta = { total: bundle.total, last_page: bundle.lastPage };
+  const counts = bundle.counts;
+
+  /** ⭐ تصفير الصفحة لمّا البحث أو الفلتر يتغيّر */
+  useResetPageOnChange(`${search}|${filterStatus}`, setPage);
 
   function goToPage(target: number) {
     if (target < 1 || target > meta.last_page || target === page) return;
     setPage(target);
-    loadLeads(target, filterStatus, search);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  const refresh = () => loadLeads(page, filterStatus, search);
+  const refresh = () => reload();
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     try { await createLead({ ...form, student_age: form.student_age ? Number(form.student_age) : undefined, source: form.source || undefined, email: form.email || undefined, country_code: form.country_code || undefined, interested_program_id: form.interested_program_id || undefined }); toast.success("تمت إضافة العميل المحتمل", form.full_name); setShowForm(false); setForm({ full_name: "", phone: "", email: "", country_code: "", student_age: "", interested_program_id: "", source: "" }); refresh(); }
-    catch (err) { toast.error("فشل إنشاء العميل المحتمل", err instanceof Error ? err.message : undefined); setError(err instanceof Error ? err.message : "فشل إنشاء الـ Lead"); }
+    catch (err) { toast.error("فشل إنشاء العميل المحتمل", err instanceof Error ? err.message : undefined); setActionError(err instanceof Error ? err.message : "فشل إنشاء الـ Lead"); }
   }
 
   async function handleStatusChange(leadId: number, status: Lead["status"]) {
     try { await updateLeadStatus(leadId, status); refresh(); }
-    catch (err) { toast.error("فشل تحديث الحالة", err instanceof Error ? err.message : undefined); setError(err instanceof Error ? err.message : "فشل تحديث الحالة"); }
+    catch (err) { toast.error("فشل تحديث الحالة", err instanceof Error ? err.message : undefined); setActionError(err instanceof Error ? err.message : "فشل تحديث الحالة"); }
   }
 
   async function handleDelete(id: number, name: string) {
@@ -96,7 +117,7 @@ export default function LeadsPage() {
       refresh();
     } catch (err) {
       toast.error("فشل الحذف", err instanceof Error ? err.message : undefined);
-      setError(err instanceof Error ? err.message : "فشل الحذف");
+      setActionError(err instanceof Error ? err.message : "فشل الحذف");
     }
   }
 
@@ -141,7 +162,9 @@ export default function LeadsPage() {
         </div>
       </div>
       {loading && <p className="text-sm text-slate-500">جارٍ التحميل...</p>}
-      {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+      {(error || actionError) && (
+        <p className="mb-4 text-sm text-red-600">{error ?? actionError}</p>
+      )}
       {showForm && (
         <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="mb-4 text-sm font-semibold text-slate-800">إنشاء Lead</h2>
