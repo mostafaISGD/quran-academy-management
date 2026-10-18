@@ -137,7 +137,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [ ] PR 1.9 - ~~Two-factor authentication~~ (**cancelled — single-user mode**)
 - [ ] PR 1.10 — Devices, sessions, and login security
 - [x] PR 1.11 - Parent identity and linking to students
-- [ ] PR 1.12 — Student and child accounts
+- [x] PR 1.12 — Student and child accounts
 
 **Phase 2 — Financial System Integrity**
 
@@ -911,6 +911,29 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - A `student` role with self-read-only permissions (their schedule, their progress).
 **Acceptance:** An account cannot be created for a student < 13; a student ≥ 13 without consent is not activated; withdrawing consent revokes their sessions.
 **Depends on:** 1.8 · 1.4
+
+> **✅ As implemented (2026-10-19).** 13 tests in `tests/Feature/StudentAccountPolicyTest.php`. Backend 654 passed / 0 failed.
+>
+> ⭐ **تحت 13 = مفيش حساب.** `StudentAccountEligibility::assertCanHaveAccount()`
+> بترمي `\DomainException` — والـguard الوحيد هو
+> `InvitationService::linkProfile()` (البوابة الوحيدة اللي بتربط حساب
+> بملف طالب). الاختبار `test_an_invitation_for_a_minor_student_is_rejected`
+> بيمشي على المسار الحقيقي: دعوة → قبول → 422.
+>
+> ⭐ **فوق 13 = حساب + موافقة.** `canActivate()` بتطلب `user_id`
+> **و** موافقة سارية في `parental_consents`. سحب الموافقة
+> (`revoke()`) بيقفل الحساب عبر `UserStatusService::suspend()` —
+> والتوكن اتشال = مفيش جلسة شغّالة.
+>
+> ⭐ **طفل تحت 13 بيدخل الحصة برمز** — `lesson_join_tokens`:
+> PIN من 6 أرقام (مش كود طويل عشان بيتبعت على واتساب) **مربوط
+> بحصة واحدة** + **ساعة واحدة** + **استعمال واحد**. التوكن الخام
+> متخزّن كهاش (زي الـinvitations). الراوت العام `POST /lessons/join`
+> محمي بـ`throttle:10,1`.
+>
+> ⭐ **دور `student` قراءة فقط** — `programs.view` بس. مفيش
+> `.create` / `.update` / `.delete` / `manage`. الـpolicies (PR 1.8)
+> هي اللي بتقيّد التفاصيل لطالب نفسه.
 
 ---
 

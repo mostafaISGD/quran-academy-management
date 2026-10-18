@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Exceptions\InvitationGoneException;
+use Illuminate\Validation\ValidationException;
 use App\Models\Invitation;
 use App\Models\User;
 use App\Notifications\InvitationMail;
@@ -330,6 +331,29 @@ class InvitationService
 
         if (! $modelClass || ! class_exists($modelClass)) {
             return;
+        }
+
+        // ⭐⭐⭐ **الطالب تحت 13 مالوش حساب** (PR 1.12).
+        //
+        // ⭐ الفحص هنا مش في الـcontroller: **`linkProfile()` هي
+        // البوابة الوحيدة** اللي بتربط حساب بملف طالب — أي دعوة
+        // (أو استدعاء خدمة تاني) بيمرّ من هنا.
+        //
+        // ⭐ والدعوة بتترفض صريحة (ValidationException → 422)
+        // بدل ما نربط وبعدين نكتشف.
+        if ($invitation->profile_type === 'student') {
+            $student = $modelClass::find($invitation->profile_id);
+
+            if ($student !== null) {
+                try {
+                    app(\App\Services\StudentAccountEligibility::class)
+                        ->assertCanHaveAccount($student);
+                } catch (\DomainException $e) {
+                    throw ValidationException::withMessages([
+                        'profile' => [$e->getMessage()],
+                    ]);
+                }
+            }
         }
 
         $modelClass::whereKey($invitation->profile_id)->update(['user_id' => $user->id]);

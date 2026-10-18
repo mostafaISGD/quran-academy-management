@@ -3230,6 +3230,58 @@ export function searchParents(query: string) {
   return apiFetch<{ data: (Parent & { students_count: number })[] }>(`/parents/search?${s.toString()}`);
 }
 
+// ═══════════════════════════════════════════════════════════════
+// PR 1.12 — موافقة ولي الأمر + رموز دخول الحصة
+// ═══════════════════════════════════════════════════════════════
+
+export interface ParentalConsent {
+  id: number;
+  student_id: number;
+  parent_id: number | null;
+  scope: string;
+  granted: boolean;
+  granted_at: string;
+  granted_by: number | null;
+  revoked_at: string | null;
+  revoked_by: number | null;
+  notes: string | null;
+}
+
+/** ⭐ تسجيل موافقة ولي أمر على حساب الطالب */
+export function grantParentalConsent(
+  studentId: number,
+  data: { parent_id?: number; scope?: string; notes?: string },
+) {
+  return apiFetch<{ data: ParentalConsent }>(`/students/${studentId}/consents`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
+/** ⭐ سحب موافقة — بيقفل الحساب ويلغي الجلسات */
+export function revokeParentalConsent(studentId: number, consentId: number) {
+  return apiFetch<{ message: string }>(
+    `/students/${studentId}/consents/${consentId}/revoke`,
+    { method: "POST" },
+  );
+}
+
+/** ⭐ إصدار رمز دخول حصة لطالب تحت 13 (بدون حساب) */
+export function issueLessonJoinToken(lessonId: number, studentId: number) {
+  return apiFetch<{ data: { token: string; pin: string; expires_at: string } }>(
+    `/lessons/${lessonId}/join-tokens`,
+    { method: "POST", body: JSON.stringify({ student_id: studentId }) },
+  );
+}
+
+/** ⭐ استعمال رمز دخول الحصة — عامة (الطالب تحت 13 مالوش حساب) */
+export function redeemLessonJoinToken(pinOrToken: string, lessonId: number) {
+  return apiFetch<{ data: { ok: boolean; student_id: number; lesson_id: number } }>(
+    "/lessons/join",
+    { method: "POST", body: JSON.stringify({ pin_or_token: pinOrToken, lesson_id: lessonId }) },
+  );
+}
+
 export function getParents() {
   return apiFetch<{ data: Parent[] }>("/parents");
 }

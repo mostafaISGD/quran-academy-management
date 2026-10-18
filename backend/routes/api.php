@@ -33,6 +33,8 @@ use App\Http\Controllers\Api\TeacherScheduleController;
 use App\Http\Controllers\Api\TeacherEarningController;
 use App\Http\Controllers\Api\TeacherPaymentController;
 use App\Http\Controllers\Api\StudentCreditController;
+use App\Http\Controllers\Api\StudentConsentController;
+use App\Http\Controllers\Api\LessonJoinTokenController;
 use App\Http\Controllers\Api\ExportController;
 use App\Http\Controllers\Api\LessonPolicyController;
 use App\Http\Controllers\Api\PromoCodeController;
@@ -639,4 +641,15 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::delete('/students/{student}/parents/{parent}', [StudentPhoneController::class, 'rejectParent'])->middleware('permission:parents.create');
     Route::get('/phones/search', [StudentPhoneController::class, 'search'])->middleware('permission:students.phones.manage');
     Route::get('/phones/search/parent', [StudentPhoneController::class, 'searchByParentPhone'])->middleware('permission:students.phones.manage');
+
+    // ⭐ PR 1.12 — موافقة ولي الأمر (تسجيل / سحب)
+    Route::post('/students/{student}/consents', [StudentConsentController::class, 'grant'])->middleware('permission:students.update');
+    Route::post('/students/{student}/consents/{consent}/revoke', [StudentConsentController::class, 'revoke'])->middleware('permission:students.update');
+
+    // ⭐ PR 1.12 — رموز دخول الحصة (طلاب تحت 13 بدون حساب)
+    Route::post('/lessons/{lesson}/join-tokens', [LessonJoinTokenController::class, 'issue'])->middleware('permission:lessons.update');
 });
+
+// ⭐ PR 1.12 — استعمال رمز دخول الحصة (عام — الطالب تحت 13 مالوش حساب)
+Route::post('/lessons/join', [LessonJoinTokenController::class, 'redeem'])
+    ->middleware('throttle:10,1');
