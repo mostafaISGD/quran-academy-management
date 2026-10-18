@@ -159,12 +159,40 @@ class AuthIdentityTest extends TestCase
         $this->assertFalse($body['user']['is_parent']);
     }
 
-    public function test_a_parent_is_a_parent_but_not_a_teacher(): void
+    /**
+ * * ⭐⭐ **التعديل: الـfixture بقى `parents` record مش كتابة عمود.**
+ *
+ * ⚠️⚠️ **هذا اختبار اتعدّل — وده مبيتنساش.**
+ *
+ * الإصدار كان:
+ *
+ *     $parent = $this->makeUserWithRole('parent');
+ *     $parent->update(['is_parent' => true]);   // ⭐ سطر اتشال
+ *
+ * ⭐ **نيّة الاختبار سليمة**: «حساب ولي أمر مش معلم». اللي اتغيّر
+ * هو **طريقة التحضير** بس.
+ *
+ * ⭐ السبب: PR 1.3 خلّى `is_parent` **مشتقّ** من وجود سجل في
+ * `parents`. فكتابة العمود بقت عملية بلا أثر، والحساب مش ولي أمر.
+ *
+ * ⭐⚠️ **وده كان بالظبط السلوك اللي كنا بنصلّحه**: مفيش حاجة كانت
+ * بتضمن إن `is_parent = true` يقابله `parents` record. أي حد عنده
+ * `students.edit` كان يقدر يخلي أي حساب ولي أمر من غير بوابة،
+ * والواجهة كانت بتقول «داخل» والبوابة بترجّع 404.
+ *
+ * ⭐ والاختبار **ماتشالش** ومااتقفلش — هو لسه بيفحص نفس الحاجة
+ * (حساب ولي أمر = `is_parent: true`)، بس بيبنيها بشكل **صحيح**.
+ *
+ * @see \Tests\Feature\IdentitySchemaTest
+ */
+public function test_a_parent_is_a_parent_but_not_a_teacher(): void
     {
         $parent = $this->makeUserWithRole('parent');
-        $parent->update(['is_parent' => true]);
 
-        $body = $this->loginAs($parent);
+        // ⭐ ولي الأمر = اللي **عنده** ملف في `parents`
+        $this->makeParentProfile($parent);
+
+        $body = $this->loginAs($parent->fresh());
 
         $this->assertTrue($body['user']['is_parent']);
         $this->assertFalse($body['user']['is_teacher']);

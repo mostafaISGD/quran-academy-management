@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\User;
+use App\Services\RoleGrantService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 use Spatie\Permission\Models\Role;
 
 /**
@@ -120,12 +122,58 @@ class EmployeeController extends Controller
             'role_id' => 'nullable|exists:roles,id',
         ]);
 
+        // ⭐⭐⭐ فحص التصعيد — **قبل** أي كتابة في الداتابيز.
+        //
+        // ⚠️ الكود كان بيعيّن الدور مباشرة:
+        //
+        //     $user->assignRole(Role::find($roleId));
+        //
+        // من غير أي فحص — فموظف استقبال (دوره `students.edit`
+        // بس) كان يقدر يبعت `create_account=true&role_id=<admin>`
+        // ويعمل **حساب مدير**.
+        //
+        // ⭐ الفحص هنا **بره** الـ transaction عمداً: لو رُفض
+        // الطلب، مافيش حاجة اتكتبت أصلاً. لو كان جوه، هنكتب
+        // الـ employee وبعدين نرفض —RoleGrantService بيستخدم abort.
+        //
+        // ⭐ ونستخدم 403 مش "تجاهل الحقل": لو رجعنا 201 بدون
+        // ما نعيّنش، المتصل هيظن إن الدور اتعيّن.
+        //
+        // @see \App\Services\RoleGrantService
+        // @see \Tests\Feature\PrivilegeEscalationTest
+        if (! empty($data['role_id'])) {
+            $role = Role::find($data['role_id']);
+
+            if (! $role) {
+                return response()->json(['message' => 'الدور مش موجود'], 422);
+            }
+
+            app(RoleGrantService::class)->assertCanAssignRole(
+                $request->user(),
+                $role,
+                $request,
+            );
+        }
+
         // القاعدة: لو حد له دور، لازم يكون عنده حساب — من غيره الـ role
         // هيفضل معلّق على حد مش موجود، وهو أصلاً مالوش فايدة.
         // (دور صفر صلاحيات = صفحة 403 في كل حاجة)
-        if (!empty($data['role_id']) && !($data['create_account'] ?? false)) {
+        if (! empty($data['role_id']) && ! ($data['create_account'] ?? false)) {
             $data['create_account'] = true;
         }
+
+        // ⚠️⭐ لازم `null` مش متغيّر معرّف جوه `if`.
+        //
+        // كان السطر ده جوه الشرط بس، والتعيين بره:
+        //
+        //     if (...) { $warning = '...'; }
+        //     ...
+        //     return response()->json($employee + ($warning ? [...] : []), 201);
+        //
+        // ⭐ فأي موظف بيتعمل **من غير** `create_account=true` كان
+        // بيرمي `Undefined variable $warning` → **500**.
+        // المسار ده مش نادر — ده إنشاء موظف عادي.
+        $warning = null;
 
         // لو طلب حساب من غير دور — بنسمح، بس بنحذّر عشان الواجهة تقول
         // الموظف ده مش هيقدر يفتح حاجة
@@ -138,9 +186,13 @@ class EmployeeController extends Controller
         // على الـ model والرد بيرجع من غير user_id خالص
         $data['user_id'] = null;
 
-        $employee = DB::transaction(function () use ($data, $request) {
-            $createAccount = $data['create_account'] ?? false;
-            $roleId = $data['role_id'] ?? null;
+        // ⭐⭐ متغيرات **برّه** الـ closure — عشان نعرف بعد
+        // الـtransaction هل نعمل دعوة ولا لأ.
+        $createAccount = (bool) ($data['create_account'] ?? false);
+        $inviteEmail = $data['email'] ?? null;
+        $roleId = $data['role_id'] ?? null;
+
+        $employee = DB::transaction(function () use ($data, $request, $createAccount, $roleId) {
             unset($data['create_account'], $data['role_id']);
 
             $employee = Employee::create($data);
@@ -152,17 +204,47 @@ class EmployeeController extends Controller
                     'name' => $data['name'],
                     'email' => $data['email'],
                     'phone' => $data['phone'] ?? null,
-                    'password' => Hash::make('password'),
+                    // ⭐⭐⭐ الحساب بيتعمل **`status = 'invited'`**
+                    // ودعوة — مش حساب شغال بكلمة مرور مُسلَّمة.
+                    //
+                    // ⭐ الكود القديم كان:
+                    //     'password' => Hash::make(Str::password(20)),
+                    //     'must_change_password' => true,
+                    //     'status' => 'active',
+                    //
+                    // ⭐ يعني حساب **جاهز للدخول** بكلمة مرور
+                    // محدش عارفها. لو_words_ دي اتسرّبت من أي مكان
+                    // (backup، log، shoulder-surf) كان الدخول جاهز.
+                    //
+                    // ⭐ الخلل مش في `must_change_password` — الخلل
+                    // ⭐ إن الحساب **.active** من يوم إنشائه. `status =
+                    // 'invited'` بيقفل الدخول عند `AuthController`
+                    // (`$user->status !== 'active'`) فحتى لو كلمة
+                    // المرور اتسرّبت، محدش يقدر يدخل.
+                    //
+                    // ⭐⚠️ كلمة المرور العشوائية **بتفضل موجودة** —
+                    // العمود `NOT NULL` و bcrypt مش فاضي. ومفيش
+                    // طريق ليها: محدش بيقراها، والقبول بيكتب فوقها.
+                    'password' => Hash::make(Str::password(40)),
+                    'must_change_password' => true,
+                    'password_changed_at' => null,
                     'timezone' => 'Africa/Cairo',
                     'locale' => 'ar',
-                    'job_title' => $data['job_title'],
-                    'department' => $data['department'],
-                    'status' => 'active',
+                    // ⭐ المسار ده كان مكسور فعليا، أي إنشاء حساب لموظف من مسى كان يرمي `500`.
+                    'job_title' => $data['job_title'] ?? null,
+                    'department' => $data['department'] ?? null,
+                    // ⭐⭐ الحالة الحقيقية للحساب المدعو
+                    'status' => 'invited',
                 ]);
 
                 $employee->update(['user_id' => $user->id]);
 
                 // تعيين الدور
+                //
+                // ⭐ الدور بيتعيّن **وقت الإنشاء** مش وقت القبول —
+                // عشان `InvitationService::provisionUser()` يبقى
+                // شغل تفعيل الحساب بس، ومفيش moment بين «عملت
+                // الدعوة» و«قبلتها» يكون الدور فيه معلّق.
                 if ($roleId) {
                     $role = Role::find($roleId);
                     if ($role) {
@@ -174,6 +256,31 @@ class EmployeeController extends Controller
             return $employee->fresh(['user.roles', 'manager']);
         });
 
+        // ⭐⭐⭐ الدعوة — **برّه** الـ transaction.
+        //
+        // ⚠️ ليه برّه؟ لأن `InvitationService::sendMail()` بيرسل
+        // إيميل حقيقي. لو الإرسال جوه الـtransaction:
+        //   • SMTP بطيء (ثانية-ثانيتين) والـDB transaction هيفضل
+        //     **مفتوح**، والقفل على الصف هيفضل ماسك
+        //   • لو الإرسال فشل وارمي، الـ rollback هيمسح الموظف
+        //     والحساب كمان — والمستخدم قال «اتقبل» وهو مش
+        //     متحصلش على حاجة.
+        // `InvitationService::sendMail()` بيبلع الخطأ جوّه نفسه
+        // أصلاً، فمافيش rollback من ناحية الإيميل.
+        $invitationToken = null;
+
+        if ($createAccount && $inviteEmail) {
+            $invitationToken = app(\App\Services\InvitationService::class)->create([
+                'email' => $inviteEmail,
+                'name' => $data['name'],
+                'role_id' => $roleId,
+                // ⭐⭐ الربط بالملف — من غيره الحساب بيتفعّل بس الـ
+                // employee يفضل `user_id = null` ومفيش حد يوصله.
+                'profile_type' => 'employee',
+                'profile_id' => $employee->id,
+            ], $request->user());
+        }
+
         // تسجيل النشاط
         app(\App\Services\AuditLogService::class)->logCreate(
             'employee',
@@ -182,7 +289,40 @@ class EmployeeController extends Controller
             $request,
         );
 
-        return response()->json($employee + ($warning ? ['warning' => $warning] : []), 201);
+        // ⭐⭐⭐ `Model + array` هو TypeError في PHP 8 — ما اشتغلش ولا مرة.
+        //
+        // `EmployeeController::store` كان بيرمي 500 على **كل** طلب
+        // إنشاء، فمحدش كان بيقدر يسجّل موظف أصلاً. الـendpoint
+        // ده كان ميت من زمان وما كانش فيه اختبار بيكشفه.
+        //
+        // ⭐ نستخدم `toArray()` ونضيف `warning` جواهها — أنضف من
+        // `json_merge` على الموديل.
+        $payload = $employee->toArray();
+
+        if ($warning) {
+            $payload['warning'] = $warning;
+        }
+
+        // ⭐⭐⭐ الرد فيه **رابط الدعوة** — مش بس «تم».
+        //
+        // ⭐ ليه؟ لأن «أهلاً بك، حسابك جاهز» معناه إيه من غير رابط؟
+        // الموظف الجديد مالوش حساب **يدخل بيه**، فالمدير لازم
+        // يقدر يسلّمه الرابط.
+        //
+        // ⭐⚠️ التوكن الخام بيرجع **مرة واحدة** — من هنا. مافيش
+        // endpoint تاني بيرجّعه، ومش بيتخزّن في الداتابيز (hash).
+        // فلو الرد ده ضاع، الرجوع الوحيد هو **إعادة إرسال** من
+        // `POST /api/invitations/{id}/resend`.
+        if ($invitationToken !== null) {
+            $payload['invitation'] = [
+                'sent' => true,
+                'accept_url' => rtrim((string) config('app.frontend_url', config('app.url')), '/')
+                    .'/accept-invitation?token='.urlencode($invitationToken),
+                'expires_at' => now()->addHours(72)->toIso8601String(),
+            ];
+        }
+
+        return response()->json($payload, 201);
     }
 
     // ============================================================
@@ -293,7 +433,37 @@ class EmployeeController extends Controller
 
         $old = $employee->only(array_keys($data));
 
-        $employee = DB::transaction(function () use ($employee, $data, $request) {
+        // ⭐⭐⭐ نفس فحص التصعيد بتاع `store`.
+        //
+        // ⭐ الباج كان مكرر في المكانين: `update` كان بياخد
+        // `role_id` وبيعمل `syncRoles([$role->name])` من غير أي
+        // فحص — فالتصعيد ممكن كان بيحصل حتى لموظف موجود أصلاً،
+        // وده أخطر من إنشاء حساب جديد (التصعيد بيستهدف حد
+        // معروُ وسهل استهدافه).
+        //
+        // ⭐ والفحص **بره** الـ transaction تاني، عشان الرفض
+        // ما يعملش تعديل جزئي.
+        //
+        // @see \App\Services\RoleGrantService
+        if (! empty($data['role_id'])) {
+            $role = Role::find($data['role_id']);
+
+            if (! $role) {
+                return response()->json(['message' => 'الدور مش موجود'], 422);
+            }
+
+            app(RoleGrantService::class)->assertCanAssignRole(
+                $request->user(),
+                $role,
+                $request,
+            );
+        }
+
+        // ⭐ متغير برّه الـclosure — عشان نعرف بعد الـtransaction
+        // هل الحساب الجديد محتاج دعوة.
+        $willCreateAccount = false;
+
+        $employee = DB::transaction(function () use ($employee, $data, $request, &$willCreateAccount) {
             $roleId = $data['role_id'] ?? null;
             unset($data['role_id']);
 
@@ -304,17 +474,26 @@ class EmployeeController extends Controller
                     return ['error' => 'الموظف مالوش حساب دخول ومفيش إيميل — املا الإيميل الأول'];
                 }
 
+                $willCreateAccount = true;
+
                 $user = User::create([
                     'organization_id' => $employee->organization_id,
                     'name' => $employee->name,
                     'email' => $employee->email,
                     'phone' => $employee->phone,
-                    'password' => Hash::make('password'),
+                    // ⭐⭐ نفس قرار `store`: حساب **مدعو** مش
+                    // حساب شغال. `status='active'` مع كلمة مرور
+                    // عشوائية محدش بيعرفها = باب مفتوح لو الكلمة
+                    // دي اتسرّبت من أي مكان.
+                    'password' => Hash::make(Str::password(40)),
+                    'must_change_password' => true,
+                    'password_changed_at' => null,
                     'timezone' => 'Africa/Cairo',
                     'locale' => 'ar',
                     'job_title' => $employee->job_title,
                     'department' => $employee->department,
-                    'status' => 'active',
+                    // ⭐⭐ الحالة الحقيقية للحساب المدعو
+                    'status' => 'invited',
                 ]);
 
                 $employee->update(['user_id' => $user->id]);
@@ -346,6 +525,31 @@ class EmployeeController extends Controller
             $employee->only(array_keys($data)),
             $request,
         );
+
+        // ⭐⭐⭐ الدعوة — **برّه** الـtransaction. نفس سبب `store`:
+        // الإيميل جوّه الـtransaction بيقفل الـDB ويخلي فشل
+        // الإيميل يعمل rollback للموظف كله.
+        if ($willCreateAccount && ! empty($employee->email)) {
+            $token = app(\App\Services\InvitationService::class)->create([
+                'email' => $employee->email,
+                'name' => $employee->name,
+                'role_id' => $data['role_id'] ?? null,
+                'profile_type' => 'employee',
+                'profile_id' => $employee->id,
+            ], $request->user());
+
+            $response = $employee->fresh()->load(['user', 'manager'])->toArray();
+
+            // ⭐ نفس `store` — المدير لازم يقدر يسلّم الرابط
+            $response['invitation'] = [
+                'sent' => true,
+                'accept_url' => rtrim((string) config('app.frontend_url', config('app.url')), '/')
+                    .'/accept-invitation?token='.urlencode($token),
+                'expires_at' => now()->addHours(72)->toIso8601String(),
+            ];
+
+            return response()->json($response);
+        }
 
         return response()->json($employee->fresh()->load(['user', 'manager']));
     }

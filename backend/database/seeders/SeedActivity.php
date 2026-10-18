@@ -56,7 +56,7 @@ class SeedActivity extends Seeder
             ];
             $status = array_rand($statusWeights);
 
-            // العملاء المحولين驾驶他们的 تاريخ أقدم
+            // العملاء المحولينبياخد تاريخ أقدم
             $ageDays = match ($status) {
                 'converted' => mt_rand(20, 60),
                 'lost' => mt_rand(10, 45),

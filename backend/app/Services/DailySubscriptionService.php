@@ -106,7 +106,7 @@ class DailySubscriptionService
             ->get();
 
         foreach ($due as $subscription) {
-            //態 idempotency: لو خلّصنا له اليوم قبل كده، ما نكرّرش
+            //⚠ idempotency: لو خلّصنا له اليوم قبل كده، ما نكرّرش
             if ($this->alreadyRenewedToday($subscription, $today)) {
                 continue;
             }
@@ -544,8 +544,17 @@ class DailySubscriptionService
      */
     private function recipients(Subscription $subscription): array
     {
+        // ⭐⭐ `is_parent` بقى **مشتقّ** من `parents.user_id` (PR 1.3).
+        //
+        // ⭐ قبل كده: `->where('is_parent', false)` — وده كان
+        // استعلام على عمود. النتيجة: **كل** اللي مش مكتوب عنده
+        // `is_parent = true` بيعمل إشعار — ومن فيهم ممكن يكون ولي
+        // أمر فعلاً لو الأعمدة اتفرقعت.
+        //
+        // ⭐ دلوقتي: `whereDoesntHave('parentProfile')` — نفس
+        // التعريف بالظبط، ومش بيسأل على عمود ممكن يكون متأخر.
         $ids = User::query()
-            ->where('is_parent', false)
+            ->whereDoesntHave('parentProfile')
             ->whereNotIn('id', Teacher::query()->whereNotNull('user_id')->pluck('user_id'))
             ->where('status', 'active')
             ->pluck('id')

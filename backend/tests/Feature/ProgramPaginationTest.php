@@ -16,7 +16,7 @@ class ProgramPaginationTest extends TestCase
 {
     private function admin()
     {
-        return $this->makeUserWithRole('admin', ['programs.view', 'lessons.edit']);
+        return $this->makeUserWithRole('admin', ['programs.view', 'lessons.update']);
     }
 
     /** ٥ برامج: ٣ سليمة و ٢ فيهم عدم تطابق */

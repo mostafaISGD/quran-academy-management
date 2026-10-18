@@ -11,8 +11,10 @@ use App\Models\Student;
 use App\Models\StudentLedgerEntry;
 use App\Models\Subscription;
 use App\Models\Teacher;
+use App\Services\ParentChildScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 
 class StudentController extends Controller
 {
@@ -54,6 +56,14 @@ class StudentController extends Controller
                 });
             });
 
+        // ⚡ نطاق العلاقة (PR 1.8): الموظف → `null` (القايمة كاملة)؛
+        // ولي الأمر / المعلم / الطالب → طلابه فقط حتى لو معه
+        // `students.view` — العلاقة هي اللي بترسم الحدود.
+        $scopedIds = ParentChildScope::allowedStudentIds($request->user());
+        if ($scopedIds !== null) {
+            $query->whereIn('students.id', $scopedIds);
+        }
+
         // رقم الصفحة والحجم
         $perPage = $request->integer('per_page') ?: 100;
         $students = $query->orderBy('created_at', 'desc')->paginate($perPage);
@@ -72,6 +82,9 @@ class StudentController extends Controller
                         ->orWhere('email', 'like', "%{$search}%");
                 });
             })
+            // ⚡ نفس نطاق العلاقة للعدادات — وإلا العدادات تعرض
+            // كل النظام وقايمة المستخدم بتعرض جزء.
+            ->when($scopedIds !== null, fn ($q) => $q->whereIn('students.id', $scopedIds))
             ->selectRaw('status, count(*) as aggregate')
             ->groupBy('status')
             ->pluck('aggregate', 'status');
@@ -206,11 +219,20 @@ class StudentController extends Controller
 
     public function show(Student $student)
     {
+        // ⚡ سياسة العلاقة (PR 1.8): ولي الأمر ابنه، والمعلم طلابه،
+        // والطالب نفسه — والموظف كامل بالصلاحية العامة.
+        Gate::authorize('view', $student);
+
         return response()->json($student->load(['branch', 'user', 'parents', 'subscriptions', 'goals']));
     }
 
     public function update(Request $request, Student $student)
     {
+        // ⚡ سياسة العلاقة: تعديل ولي الأمر لابنه محتاج `can_manage`
+        // (العلم اللي كان موجود من يوم الأول ومحدش بيقراه)؛
+        // المعلم والطالب لا يعدلان سجل الطالب إطلاقاً.
+        Gate::authorize('update', $student);
+
         $data = $request->validate([
             'first_name' => 'sometimes|string|max:100',
             'middle_name' => 'nullable|string|max:100',
@@ -242,6 +264,10 @@ class StudentController extends Controller
 
     public function destroy(Request $request, Student $student)
     {
+        // ⚡ سياسة العلاقة: حذف سجل طالب من مستخدم له علاقة
+        // (ولي/معلم/طالب) مرفوض — السجلات بتتحذف من الإدارة فقط.
+        Gate::authorize('update', $student);
+
         $old = $student->only(['first_name', 'last_name', 'student_code', 'status']);
 
         $student->delete();
@@ -253,21 +279,31 @@ class StudentController extends Controller
 
     public function schedule(Request $request, Student $student)
     {
+        Gate::authorize('view', $student);
+
         return response()->json($student->lessons()->with(['teacher', 'program', 'level'])->orderBy('scheduled_start_at', 'desc')->paginate(50));
     }
 
     public function attendance(Request $request, Student $student)
     {
+        Gate::authorize('view', $student);
+
         return response()->json($student->lessons()->with('attendance')->whereHas('attendance')->orderBy('scheduled_start_at', 'desc')->paginate(50));
     }
 
     public function progress(Request $request, Student $student)
     {
+        Gate::authorize('view', $student);
+
         return response()->json($student->lessons()->with('progressRecords')->whereHas('progressRecords')->orderBy('scheduled_start_at', 'desc')->paginate(50));
     }
 
     public function payments(Request $request, Student $student)
     {
+        // ⚡ دفتر المدفوعات بيانات مالية: للولي شرط `can_view_finance`
+        // (سياسة `payments`)، وللطالب نفسه، والموظف بالصلاحية العامة.
+        Gate::authorize('payments', $student);
+
         return response()->json($student->payments()->with(['invoice', 'receivedBy'])->orderBy('paid_at', 'desc')->paginate(50));
     }
 

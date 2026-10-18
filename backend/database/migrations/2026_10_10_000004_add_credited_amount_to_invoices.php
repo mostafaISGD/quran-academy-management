@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Schema;
 /**
  * ⭐ `credited_amount` على الفاتورة.
  *
- * ⭐费用花提醒: `balance_due = total - paid_amount - credited_amount`
+ * ⭐تذكير: `balance_due = total - paid_amount - credited_amount`
  *
  * يعني لو فاتورة بـ500 واطّبقنا 200 رصيد دائن، المتبقي=300.
  */

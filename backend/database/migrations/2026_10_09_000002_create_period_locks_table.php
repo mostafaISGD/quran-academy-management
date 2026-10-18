@@ -57,7 +57,7 @@ return new class extends Migration
             $table->string('label', 120)->nullable();
             $table->text('reason')->nullable();
 
-            // ⭐ مين قفل ومين فتح — обя�� traceability
+            // ⭐ مين قفل ومين فتح — مسؤولية traceability
             $table->foreignId('locked_by')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('locked_at')->nullable();
 

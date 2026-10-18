@@ -25,7 +25,7 @@ class TeacherPayrollTest extends TestCase
 
     private function accountant()
     {
-        return $this->makeUserWithRole('accountant', ['payroll.manage']);
+        return $this->makeUserWithRole('accountant', ['payroll.periods.manage', 'payroll.payments.create']);
     }
 
     /** معلم بسعر شهري ثابت */
@@ -596,7 +596,7 @@ class TeacherPayrollTest extends TestCase
 
     public function test_attendance_manager_cannot_run_teacher_payroll(): void
     {
-        $receptionist = $this->makeUserWithRole('receptionist', ['attendance.view', 'attendance.manage']);
+        $receptionist = $this->makeUserWithRole('receptionist', ['attendance.view', 'attendance.update']);
         $period = $this->period();
 
         $this->getJsonAs('/api/teacher-payroll/periods', $receptionist)->assertStatus(403);

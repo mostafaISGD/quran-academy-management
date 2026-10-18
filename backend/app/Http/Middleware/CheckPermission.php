@@ -19,7 +19,7 @@ use Symfony\Component\HttpFoundation\Response;
  * يعني: لو حد أضاف route جديد بـ صلاحية جديدة ونسي يضيفها لـ
  * `SeedRolesPermissions::PERMISSIONS`، كل المستخدمين هيشوفوا
  * Internal Server Error بدل «غير مصرح» — والخطأ في اللوج هيتكلم
- * عن permission مفقودة مش عن ت性问题 في الصلاحيات.
+ * عن permission مفقودة مش عن ت معرّف في الصلاحيات.
  *
  * السلوك الصح: **صلاحية مش معرّفة = ممنوع**. 403 + تسجيل تحذير
  * عشان المطوّر يلاحظ إن عليه يعمل migration/seeder.

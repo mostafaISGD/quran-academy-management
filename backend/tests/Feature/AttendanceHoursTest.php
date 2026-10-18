@@ -20,7 +20,7 @@ class AttendanceHoursTest extends TestCase
 {
     private function admin()
     {
-        return $this->makeUserWithRole('admin', ['attendance.view', 'attendance.manage']);
+        return $this->makeUserWithRole('admin', ['attendance.view', 'attendance.update']);
     }
 
     private function makeActiveEmployee(array $attrs = []): Employee
@@ -351,7 +351,7 @@ TS;
 
     public function test_hourly_rate_is_stored_and_validated(): void
     {
-        $admin = $this->makeUserWithRole('admin', ['students.edit']);
+        $admin = $this->makeUserWithRole('admin', ['students.update']);
         $e = $this->makeActiveEmployee();
 
         // التحديث بيستخدم `sometimes` — يعني كل حقل لوحده يكفي

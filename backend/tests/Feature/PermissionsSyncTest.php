@@ -45,6 +45,10 @@ class PermissionsSyncTest extends TestCase
          * لو حد أضاف route بـ `permission:finance.something` ونسي
          * يضيف الصلاحية للمصدر، الاختبار ده بيفشل **وقت البناء**
          * بدال ما المستخدم يقابل "غير مصرح" في الشاشة.
+         *
+         * ⚠️ **PR 1.6:** الراوتات لسه بأسماء قديمة (مثل `settings.manage`)
+         * والـ PR 1.7 هو اللي يطبّق الخريطة. فالاختبار بيقبل
+         * الاسم إذا كان في الكتالوج الجديد **أو** في خريطة التحويل.
          */
         $routes = file_get_contents(base_path('routes/api.php'));
 
@@ -54,16 +58,17 @@ class PermissionsSyncTest extends TestCase
 
         $this->assertNotEmpty($used, 'لازم نلاقي صلاحيات في الـ routes');
 
-        $declared = array_column(SeedRolesPermissions::PERMISSIONS, 'name');
+        $canonical = array_column(SeedRolesPermissions::permissions(), 'name');
+        $legacy = array_keys(SeedRolesPermissions::migrationMap());
 
-        $missing = array_values(array_diff($used, $declared));
+        $missing = array_values(array_diff($used, array_merge($canonical, $legacy)));
 
         $this->assertSame(
             [],
             $missing,
-            "الصلاحيات دي مستخدمة في routes بس مش متعرّفة في المصدر:\n  "
+            "الصلاحيات دي مستخدمة في routes بس مش متعرّفة في المصدر ولا في خريطة التحويل:\n  "
                 . implode("\n  ", $missing)
-                . "\n\nضيفها في SeedRolesPermissions::PERMISSIONS"
+                . "\n\nضيفها في config/permissions.php"
         );
     }
 
@@ -74,7 +79,7 @@ class PermissionsSyncTest extends TestCase
         $admin = $this->makeUser();
         $admin->assignRole('admin');
 
-        foreach (array_column(SeedRolesPermissions::PERMISSIONS, 'name') as $name) {
+        foreach (array_column(SeedRolesPermissions::permissions(), 'name') as $name) {
             $this->assertTrue(
                 $admin->can($name),
                 "المدير لازم يقدر «{$name}»"
@@ -91,7 +96,7 @@ class PermissionsSyncTest extends TestCase
         $seeder = file_get_contents(base_path('database/seeders/DatabaseSeeder.php'));
 
         $this->assertStringContainsString(
-            'SeedRolesPermissions::PERMISSIONS',
+            'SeedRolesPermissions::permissions()',
             $seeder,
             'DatabaseSeeder لازم يقرأ من المصدر الرسمي'
         );
@@ -128,10 +133,25 @@ class PermissionsSyncTest extends TestCase
             $second,
             'تشغيل الأمر مرتين لازم يدي نفس النتيجة'
         );
+
+        /**
+         * ⚠️ **PR 1.6:** العدد دلوقتي أكبر من الكتالوج الجديد — لأن
+         * الأمر بيعمل كمان **الأسماء القديمة** اللي لسه في الراوتات
+         * وفي الأدوار. من غيرهم كانت الراوتات بترجع 403.
+         *
+         * ⭐ الاتنين قايم sales **بيتداخلوا** — فبنحسب الـunion.
+         */
+        $legacy = array_unique(array_merge(
+            SeedRolesPermissions::legacyPermissionsInUse(),
+            SeedRolesPermissions::legacyPermissionsInRoles(),
+        ));
+
+        $expected = count(SeedRolesPermissions::permissions()) + count($legacy);
+
         $this->assertSame(
-            count(SeedRolesPermissions::PERMISSIONS),
+            $expected,
             $first,
-            'عدد الصلاحيات لازم يطابق المصدر'
+            'عدد الصلاحيات لازم يطابق المصدر + الأسماء القديمة اللي لسه مستخدمة'
         );
     }
 
@@ -268,13 +288,13 @@ class PermissionsSyncTest extends TestCase
         $accountant->assignRole('accountant');
 
         // ⭐ اللي المحاسب لازم يقدر
-        $this->assertTrue($accountant->can('finance.view'), 'يشوف الأرصدة');
-        $this->assertTrue($accountant->can('finance.accounts'), 'يعمل خزينة');
-        $this->assertTrue($accountant->can('finance.movements'), 'يسجّل حركة');
+        $this->assertTrue($accountant->can('finance.accounts.view'), 'يشوف الأرصدة');
+        $this->assertTrue($accountant->can('finance.accounts.manage'), 'يعمل خزينة');
+        $this->assertTrue($accountant->can('finance.movements.create'), 'يسجّل حركة');
 
         // ⭐⭐ واللي **لازم ما يقدرش** — دي الخطة كلها
         $this->assertFalse(
-            $accountant->can('finance.reverse'),
+            $accountant->can('finance.movements.reverse'),
             'المحاسب ما ينفعش يعكس دفعة — غير ده الأرقام كلها بلا معنى'
         );
         $this->assertFalse(

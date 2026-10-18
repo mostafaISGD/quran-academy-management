@@ -22,7 +22,7 @@ class ParentModel extends Model
     public function user() { return $this->belongsTo(User::class); }
     public function students() {
         return $this->belongsToMany(Student::class, 'student_parents', 'parent_id', 'student_id')
-            ->withPivot(['relationship', 'is_primary', 'can_manage', 'can_pay', 'can_receive_notifications'])
+            ->withPivot(['relationship', 'is_primary', 'can_manage', 'can_pay', 'can_receive_notifications', 'can_view_finance', 'can_view_progress', 'can_request_changes'])
             ->withTimestamps();
     }
     public function payments() { return $this->hasMany(Payment::class); }

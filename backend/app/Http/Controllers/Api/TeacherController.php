@@ -9,6 +9,7 @@ use App\Models\Subscription;
 use App\Models\Teacher;
 use App\Models\TeacherRating;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class TeacherController extends Controller
 {
@@ -142,7 +143,25 @@ class TeacherController extends Controller
 
         $data['organization_id'] = $request->user()->organization_id;
         $data['teacher_code'] = 'TCH-' . strtoupper(uniqid());
-        $data['user_id'] = $request->user()->id;
+
+        // ⭐⭐⭐ الربط بالحساب مالوش مكان هنا.
+        //
+        // الكود كان:
+        //
+        //     $data['user_id'] = $request->user()->id;
+        //
+        // يعني المعلم الجديد بيتربط بحساب الأدمن اللي عمله، مش
+        // بحسابه هو. النتيجة العملية: حساب المدير نفسه بقى مربوط
+        // بسجل teachers، والواجهة كانت بتحسبه معلم وبتوديه
+        // /my-schedule بدل لوحة التحكم.
+        //
+        // ⭐ المعلم الجديد مالوش حساب لحد ما تبعت له دعوة ويقبلها
+        // (PR 1.4). لحد اللحظة دي user_id = null وده الوضع
+        // الطبيعي. العمود بقى nullable عشان كده.
+        //
+        // @see database/migrations/2026_10_12_000002_make_teacher_user_id_nullable.php
+        // @see \Tests\Feature\OwnershipTest
+        $data['user_id'] = null;
 
         $teacher = Teacher::create($data);
 
@@ -162,6 +181,10 @@ class TeacherController extends Controller
 
     public function show(Teacher $teacher)
     {
+        // ⚡ سياسة العلاقة (PR 1.8): المعلم يشوف نفسه فقط، وولي الأمر
+        // معلّم أبنائه فقط، والموظف بالصلاحية العامة.
+        Gate::authorize('view', $teacher);
+
         return response()->json($teacher->load(['branch', 'user', 'contracts', 'rates', 'activeContract', 'currentRate', 'ratings' => function ($q) {
             $q->with(['student', 'parent'])->latest()->limit(10);
         }]));
@@ -242,11 +265,15 @@ class TeacherController extends Controller
 
     public function schedule(Request $request, Teacher $teacher)
     {
+        Gate::authorize('schedule', $teacher);
+
         return response()->json($teacher->lessons()->with(['student', 'program', 'level'])->orderBy('scheduled_start_at', 'desc')->paginate($request->integer('per_page') ?: 50));
     }
 
     public function students(Request $request, Teacher $teacher)
     {
+        Gate::authorize('viewStudents', $teacher);
+
         // اجمع الطلاب من مصدرين: من الحصص، ومن الاشتراكات
         $fromLessons = $teacher->lessons()->whereNotNull('student_id')->distinct()->pluck('student_id');
         $fromSubscriptions = Subscription::where('teacher_id', $teacher->id)->whereNotNull('student_id')->distinct()->pluck('student_id');

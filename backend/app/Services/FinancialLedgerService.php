@@ -215,7 +215,7 @@ class FinancialLedgerService
 
         $account = $movement->account;
 
-        // ⭐ القفل بيتفحص **يوم الاعتماد** — هو историFinancialلي
+        // ⭐ القفل بيتفحص **يوم الاعتماد** — هو سجلFinancialلي
         // بيحصل فيه، مش تاريخ المصروف الأصلي
         $this->assertNotLocked($account, now()->toDateString());
 

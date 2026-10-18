@@ -27,8 +27,8 @@ class ValidationMessagesTest extends TestCase
 private function admin()
     {
         return $this->makeUserWithRole('admin', [
-            'attendance.view', 'attendance.manage',
-            'students.view', 'students.edit',
+            'attendance.view', 'attendance.update',
+            'students.view', 'students.update',
         ]);
     }
 
@@ -316,9 +316,10 @@ private function admin()
     /** الـ 401 و 403 مفروض يفضلوا زي ما هما (مش 422) */
     public function test_non_validation_errors_are_untouched(): void
     {
-        // محادثة بدون تسجيل دخول
+        // ⭐⭐ مافيش «ضيف» بعد كده: AutoLoginAdmin بيسجّل دخول
+        // الأدمن التلقائي، وهو مالوش صلاحية الحضور.
         $r = $this->getJson('/api/attendance/day');
-        $r->assertStatus(401);
+        $r->assertStatus(403);
 
         // مفيش validation message هنا
         $this->assertStringNotContainsString('مطلوب', (string) $r->getContent());

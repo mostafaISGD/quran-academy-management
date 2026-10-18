@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Subscription;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class SubscriptionController extends Controller
 {
@@ -142,6 +143,10 @@ class SubscriptionController extends Controller
 
     public function show(Subscription $subscription)
     {
+        // ⚡ سياسة العلاقة (PR 1.8): ولي الأمر اشتراك أبنائه فقط،
+        // والمعلم اشتراكاته، والطالب اشتراكه، والموظف بالصلاحية.
+        Gate::authorize('view', $subscription);
+
         return response()->json($subscription->load(['student', 'plan', 'program', 'teacher', 'pauses', 'lessons']));
     }
 

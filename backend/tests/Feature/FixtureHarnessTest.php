@@ -32,7 +32,7 @@ class FixtureHarnessTest extends TestCase
 
     public function test_auth_headers_work(): void
     {
-        $admin = $this->makeUserWithRole('admin', ['programs.view', 'settings.manage']);
+        $admin = $this->makeUserWithRole('admin', ['programs.view', 'settings.update']);
 
         $r = $this->getJsonAs('/api/programs', $admin);
 

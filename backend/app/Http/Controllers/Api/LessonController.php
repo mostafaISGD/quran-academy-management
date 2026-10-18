@@ -13,6 +13,7 @@ use App\Models\TeacherEarning;
 use App\Services\LessonScheduler;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class LessonController extends Controller
 {
@@ -107,6 +108,9 @@ class LessonController extends Controller
 
     public function update(Request $request, Lesson $lesson)
     {
+        // ⚡ سياسة العلاقة (PR 1.8): تعديل الحصة لمعلم غير صاحبها مرفوض.
+        Gate::authorize('update', $lesson);
+
         $data = $request->validate([
             'scheduled_start' => 'sometimes|date',
             'duration_minutes' => 'sometimes|integer|min:15',
@@ -148,6 +152,8 @@ class LessonController extends Controller
 
     public function cancel(Request $request, Lesson $lesson)
     {
+        Gate::authorize('update', $lesson);
+
         $data = $request->validate([
             'cancellation_reason' => 'required|string|max:255',
         ]);
@@ -162,6 +168,8 @@ class LessonController extends Controller
 
     public function makeup(Request $request, Lesson $lesson)
     {
+        Gate::authorize('update', $lesson);
+
         $data = $request->validate([
             'scheduled_start' => 'required|date',
         ]);
@@ -182,6 +190,8 @@ class LessonController extends Controller
 
     public function complete(Request $request, Lesson $lesson)
     {
+        Gate::authorize('update', $lesson);
+
         $lesson->update(['status' => 'completed']);
 
         $teacher = $lesson->teacher;
@@ -206,6 +216,8 @@ class LessonController extends Controller
 
     public function attendance(Request $request, Lesson $lesson)
     {
+        Gate::authorize('update', $lesson);
+
         $data = $request->validate([
             'status' => 'required|in:present,absent,late,excused',
             'late_minutes' => 'nullable|integer|min:0',
@@ -229,6 +241,8 @@ class LessonController extends Controller
 
     public function memorization(Request $request, Lesson $lesson)
     {
+        Gate::authorize('update', $lesson);
+
         $data = $request->validate([
             'surah_id' => 'required|exists:quran_surahs,id',
             'from_ayah' => 'required|integer|min:1',

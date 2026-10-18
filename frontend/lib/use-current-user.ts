@@ -21,22 +21,32 @@ import { fetchMe, type AuthUser } from "@/lib/api";
  * ⭐ ليه `null` مش error؟ فلو الـ fetch فشل المستخدم بيبقى ضيف
  * (لا sidebar ولا جرس) — الخطأ ما يظهرش على الشاشة.
  *
+ * ⭐⭐ `loading` مضافة عشان الـ**Skeleton**. من غيرها الـlayout كان
+ * بيرسم **القائمة كاملة** أول رسم (`user = null`)، وبعد ثانية
+ * تختفي لمعلم. ده الـflash اللي الخارطة بتتكلم عنه بالظبط.
+ *
+ * ⭐ `loading` بيبدأ `true` في الحالة الابتدائية نفسها، فمافيش
+ * رسم إضافي وده اللي بيمرّي قاعدة `set-state-in-effect`.
+ *
  * @example
  * ```tsx
- * const { user } = useCurrentUser();
+ * const { user, loading } = useCurrentUser();
+ * if (loading) return <SidebarSkeleton />;
  * if (user?.is_teacher) return <TeacherView />;
  * ```
  */
 export function useCurrentUser(): {
   user: AuthUser | null;
+  /** ⭐⭐ لسه بنجيب المستخدم — للـSkeleton */
+  loading: boolean;
   /** إعادة الجلب — بعد تغيير الصلاحيات مثلاً */
   reload: () => void;
 } {
   const fetcher = useCallback(() => fetchMe(), []);
 
-  const { data, reload } = usePage<AuthUser | null>("auth-me", fetcher, {
+  const { data, loading, reload } = usePage<AuthUser | null>("auth-me", fetcher, {
     initial: null,
   });
 
-  return { user: data ?? null, reload };
+  return { user: data ?? null, loading, reload };
 }

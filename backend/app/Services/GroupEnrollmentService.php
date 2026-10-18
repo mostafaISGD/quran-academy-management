@@ -242,7 +242,7 @@ class GroupEnrollmentService
      * ⭐ رصيد الطالب الحالي من كشف الحساب.
      *
      * ⚠️ مش محتاجين نجمع كل السطور — الرصيد **في آخر سطر**
-     * уже (`balance_after` بيتحسب وبيتخزن مع كل سطر).
+     * مثال (`balance_after` بيتحسب وبيتخزن مع كل سطر).
      */
     private function currentBalance(int $studentId): float
     {

@@ -10,8 +10,11 @@ use Illuminate\Support\Facades\Hash;
  * يولّد 15 معلم مع مستخدماتهم وعقودهم وأسعارهم.
  * يعتمد على وجود: organizations, branches, programs (من RealisticDataSeeder).
  */
+use Database\Seeders\Concerns\RefusesToRunInProduction;
+
 class SeedTeachers extends Seeder
 {
+    use RefusesToRunInProduction;
     private const N = 15;
 
     /** @var array<string, mixed> */
@@ -24,6 +27,8 @@ class SeedTeachers extends Seeder
 
     public function run(): void
     {
+        $this->guardProduction('SeedTeachers');
+
         mt_srand(20260101); // نتائج ثابتة
 
         $now = now();

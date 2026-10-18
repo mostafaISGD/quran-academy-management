@@ -42,9 +42,26 @@ return [
     | considered valid. This will override any values set in the token's
     | "expires_at" column, but first-party sessions are not affected.
     |
+    | ⭐⭐⭐ الكان هنا كان `null` — وده كان **أخطر سطر في الملف**.
+    |
+    | `null` معناها «التوكين صالح للأبد». التوكنات مخزّنة في
+    | `localStorage` (شوف `frontend/lib/api.ts`)، فأي حد يفتح
+    | جهاز المستخدم — أو يسرق المتصفح — يقدر يدخل **بعد شهور**
+    | من يوم إصدار التوكن. وأي غلطة في الجهاز (فايروس، متصفح
+    | مشترك، جهاز ضائع) مالهاش تاريخ انتهاء.
+    |
+    | ⭐ ٧٢٠ دقيقة = ١٢ ساعة. مدة معقولة لمدرس بيشتغل من
+    | جهاز واحد: يوم شغل كامل، ولما يرجع المستخدم يسجّل دخول
+    | تاني من غير ما يتأثر.
+    |
+    | ⭐ الـvalue من الـenvironment مش مكتوبة هنا عن قصد: الإعداد
+    | يتحكم فيه من `.env` في كل بيئة من غير كود. والقراءة من
+    | `settings` جاية في PR 3.12 مع `SettingsRegistry` (هو لسه
+    | مش موجود دلوقتي).
+    |
     */
 
-    'expiration' => null,
+    'expiration' => (int) env('SANCTUM_TOKEN_EXPIRATION', 720),
 
     /*
     |--------------------------------------------------------------------------
@@ -72,8 +89,25 @@ return [
     */
 
     'middleware' => [
-        'verify_csrf_token' => App\Http\Middleware\VerifyCsrfToken::class,
-        'encrypt_cookies' => App\Http\Middleware\EncryptCookies::class,
+        // ⭐⭐ بيشاور على كلاسين مش موجودين في Laravel 11.
+        //
+        // Laravel 11 نقلهم من `App\Http\Middleware` للـframework:
+        //
+        //   ValidateCsrfToken  →  Illuminate\Foundation\Http\Middleware\ValidateCsrfToken
+        //   EncryptCookies     →  Illuminate\Cookie\Middleware\EncryptCookies
+        //
+        // ⭐ لاحظ: `EncryptCookies` نقل لـ`Cookie\Middleware` مش
+        // `Foundation\Http\Middleware`. و`VerifyCsrfToken` لسه
+        // موجود في الـframework بس هو **deprecated** — الاسم الصح
+        // في Laravel 11 هو `ValidateCsrfToken`.
+        //
+        // ⭐ الـclass القديمة كانت موجودة في Laravel 10 ومايلهاش
+        // بديل → لو Sanctum-stateful (cookie auth) اتفعّل، ده كان
+        // هيدي `Class not found` وقت أول request.
+        //
+        // @see \Tests\Feature\ErrorHygieneTest
+        'verify_csrf_token' => Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
+        'encrypt_cookies' => Illuminate\Cookie\Middleware\EncryptCookies::class,
     ],
 
 ];

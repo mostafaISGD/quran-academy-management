@@ -29,7 +29,7 @@ class EmployeePayrollTest extends TestCase
     private function accountant()
     {
         return $this->makeUserWithRole('accountant', [
-            'payroll.manage', 'attendance.view', 'attendance.manage',
+            'payroll.periods.manage', 'payroll.payments.create', 'attendance.view', 'attendance.update',
         ]);
     }
 
@@ -725,7 +725,7 @@ class EmployeePayrollTest extends TestCase
     public function test_attendance_manager_cannot_run_payroll(): void
     {
         $receptionist = $this->makeUserWithRole('receptionist', [
-            'attendance.view', 'attendance.manage',
+            'attendance.view', 'attendance.update',
         ]);
         $period = $this->period();
         $this->hourlyEmployee(['2026-03-02' => 6]);

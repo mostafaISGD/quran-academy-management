@@ -19,7 +19,8 @@ class StudentPhoneController extends Controller
             $phones = $student->phones()->orderByDesc('is_primary')->orderBy('created_at')->get();
             return response()->json(['data' => $phones]);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع getMessage() — بيسلّم تفاصيل
+            throw $e;
         }
     }
 
@@ -79,7 +80,8 @@ class StudentPhoneController extends Controller
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json(['error' => $e->validator->errors()->first()], 422);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع getMessage() — بيسلّم تفاصيل
+            throw $e;
         }
     }
 
@@ -150,7 +152,19 @@ class StudentPhoneController extends Controller
 
                     $created[] = $phone;
                 } catch (\Exception $e) {
-                    $errors[] = $e->getMessage();
+                    // ⭐⭐ كان بيحطّ `getMessage()` — ودي ممكن تكون
+                    // SQL error فيها اسم جدول.
+                    //
+                    // ⭐ **الصف** بيتخطّى والbatch مكمل — ده مقصود،
+                    // فبنمسك الاستثناء هنا. بس الرسالة للمستخدم
+                    // **عامة**، والتفاصيل بتتسجل.
+                    \Illuminate\Support\Facades\Log::warning('phone bulk row failed', [
+                        'student_id' => $studentId,
+                        'row' => $phone->phone_number ?? null,
+                        'error' => $e->getMessage(),
+                    ]);
+
+                    $errors[] = 'رقم غير صالح في السطر ده.';
                 }
             }
 
@@ -164,7 +178,8 @@ class StudentPhoneController extends Controller
                 'errors' => $errors,
             ], 201);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع getMessage() — بيسلّم تفاصيل
+            throw $e;
         }
     }
 
@@ -235,7 +250,8 @@ class StudentPhoneController extends Controller
         } catch (\Illuminate\Validation\ValidationException $e) {
             return response()->json(['error' => $e->validator->errors()->first()], 422);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع getMessage() — بيسلّم تفاصيل
+            throw $e;
         }
     }
 
@@ -260,7 +276,8 @@ class StudentPhoneController extends Controller
 
             return response()->json(['message' => 'تم حذف الرقم']);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع getMessage() — بيسلّم تفاصيل
+            throw $e;
         }
     }
 
@@ -271,7 +288,8 @@ class StudentPhoneController extends Controller
             StudentPhone::where('id', $phoneId)->update(['is_primary' => true]);
             return response()->json(['message' => 'تم تحديث الرقم الأساسي']);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع getMessage() — بيسلّم تفاصيل
+            throw $e;
         }
     }
 
@@ -290,7 +308,8 @@ class StudentPhoneController extends Controller
             $phone->update([$field => !$phone->$field]);
             return response()->json($phone->fresh());
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع getMessage() — بيسلّم تفاصيل
+            throw $e;
         }
     }
 
@@ -301,7 +320,8 @@ class StudentPhoneController extends Controller
             $student = Student::findOrFail($studentId);
             return response()->json(['data' => $this->parentLinker->forStudent((int) $studentId)]);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع getMessage() — بيسلّم تفاصيل
+            throw $e;
         }
     }
 
@@ -331,7 +351,8 @@ class StudentPhoneController extends Controller
 
             return response()->json(['data' => $parents, 'message' => 'تم تغيير ولي الأمر الأساسي']);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع getMessage() — بيسلّم تفاصيل
+            throw $e;
         }
     }
 
@@ -363,7 +384,8 @@ class StudentPhoneController extends Controller
 
             return response()->json(['data' => $phones]);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع getMessage() — بيسلّم تفاصيل
+            throw $e;
         }
     }
 
@@ -384,7 +406,8 @@ class StudentPhoneController extends Controller
 
             return response()->json(['data' => $phones]);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع getMessage() — بيسلّم تفاصيل
+            throw $e;
         }
     }
 

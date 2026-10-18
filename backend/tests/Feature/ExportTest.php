@@ -18,8 +18,8 @@ class ExportTest extends TestCase
     public function test_account_balances_exports_csv_with_arabic_headers(): void
     {
         $admin = $this->makeUserWithRole('admin', [
-            'finance.view', 'finance.movements', 'finance.accounts',
-            'payments.view',
+            'finance.accounts.view', 'finance.movements.create', 'finance.accounts.manage',
+            'finance.payments.view',
         ]);
 
         $this->makeAccount(['name' => 'خزينة ١٠٠', 'opening_balance' => 100]);
@@ -41,7 +41,7 @@ class ExportTest extends TestCase
     public function test_account_movements_export_returns_data(): void
     {
         $admin = $this->makeUserWithRole('admin', [
-            'finance.view', 'finance.movements', 'finance.accounts',
+            'finance.accounts.view', 'finance.movements.create', 'finance.accounts.manage',
         ]);
 
         $account = $this->makeAccount(['name' => 'بنك']);
@@ -60,7 +60,7 @@ class ExportTest extends TestCase
     {
         // ⭐ """
         $accountant = $this->makeUserWithRole('accountant', [
-            'finance.view', 'finance.movements', 'finance.accounts',
+            'finance.accounts.view', 'finance.movements.create', 'finance.accounts.manage',
         ]);
 
         // الحساب عنده finance.accounts → يقدر يصدر أرصدة

@@ -25,7 +25,7 @@ class ProgramPermissionTest extends TestCase
     private function admin()
     {
         return $this->makeUserWithRole('admin', [
-            'programs.view', 'lessons.view', 'lessons.edit', 'settings.manage',
+            'programs.view', 'programs.update', 'programs.manage', 'lessons.view', 'lessons.update', 'settings.view', 'settings.update',
         ]);
     }
 

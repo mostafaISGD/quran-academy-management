@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\StudentLedgerEntry;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class InvoiceController extends Controller
 {
@@ -147,6 +148,10 @@ class InvoiceController extends Controller
 
     public function show(Invoice $invoice)
     {
+        // ⚡ سياسة العلاقة (PR 1.8): ولي الأمر فاتورة ابنه فقط
+        // وبشرط `can_view_finance`، والطالب فواتيره، والموظف بالصلاحية.
+        Gate::authorize('view', $invoice);
+
         return response()->json($invoice->load(['student', 'items', 'payments']));
     }
 

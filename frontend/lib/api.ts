@@ -1,8 +1,86 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
+const CSRF_COOKIE_URL = `${API_ORIGIN}/sanctum/csrf-cookie`;
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("auth_token");
+/**
+ * ⭐⭐⭐ **مافيش `Authorization` من المتصفح خالص.**
+ *
+ * ⚠️ الكود القديم كان فيه:
+ *
+ *     localStorage.getItem("auth_token")
+ *     → headers: { Authorization: `Bearer ${token}` }
+ *
+ * ⭐ `localStorage` في متناول **أي سكربت شغّال في الصفحة**. أي ثغرة
+ * XSS — في أي حزمة، أو إعلان، أو كود مستقبلي — بتقرا التوكن وتبعته
+ * لحد. الـكوكي `HttpOnly` المتصفح **مينعش** السكربتات من قراءته،
+ * وده الفرق بين «ثغرة واحدة بتسرّب الجلسة» و«الجلسة معزولة عن
+ * الصفحة».
+ *
+ * ⭐ فمبقاش في هيدر `Authorization` من المتصفح نهائياً. المصادقة
+ * كلها: `credentials: "include"` + كوكي الجلسة.
+ *
+ * ⭐ `Authorization` لسه مدعوم **على السيرفر** لعميل الموبايل —
+ * بس ده ملف تاني، مش الواجهة.
+ *
+ * @see SessionAuthenticationTest (خلفية الـbackend)
+ */
+
+/**
+ * ⭐⭐⭐ كوكي الـCSRF — خطوة واحدة قبل **كل** طلب كتابة.
+ *
+ * ⭐ المتصفح بيبعت كوكي الجلسة **تلقائياً** مع كل طلب. ده اللي
+ * بيخلّي `HttpOnly` ممكن — بس كمان اللي بيخلّي **CSRF** ممكن:
+ * أي صفحة على نفس الدومين تقدر تبعت طلب باسم المستخدم ده.
+ *
+ * ⭐ المقابل: كوكي `XSRF-TOKEN` **مش** `HttpOnly` (السكربتات
+ * تقدر تقراه بال intention)، والعميل بيبعته في هيدر
+ * `X-XSRF-TOKEN`. وهيدر مش دالة المتصفح، فمفيش طلب تلقائي.
+ *
+ * ⚠️ **إزاي بنعرف إن الـtoken لسه صالح؟** مش بنعرف. فبنبعته مع
+ * كل طلب كتابة. الطلب بياخد `< 5ms` وهو الطلب اللي **مش** بيكتب
+ * على الداتابيز أصلاً. البديل — نخزّن الـtoken في الذاكرة ونعمل
+ * fetch للـendpoint أول ما نعمل write — بيسيب باب: لو الصفحة
+ * اتفتحت والكتابة اتعملت قبل ما الـfetch يخلص، بتبعت 419.
+ *
+ * @param method
+ */
+let csrfPromise: Promise<void> | null = null;
+
+async function ensureCsrfCookie(): Promise<void> {
+  // ⭐ طلب **واحد** مشترك. لو تلات أزرار اتضغطوا في نفس اللحظة،
+  // التلات لازم يشاركوا نفس الـfetch مش يعملوا تلاتة.
+  csrfPromise ??= fetch(CSRF_COOKIE_URL, {
+    method: "GET",
+    credentials: "include",
+  })
+    .then(() => undefined)
+    .finally(() => {
+      csrfPromise = null;
+    });
+
+  await csrfPromise;
+}
+
+/** ⭐ يقرأ `XSRF-TOKEN` من `document.cookie` — بس الكوكيز غير HttpOnly */
+function readXsrfToken(): string | null {
+  if (typeof document === "undefined") return null;
+
+  for (const part of document.cookie.split(";")) {
+    const [name, ...rest] = part.trim().split("=");
+
+    if (name === "XSRF-TOKEN") {
+      return decodeURIComponent(rest.join("="));
+    }
+  }
+
+  return null;
+}
+
+/** ⭐ الطلبات اللي **بتكتب** — دي اللي محتاجة توكن CSRF */
+function isWritingMethod(method: string | undefined): boolean {
+  const verb = (method ?? "GET").toUpperCase();
+
+  return verb !== "GET" && verb !== "HEAD" && verb !== "OPTIONS";
 }
 
 /**
@@ -52,6 +130,7 @@ function defaultMessage(status: number): string {
     case 403: return "ماعندكش صلاحية للعملية دي";
     case 404: return "الحاجة المطلوبة مش موجودة";
     case 409: return "فيه تعارض — البيانات موجودة بالفعل";
+    case 410: return "الرابط انتهت صلاحيته — اطلب واحد جديد";
     case 422: return "البيانات المدخلة مش صحيحة";
     case 429: return "محاولات كتير — استنى شوية وحاول تاني";
     case 500: return "حصل خطأ في السيرفر";
@@ -61,14 +140,28 @@ function defaultMessage(status: number): string {
 }
 
 export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
+  const method = options.method ?? "GET";
+  const writing = isWritingMethod(method);
+
+  // ⭐⭐ أي طلب كتابة محتاج توكن CSRF — وممكن ما يكونش في الكوكي
+  // لسه (أول write في الجلسة). فبنجيبه الأول.
+  if (writing) {
+    await ensureCsrfCookie();
+  }
+
+  const xsrf = writing ? readXsrfToken() : null;
 
   const res = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
+    // ⭐⭐⭐ **ده اللي بيفرق بين session و token.** من غيره
+    // المتصفح مش هيبعت كوكي الجلسة خالص، فكل طلب بيرجع 401.
+    // `same-origin` مش كفاية لأن الـAPI على دومين/بورت مختلف.
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       Accept: "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      // ⭐ المتصفح مش بيبعت هيدر من نفسه
+      ...(xsrf ? { "X-XSRF-TOKEN": xsrf } : {}),
       ...options.headers,
     },
   });
@@ -120,50 +213,68 @@ export type AuthParent = {
   children_count: number;
 };
 
-const AUTH_USER_KEY = "auth_user";
+/**
+ * ⭐⭐⭐ الرد بتاع الدخول — **مش دايماً فيه `token`**.
+ *
+ * ⭐ السيرفر بيقرا `Referer`:
+ *
+ *   • طلب من دومين الـSPA (`SANCTUM_STATEFUL_DOMAINS`) → كوكي جلسة
+ *     `HttpOnly`، و **مافيش `token` خالص** في الرد.
+ *   • أي عميل تاني (موبايل) → توكن شخصي زي الأول.
+ *
+ * ⭐ المتصفح بيبعت `Referer` لوحده على fetch، فالنوع بيتحدد من
+ * إعدادات السيرفر — مش من الكود.
+ */
 
-export async function login(email: string, password: string) {
-  const data = await apiFetch<{ token: string; user: AuthUser }>("/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ email, password }),
-  });
-  if (typeof window !== "undefined") {
-    localStorage.setItem("auth_token", data.token);
-    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(data.user));
-  }
-  return data;
-}
-
+/**
+ * ⭐⭐⭐ الدخول — **مافيش تخزين في المتصفح خالص**.
+ *
+ * ⚠️ الكود القديم كان بيعمل:
+ *
+ *     localStorage.setItem("auth_token", data.token);
+ *     localStorage.setItem("auth_user", JSON.stringify(data.user));
+ *
+ * ⭐ الـ`auth_token` كان في متناول **أي سكربت** في الصفحة. أي ثغرة
+ * XSS — في أي حزمة، أو إعلان، أو كود مستقبلي — بتقرا التوكن وتبعته
+ * لحد، والجلسةRemaining صالحة ١٢ ساعة.
+ *
+ * ⭐ والـ`auth_user` كان أسوأ من ناحية تانية: كان بيخلي `getStoredUser()`
+ * ترسم مستخدم **من غير ما تسأل السيرفر**. فلو الصلاحيات اتغيّرت على
+ * السيرفر، الواجهة بتفضل تعرض القديم لحد ما تعمل refresh — والأزرار
+ * بتظهر لحد ما يرفضها السيرفر بـ403.
+ *
+ * ⭐⭐ **المصدر الوحيد للحالة بقى `fetchMe()`.** مافيش نسخة محلية
+ * تتقادم، ومافيش حاجة تمسحها عند الـlogout.
+ *
+ * ⚠️ `data.token` لسه بيرجع لعميل الموبايل — بس **الواجهة مش
+ * بتحفظه**. `NEXT_PUBLIC_API_URL` لو اتغيّر لـعميل تاني، ده ملفه.
+ */
+/**
+ * ⭐⭐⭐ **مافيش `login()` — والدخول تلقائي.**
+ *
+ * ⭐ قرار وضع المستخدم الواحد: الـbackend فيه `AutoLoginAdmin`
+ * بيسجّل دخول الأدمن على أي طلب بلا توكن، ومافيش صفحة `/login`
+ * في الواجهة أصلاً. فدالة الدخول بقت كود ميت.
+ *
+ * ⚠️ لو رجعنا لنموذج متعدد المستخدمين: الراوت `/api/auth/login`
+ * لسه موجود في الـbackend، فالدالة دي بترجع تتفعل في سطرين.
+ */
 export async function logout() {
-  try {
-    await apiFetch("/auth/logout", { method: "POST" });
-  } finally {
-    if (typeof window !== "undefined") {
-      localStorage.removeItem("auth_token");
-      localStorage.removeItem(AUTH_USER_KEY);
-    }
-  }
+  // ⭐ الخروج بقى بلا أثر في وضع المستخدم الواحد: الطلب اللي
+  // بعده بيرجّع الأدمن تاني تلقائياً. والدالة باقية عشان
+  // واجهة الـAPI متسليمة (والاختبارات بتستعملها).
+  await apiFetch("/auth/logout", { method: "POST" });
 }
 
-/** المستخدم الحالي من localStorage — بدون request */
-export function getStoredUser(): AuthUser | null {
-  if (typeof window === "undefined") return null;
-  const raw = localStorage.getItem(AUTH_USER_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as AuthUser;
-  } catch {
-    return null;
-  }
-}
-
-/** جلب المستخدم الحالي من السيرفر (المصدر真相) */
+/**
+ * ⭐⭐⭐ جلب المستخدم الحالي — **المصدر الحقيقي الوحيد**.
+ *
+ * ⭐ مافيش نسخة في `localStorage`. كل صفحة بتحتاج المستخدم بتطلبها،
+ * و`usePage` بيشارك الطلب عبر نفس الـ`key` (`auth-me`) — فطلب واحد
+ * لكل التطبيق مهما كان عدد الصفحات اللي محتاجاه.
+ */
 export async function fetchMe(): Promise<AuthUser> {
-  const user = await apiFetch<AuthUser>("/auth/me");
-  if (typeof window !== "undefined") {
-    localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-  }
-  return user;
+  return apiFetch<AuthUser>("/auth/me");
 }
 
 // ---- Types ----
@@ -1433,15 +1544,28 @@ export function getEmployee(id: number) {
   }>(`/employees/${id}`);
 }
 
+/**
+ * ⭐⭐⭐ رابط الدعوة اللي بيرجع مع أي إنشاء حساب.
+ *
+ * ⭐ **التوكن الخام بيرجع مرة واحدة** — من رد الإنشاء أو الرد.
+ * ومافيش endpoint تاني بيرجّعه، ومش بيتخزّن في الداتابيز (hash
+ * فقط). فلو الرد ضاع، الرجوع الوحيد هو إعادة الإرسال.
+ */
+export type InvitationLink = {
+  sent: true;
+  accept_url: string;
+  expires_at: string;
+};
+
 export function createEmployee(payload: EmployeePayload) {
-  return apiFetch<Employee & { warning?: string }>("/employees", {
+  return apiFetch<Employee & { warning?: string; invitation?: InvitationLink }>("/employees", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
 export function updateEmployee(id: number, payload: Partial<EmployeePayload>) {
-  return apiFetch<Employee>(`/employees/${id}`, {
+  return apiFetch<Employee & { invitation?: InvitationLink }>(`/employees/${id}`, {
     method: "PUT",
     body: JSON.stringify(payload),
   });
@@ -1449,6 +1573,196 @@ export function updateEmployee(id: number, payload: Partial<EmployeePayload>) {
 
 export function deleteEmployee(id: number) {
   return apiFetch<{ message: string }>(`/employees/${id}`, { method: "DELETE" });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// إدارة الحسابات (PR 1.5)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * ⭐⭐⭐ حالة الحساب — نفس قيم `users.status` في الـbackend.
+ *
+ * ⭐ `invited` جاية من PR 1.4 (دعوة مش مقبولة بعد)، و`archived`
+ * من PR 1.5 (نهائية).الاتنين مش في `enum` — الـbackend
+ * بيستخدم عمود string مش enum، فالـunion هنا **حارس واجهة**
+ * مش مكرّر للـDB.
+ */
+export type UserStatus =
+  | "active"
+  | "invited"
+  | "suspended"
+  | "archived"
+  | "inactive";
+
+/**
+ * ⭐ صف حساب في `/api/users`.
+ *
+ * ⚠️ **`password` مش موجود أصلاً** — الـbackend بيبنيه الحقول
+ * بإيده (`UserController::row()`) مش بـ`$model->toArray()`. لو
+ * الـ`$hidden` في الـmodel اتشال، كل الهاش بتطلع في الرد.
+ * فالحقول المقفولة هنا **أمان** مش مجرد واجهة.
+ */
+export type ManagedUser = {
+  id: number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  status: UserStatus;
+  roles: string[];
+  last_login_at: string | null;
+  created_at: string | null;
+  must_change_password: boolean;
+};
+
+/** ⭐ تفاصيل الحساب — `/api/users/{id}` */
+export type ManagedUserDetail = ManagedUser & {
+  employee: { id: number; name: string; job_title: string | null; department: string | null } | null;
+  teacher: { id: number; teacher_code: string; display_name: string } | null;
+  parent: { id: number; name: string; phone: string | null } | null;
+  open_sessions: number;
+};
+
+export type UsersResponse = {
+  data: ManagedUser[];
+  meta: { current_page: number; last_page: number; per_page: number; total: number };
+};
+
+export function getUsers(params?: {
+  search?: string;
+  role?: string;
+  status?: UserStatus;
+  page?: number;
+  per_page?: number;
+}) {
+  const s = new URLSearchParams();
+  if (params?.search) s.set("search", params.search);
+  if (params?.role) s.set("role", params.role);
+  if (params?.status) s.set("status", params.status);
+  if (params?.page) s.set("page", String(params.page));
+  s.set("per_page", String(params?.per_page ?? 25));
+  return apiFetch<UsersResponse>(`/users?${s.toString()}`);
+}
+
+export function getUser(id: number) {
+  return apiFetch<{ user: ManagedUserDetail }>(`/users/${id}`);
+}
+
+/**
+ * ⭐⭐ الإيقاف — **`reason` إجباري** في الـbackend (`min:5`).
+ *
+ * ⭐ السبب بيتسجّل في `audit_logs`، فلو سيبناه فاضي كان
+ * الإيقاف «بلا سبب» ومينفعش يراجع بعد شهور.
+ */
+export function suspendUser(id: number, reason: string) {
+  return apiFetch<{ message: string; user: ManagedUser }>(`/users/${id}/suspend`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+/** ⭐ إعادة التفعيل — مالهاش سبب. الكوكي `reason` مش مطلوب. */
+export function reactivateUser(id: number) {
+  return apiFetch<{ message: string; user: ManagedUser }>(`/users/${id}/reactivate`, {
+    method: "POST",
+  });
+}
+
+/** ⭐ الأرشفة — **نهائية**، و`reason` إجباري زي الوقف. */
+export function archiveUser(id: number, reason: string) {
+  return apiFetch<{ message: string; user: ManagedUser }>(`/users/${id}/archive`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+/**
+ * ⭐⭐ إعادة تعيين كلمة المرور إجباريًا.
+ *
+ * ⭐ **مش** بتغيّر كلمة المرور — بتقفل الجلسات والتوكينات
+ * وتفرض `must_change_password`. المستخدم يدخل ويسوّيها بنفسه.
+ */
+export function forceUserPasswordReset(id: number) {
+  return apiFetch<{ message: string; user: ManagedUser }>(`/users/${id}/force-password-reset`, {
+    method: "POST",
+  });
+}
+
+/** ⭐ تغيير الدور — **استبدال** مش إضافة. */
+export function updateUserRole(id: number, roleId: number) {
+  return apiFetch<{ message: string; user: ManagedUser }>(`/users/${id}/role`, {
+    method: "PUT",
+    body: JSON.stringify({ role_id: roleId }),
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// الدعوات (PR 1.4)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * ⭐⭐⭐ رد إنشاء/إعادة إرسال دعوة.
+ *
+ * ⭐⭐ **`token` و `accept_url` مرة واحدة بس.**
+ *
+ * ⚠️ لو الرد ده ضاع، الدعوة **ماتسترجعش**. العميل لازم
+ * `POST /invitations/{id}/resend`. السبب: `token_hash` في
+ * الداتابيز، والتوكن الخام مش متخزّن في أي مكان.
+ */
+export type InvitationCreated = {
+  message: string;
+  token: string;
+  accept_url: string;
+  expires_at?: string;
+};
+
+/** ⭐⭐ `410` — التوكن راح: منتهي، ملغي، متsuperseded، أو مجهول */
+export type InvitationGone = {
+  message: string;
+  errors?: Record<string, string[]>;
+};
+
+export function createInvitation(payload: {
+  email: string;
+  name?: string | null;
+  role_id?: number | null;
+  profile_type?: string | null;
+  profile_id?: number | null;
+}) {
+  return apiFetch<InvitationCreated>("/invitations", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function resendInvitation(invitationId: number) {
+  return apiFetch<InvitationCreated>(`/invitations/${invitationId}/resend`, { method: "POST" });
+}
+
+export function cancelInvitation(invitationId: number) {
+  return apiFetch<{ message: string }>(`/invitations/${invitationId}`, { method: "DELETE" });
+}
+
+/**
+ * ⭐⭐⭐ قبول الدعوة — **الرابط العام الوحيد**.
+ *
+ * ⭐ `Promise` بيرمي استثناء عند `410`. الـ`catch` في الصفحة
+ * بتعرض رسالة `message` العربية بتاعت الـAPI.
+ *
+ * ⚠️ الـ`token` في الـ**body** مش في الـURL — قرار أمني موثّق في
+ * `InvitationController::accept()`.
+ */
+export function acceptInvitation(token: string, password: string, passwordConfirmation: string) {
+  return apiFetch<{
+    message: string;
+    user: { id: number; name: string; email: string; roles: string[] };
+  }>("/invitations/accept", {
+    method: "POST",
+    body: JSON.stringify({
+      token,
+      password,
+      password_confirmation: passwordConfirmation,
+    }),
+  });
 }
 
 export type EmployeeActivity = {
@@ -2721,11 +3035,15 @@ export type ParentChildView = {
     teacher_name: string | null;
     status: string;
   }[];
+  /**
+   * بيانات المستحق الحكومي — `null` لما `can_view_finance=false`
+   * (PR 1.8): الإدارة بقدر تمنع عرض المال لكل أبو على حدة.
+   */
   outstanding: {
     invoices: number;
     total: number;
     currency: string;
-  };
+  } | null;
 };
 
 /** كل بيانات ولي الأمر في نداء واحد — كل ابن مع اشتراكه وحصصه وفواتيره */

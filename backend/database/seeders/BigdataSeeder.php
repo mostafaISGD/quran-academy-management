@@ -31,10 +31,15 @@ use App\Models\ExpenseCategory;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
+use Database\Seeders\Concerns\RefusesToRunInProduction;
+
 class BigdataSeeder extends Seeder
 {
+    use RefusesToRunInProduction;
     public function run(): void
     {
+        $this->guardProduction('BigdataSeeder');
+
         $org = Organization::first();
         if (!$org) {
             $org = Organization::create([

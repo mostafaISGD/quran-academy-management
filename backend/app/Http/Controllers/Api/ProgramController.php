@@ -58,7 +58,7 @@ class ProgramController extends Controller
             ->get(['program_id', 'teacher_id'])
             ->map(fn ($r) => $r->program_id . ':' . $r->teacher_id);
 
-        // في，两者 = سليم
+        // في والاتنين = سليم
         $both = $fromLessons->intersect($fromPivot);
 
         // فيLessons بس = لسه مش مسجّل

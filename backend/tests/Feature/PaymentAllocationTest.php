@@ -30,8 +30,8 @@ class PaymentAllocationTest extends TestCase
     private function paymentsUser()
     {
         return $this->makeUserWithRole('admin', [
-            'payments.view', 'payments.create', 'payments.edit',
-            'payments.refund', 'students.view',
+            'finance.payments.view', 'finance.payments.create', 'finance.payments.update',
+            'finance.payments.refund', 'students.view',
         ]);
     }
 
@@ -212,11 +212,14 @@ class PaymentAllocationTest extends TestCase
         $paymentId = $r->json('id');
         $this->assertSame('paid', $invoice->fresh()->status);
 
+        $payer = $this->paymentsUser();
+
+
         // استرداد كامل
         $this->postJsonAs("/api/payments/{$paymentId}/refund", [
             'amount' => 500,
             'reason' => 'ألغى الاشتراك',
-        ], $this->paymentsUser())->assertCreated();
+        ], $payer)->assertCreated();
 
         // ⭐ التوزيع اتعمله reversed
         $this->assertSame('reversed', PaymentAllocation::first()->status);

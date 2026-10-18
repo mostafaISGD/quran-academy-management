@@ -14,12 +14,38 @@ class TeacherScheduleController extends Controller
     /**
      * كل معلم بيتحكم بجدوله هو — فممنوع يعدّل جدول غيره.
      * الأدمن (أو أي حد عنده صلاحية إدارة المعلمين) يعدّل أي حد.
+     *
+     * ⭐⭐⭐ **مشكلة كانت هنا: 500 بدل 403.**
+     *
+     * الكود كان بينادي:
+     *
+     *     $user->hasPermissionTo('teachers.update');
+     *
+     * ⭐ و`hasPermissionTo()` **بيرمي** `PermissionDoesNotExist` لو
+     * الصلاحية مش موجودة في جدول `permissions` — مفيش try/catch
+     * هنا، فالنتيجة كانت **500** مش 403.
+     *
+     * ⭐ والأثر كان أوسع من bricking جدول معلم تاني: **المعلم
+     * نفسه** كان بياخد 500 على جدوله لو صف `teachers.edit` مش
+     * موجود في داتابيز بيئته. يعني الـ endpoint كان مكسور فعلياً
+     * عند أي معلم، مش بس مفتوح على غيره.
+     *
+     * ⭐ `CheckPermission` عندها نفس الحماية (catch + 403)،
+     * فبقينا بنقل السلوك الصح للـ controller.
      */
     private function authorizeOwnership(int $teacherId): void
     {
         $user = request()->user();
 
-        if ($user->hasPermissionTo('teachers.edit')) {
+        // ⭐ الصلاحية الناقصة = **ممنوع**، مش خطأ في السيرفر.
+        // نفس قاعدة `CheckPermission`.
+        try {
+            $canManageAny = $user->hasPermissionTo('teachers.update');
+        } catch (\Spatie\Permission\Exceptions\PermissionDoesNotExist) {
+            $canManageAny = false;
+        }
+
+        if ($canManageAny) {
             return;
         }
 
@@ -167,6 +193,18 @@ class TeacherScheduleController extends Controller
      */
     public function completeness($teacherId)
     {
+        // ⭐⭐ **كان ناقص خالص.**
+        //
+        // كل الـ routes التانية في الـ controller بتنادي
+        // `authorizeOwnership()` — ودي كانت الاستثناء الوحيد.
+        // فأي مستخدم مسجّل (حتى ولي أمر أو موظف استقبال) كان يقدر
+        // يستعلم على جدول أي معلم ويعرف عدد أوقات شغله.
+        //
+        // مش بيانات حساسة|timezone، بس **مالهاش أي سبب تكون
+        // مفتوحة** — والقاعدة إن أي راو جوه `auth:sanctum` إما
+        // محمي بصلاحية أو بملكية (شوف `RouteProtectionTest`).
+        $this->authorizeOwnership((int) $teacherId);
+
         $count = TeacherSchedule::where('teacher_id', (int) $teacherId)->count();
 
         return response()->json([

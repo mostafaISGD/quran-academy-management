@@ -7,8 +7,11 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
+use Database\Seeders\Concerns\RefusesToRunInProduction;
+
 class RealisticDataSeeder extends Seeder
 {
+    use RefusesToRunInProduction;
     /** @var array<string, mixed> */
     private array $data;
 
@@ -34,6 +37,8 @@ class RealisticDataSeeder extends Seeder
 
     public function run(): void
     {
+        $this->guardProduction('RealisticDataSeeder');
+
         $this->command?->info('🚀 بدء توليد بيانات واقعية...');
 
         $this->wipe();

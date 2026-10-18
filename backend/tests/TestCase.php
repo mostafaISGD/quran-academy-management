@@ -56,33 +56,79 @@ abstract class TestCase extends BaseTestCase
         // طلب عملية منفصلة والـ guard جديد. ده تفصيلة الاختبار بس.
         app('auth')->forgetGuards();
 
+        $login = $this->postJson('/api/auth/login', [
+            'email' => $user->email,
+            'password' => 'password',
+        ])->assertOk();
+        $token = $login->json('token');
+
         return [
-            'Authorization' => 'Bearer '.$this->postJson('/api/auth/login', [
-                'email' => $user->email,
-                'password' => 'password',
-            ])->json('token'),
+            'Authorization' => 'Bearer '.$token,
             'Accept' => 'application/json',
         ];
     }
 
-    /** GET JSON بـ headers */
-    protected function getJsonAs(string $url, $user): \Illuminate\Testing\TestResponse
+    /**
+     * ⭐ تصفير عدّادات الـ throttle.
+     *
+     * ⚠️ `RateLimiter::flush()` **مش موجودة** في Laravel 11 —
+     * أول محاولة طلعت `Call to undefined method`. فبنمسح الـcache
+     * اللي الـlimiter بيخزّن فيه.
+     *
+     * ⭐ لازم قبل كل اختبار بيتعامل مع throttle: `.env.testing`
+     * فيه `CACHE_STORE=array`، فالعدّاد بيبقى في الذاكرة وبتشاركه
+     * كل الاختبارات في العملية.
+     */
+    protected function resetRateLimiter(): void
     {
-        return $this->withHeaders($this->authHeaders($user))->getJson($url);
+        cache()->clear();
+    }
+
+    /**
+ * ⚡⭐ ننسى الـguard **بعد** `authHeaders()` مش قبلها.
+ *
+ * ⭐ السبب بالترتيب: `authHeaders()` بيعمل طلب `/auth/login` جوه
+ * نفس الاختبار، وفي الفترة دي ترويسة `Authorization` القديمة
+ * (من الطلب السابق) لسه في الترويسات، فالطلب بيـ**يتحقّق بالحساب
+ * القديم** والـguard بيخزّنه. والطلب المقصود اللي بعده بياخد
+ * نفس الـguard المخزّن، فيرجع **المستخدم الغلط** بصمت.
+ *
+ * ⭐ فالنظام الصح: login يجيب التوكن الجديد، وبعدين نمسح الـguard
+ * عشان الطلب المقصود يحلّ التوكن **الجديد** من الصفر.
+ */
+protected function getJsonAs(string $url, $user): \Illuminate\Testing\TestResponse
+    {
+        $headers = $this->authHeaders($user);
+
+        app('auth')->forgetGuards();
+
+        return $this->withHeaders($headers)->getJson($url);
     }
 
     protected function postJsonAs(string $url, array $payload, $user): \Illuminate\Testing\TestResponse
     {
-        return $this->withHeaders($this->authHeaders($user))->postJson($url, $payload);
+        $headers = $this->authHeaders($user);
+
+        app('auth')->forgetGuards();
+
+        return $this->withHeaders($headers)->postJson($url, $payload);
     }
 
     protected function putJsonAs(string $url, array $payload, $user): \Illuminate\Testing\TestResponse
     {
-        return $this->withHeaders($this->authHeaders($user))->putJson($url, $payload);
+        $headers = $this->authHeaders($user);
+
+        app('auth')->forgetGuards();
+
+        return $this->withHeaders($headers)->putJson($url, $payload);
     }
 
     protected function deleteJsonAs(string $url, $user): \Illuminate\Testing\TestResponse
     {
-        return $this->withHeaders($this->authHeaders($user))->deleteJson($url);
+        $headers = $this->authHeaders($user);
+
+        app('auth')->forgetGuards();
+
+        return $this->withHeaders($headers)->deleteJson($url);
     }
 }

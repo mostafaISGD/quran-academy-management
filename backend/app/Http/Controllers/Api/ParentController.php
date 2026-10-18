@@ -26,7 +26,12 @@ class ParentController extends Controller
 
             return $this->paginatedWithCounts($query, $countsQuery, $request, ['status']);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع `$e->getMessage()` — بيسلّم اسم الجدول
+            // وأسماء الأعمدة وSQL errors للمستخدم.
+            //
+            // ⭐ دلوقتي بنعيد الرمي و`ErrorResponder` بيتولّى الرد
+            // برسالة عامة ويسجّل التفاصيل.
+            throw $e;
         }
     }
 
@@ -113,7 +118,13 @@ class ParentController extends Controller
 
             return response()->json($parent->fresh(), 201);
         } catch (\Exception $e) {
-            return response()->json(['error' => $e->getMessage()], 500);
+            // ⭐⭐ كان بيرجّع `$e->getMessage()` — وده كان بيسلّم
+            // اسم الجدول وأسماء الأعمدة وأي SQL error للمستخدم.
+            //
+            // ⭐ دلوقتي بنعيد الرمي — و`ErrorResponder` (في
+            // `bootstrap/app.php`) بيتولّى الرد برسالة عامة
+            // ويسجّل التفاصيل.
+            throw $e;
         }
     }
 }

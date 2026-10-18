@@ -25,9 +25,9 @@ class CreditAndCommissionTest extends TestCase
     private function paymentsUser()
     {
         return $this->makeUserWithRole('admin', [
-            'payments.view', 'payments.create', 'payments.edit',
-            'payments.refund', 'students.view', 'settings.manage',
-            'finance.view', 'finance.accounts', 'finance.movements',
+            'finance.payments.view', 'finance.payments.create', 'finance.payments.update',
+            'finance.payments.refund', 'students.view', 'settings.view', 'settings.update',
+            'finance.accounts.view', 'finance.accounts.manage', 'finance.movements.create',
         ]);
     }
 
@@ -154,10 +154,13 @@ class CreditAndCommissionTest extends TestCase
             'status' => 'active',
         ]);
 
+        $user = $this->paymentsUser();
+
+
         $this->postJsonAs("/api/student-credits/{$credit->id}/refund", [
             'amount' => 300,
             'reason' => 'ألغى بالكامل',
-        ], $this->paymentsUser())->assertOk();
+        ], $user)->assertOk();
 
         $this->assertSame(300.0, (float) $credit->fresh()->refunded);
         $this->assertSame(0.0, $credit->fresh()->balance());
@@ -170,7 +173,7 @@ class CreditAndCommissionTest extends TestCase
 
     public function test_a_payment_with_commission_records_two_movements(): void
     {
-        // ⭐ الدفعة 1000، net_amount 970 → комиссия 30
+        // ⭐ الدفعة 1000، net_amount 970 → العمولة 30
         $account = $this->makeAccount(['opening_balance' => 0]);
         $student = $this->makeStudent();
 
@@ -273,7 +276,7 @@ class CreditAndCommissionTest extends TestCase
     public function test_non_admin_cannot_access_lesson_policy(): void
     {
         $accountant = $this->makeUserWithRole('accountant', [
-            'finance.view', 'payments.view',
+            'finance.accounts.view', 'finance.payments.view',
         ]);
 
         $this->getJsonAs('/api/lesson-policy', $accountant)->assertForbidden();

@@ -19,7 +19,7 @@ use App\Models\SubscriptionPlan;
 use App\Models\Teacher;
 use App\Models\User;
 use App\Models\Employee;
-use App\Models\Parent as ParentModel;
+use App\Models\ParentModel;
 use Illuminate\Support\Facades\DB;
 use Spatie\Permission\Models\Role;
 
@@ -147,6 +147,18 @@ trait BuildsFixtures
             'timezone' => 'Africa/Cairo',
             'locale' => 'ar',
             'status' => 'active',
+            // ⭐⭐ الحساب في الاختبار **جاهز** — مش مستدعى.
+            //
+            // ⭐ لازم محدد صريحاً: العمود بقى default `true` في
+            // المخطط (لأن أي حساب موجود ورث كلمة مرور `password`
+            // من الـseeder، وده بالظبط اللي PR 0.4 بيقفله)، ولو
+            // تركنا الـdefault كل اختبارات الـAPI هتاخد 403 من
+            // `EnsurePasswordChanged`.
+            //
+            // ⭐ الاختبارات اللي عايزة السلوك ده بتحدّده بنفسها
+            // بـ `forceFill`.
+            'must_change_password' => false,
+            'password_changed_at' => now(),
         ]);
     }
 
@@ -157,6 +169,70 @@ trait BuildsFixtures
      * SeedRolesPermissions، لأن الاختبار عايز أقل قدر ممكن من
      * البنية — لو الـ seeder اتغيّر، الاختبار مفروض ما يتأثرش.
      */
+    /**
+     * ⭐⭐ دور **حقيقي** بصلاحيات مربوطة — وده اللي بيتصدّر.
+     *
+     * ═══════════════════════════════════════════════════════════════
+     * ⭐ ليه انتقل هنا
+     *
+     * ⭐ كان مكتوب **تلات مرات**: `PrivilegeEscalationTest`،
+     * `AccountInvitationTest`، والنسخة التانية different behavior
+     * عن التلاتة الأولى (واحدة `syncPermissions` والأخري
+     * `givePermissionTo`).
+     *
+     * ⭐ الاختلاف ده مش بريء: `assertCanAssignRole` بيقارن
+     * **صلاحيات الدور** بالصلاحيات اللي الـactor ماسكها. فلو
+     * `makeRole` مابتبطتش الصلاحيات فعلاً، الاختبار بيمرّ
+     * والـ`assertCanAssignRole` ما اشتغلتش. الاختبار الأول في
+     * `AccountInvitationTest` خبط في الفخ ده بالظبط ورجع **201**
+     * بدل 403.
+     *
+     * @param  array<int, string>  $permissions  أسماء الصلاحيات — بتتعمل لو مش موجودة
+     * @param  bool  $isSystem  أدوار النظام بتتقفل من التعديل (PR 0.3)
+     *
+     * @see \Tests\Feature\PrivilegeEscalationTest
+     * @see \Tests\Feature\AccountInvitationTest
+     */
+    protected function makeRole(string $name, array $permissions = [], bool $isSystem = false): Role
+    {
+        $role = Role::firstOrCreate(
+            ['name' => $name, 'guard_name' => 'web'],
+            ['slug' => $name, 'guard_name' => 'web', 'is_system' => $isSystem],
+        );
+
+        $models = [];
+
+        foreach ($permissions as $permissionName) {
+            $models[] = $this->permission($permissionName);
+        }
+
+        // ⭐⭐ `syncPermissions` مش `givePermissionTo`.
+        //
+        // المعنى: «الدور ده عنده **بالظبط** الأسماء دي».
+        // `givePermissionTo` بتضيف على الموجود — فلو اختبار نادا
+        // `makeRole('teacher', ['a'])` وبعدين `makeRole('teacher')`
+        // من غير أسماء، الدور هيفضل ماسك `a` والاختبار التاني
+        // بيبقى غلط بصمت.
+        $role->syncPermissions($models);
+
+        return $role->fresh();
+    }
+
+    /**
+     * ⭐ صلاحية موجودة — بتتعمل لو مش موجودة.
+     *
+     * ⭐ `module = 'test'` عشان الـfixture ما تلمسش الكتالوج
+     * الحقيقي (`SeedRolesPermissions`)، والاختبار مفروض ما يتأثرش
+     * لو الكتالوج اتغيّر.
+     */
+    protected function permission(string $name): \Spatie\Permission\Models\Permission
+    {
+        return \Spatie\Permission\Models\Permission::firstOrCreate(
+            ['name' => $name, 'guard_name' => 'web'],
+            ['slug' => str_replace('.', '-', $name), 'module' => 'test', 'guard_name' => 'web'],
+        );
+    }
+
     protected function makeUserWithRole(string $roleName, array $permissions = []): User
     {
         $user = $this->makeUser();
@@ -186,6 +262,50 @@ trait BuildsFixtures
      * ملاحظة: الموظف **مش** مربوط بـ user_id هنا (null)، فمفيش
      * حساب دخول. الاختبارات اللي محتاجة حساب بيعملوا `makeUser()`
      * لوحدها وبيربطوها.
+     */
+    /**
+     * ⭐⭐ ملف ولي أمر — مرتبط بـ`user_id` اختياري.
+     *
+     * ⭐ **`phone` إجباري** في الجدول (`NOT NULL`)، فمافيش تكرار
+     * للتعبئة هنا. أول نسخة من `IdentitySchemaTest` كانت بتعمل
+     * `ParentModel::create(['organization_id', 'user_id', 'name'])`
+     * و `NOT NULL constraint failed: parents.phone` كان بيطلّع
+     * **قبل** ما الاختبار يوصل لسلوكه.
+     *
+     * ⭐ والسطر ده مش «مشكلة في الاختبار» — ده سلوك الجدول. فـ
+     * fixture وحدة بتعرف القواعد أفضل من ٦ نداءات `create` ناقصة.
+     *
+     * @param  User|null  $user  الحساب — `null` يعني ملف من غير
+     *   حساب دخول (حالة حقيقية: رقم في `student_phones` بس ما لسه
+     *   اتعملش حساب)
+     */
+    protected function makeParentProfile(?User $user = null, array $attrs = []): ParentModel
+    {
+        $n = ParentModel::count() + 1;
+
+        return ParentModel::create(array_merge([
+            'organization_id' => $this->org->id,
+            'user_id' => $user?->id,
+            'name' => 'ولي أمر '.$n,
+            // ⭐ أرقام مختلفة لكل واحد — القيد العام على
+            // `users.phone` (PR 1.3) مش على ده، بس التكرار هنا
+            // يخلي الاختبارات بتلخبط فيResults غير متوقع.
+            'phone' => '0155000'.str_pad((string) $n, 4, '0', STR_PAD_LEFT),
+            'email' => null,
+            'status' => 'active',
+        ], $attrs));
+    }
+
+    /**
+     * ⭐⭐ ليه `email` فاضي افتراضياً؟
+     *
+     * ⚠️ PR 1.3 عمل قيد تفرّد **عام** على `users.email` و
+     * `users.phone`. فلو كل ملف ولي أمر في الـfixture كان ليه
+     * إيميل، أي اختبار بيعمل اتنين منهم هيتصادم — والسبب هيبقى
+     * **بعيد** عن اللي بيختبره.
+     *
+     * ⭐ فالإيميل فاضي بالافتراضي، والاختبار اللي محتاج إيميل
+     * بحدده بنفسه.
      */
     protected function makeEmployee(array $attrs = []): Employee
     {

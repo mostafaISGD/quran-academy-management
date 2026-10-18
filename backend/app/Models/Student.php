@@ -26,7 +26,7 @@ class Student extends Model
     public function branch() { return $this->belongsTo(Branch::class); }
     public function user() { return $this->belongsTo(User::class); }
     public function lead() { return $this->belongsTo(Lead::class); }
-    public function parents() { return $this->belongsToMany(ParentModel::class, 'student_parents', 'student_id', 'parent_id')->withPivot(['relationship', 'is_primary', 'can_manage', 'can_pay', 'can_receive_notifications'])->withTimestamps(); }
+    public function parents() { return $this->belongsToMany(ParentModel::class, 'student_parents', 'student_id', 'parent_id')->withPivot(['relationship', 'is_primary', 'can_manage', 'can_pay', 'can_receive_notifications', 'can_view_finance', 'can_view_progress', 'can_request_changes'])->withTimestamps(); }
     public function phones() { return $this->hasMany(StudentPhone::class); }
     public function subscriptions() { return $this->hasMany(Subscription::class); }
 

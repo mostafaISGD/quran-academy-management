@@ -54,28 +54,80 @@ use App\Models\User;
 class SyncPermissions extends Command
 {
     protected $signature = 'permissions:sync
-                            {--dry-run : اعرض اللي هيحصل من غير ما تغيّر حاجة}';
+                            {--dry-run : اعرض اللي هيحصل من غير ما تغيّر حاجة}
+                            {--prune : ⭐ احذف الصلاحيات اللي مش في الكتالوج — خطر، اقرأ الأول}';
 
     protected $description = 'يزامن الصلاحيات مع المصدر الرسمي ويعيد توزيع الأدوار';
 
+    /**
+     * ⭐⭐⭐ **اللي الأمر بيعمله بالظبط**
+     *
+     *   ① ينشئ الناقص
+     *   ② **يحدّث** الوصف والـgroup على الموجود
+     *   ③ يوزّع الأدوار من الكتالوج
+     *   ④ بيحذف **لأ** — إلا بـ`--prune` وتأكيد
+     *
+     * ═══════════════════════════════════════════════════════════════
+     * ⭐⭐⭐ ليه الحذف **مقفول** افتراضيًا
+     *
+     * ⭐ حذف صلاحية = **إبطالها عند كل من عنده فورًا**. والصلاحية
+     * اللي مش في الكتالوج مش معناها إنها ما بقاش مستخدمة —
+     * ممكن تكون في seeder تاني، أو في اختبار، أو تكون **قديمة**
+     * لسه راو بيطلبها (`settings.manage` مثلًا، والـ`PR 1.7` هو
+     * اللي يشيلها).
+     *
+     * ⭐ فالحذف لازم يكون **قرار صريح**. `--prune` بياخده، بس
+     * بيطبع تحذير بالأسماء قبل ما يعمل حاجة.
+     *
+     * @see \Database\Seeders\SeedRolesPermissions::permissions
+     * @see config/permissions.php
+     */
     public function handle(): int
     {
         $dry = $this->option('dry-run');
 
-        $source = \Database\Seeders\SeedRolesPermissions::PERMISSIONS;
+        $source = \Database\Seeders\SeedRolesPermissions::permissions();
+
+        // ⭐⭐ **الأسماء القديمة لسه شغّالة** — لازم بتتعمل مع
+        // الكتالوج الجديد، وإلا الراوتات بتموت بـ403.
+        //
+        // ⭐ الاتنين قائمت sales **بيتداخلوا** — فبنحسب الـunion.
+        $legacy = array_unique(array_merge(
+            \Database\Seeders\SeedRolesPermissions::legacyPermissionsInUse(),
+            \Database\Seeders\SeedRolesPermissions::legacyPermissionsInRoles(),
+        ));
 
         $this->info('المصدر الرسمي فيه ' . count($source) . ' صلاحية.');
 
+        if ($legacy) {
+            $this->line(
+                '  + ' . count($legacy) . ' اسم قديم لسه مستخدم '
+                .'(راوتات أو أدوار — لحد PR 1.7): ' . implode(', ', $legacy)
+            );
+        }
+
         // ① الصلاحيات الناقصة
         $missing = [];
+        $stale = [];
 
         foreach ($source as $perm) {
-            $exists = Permission::where('name', $perm['name'])
+            $row = Permission::where('name', $perm['name'])
                 ->where('guard_name', 'web')
-                ->exists();
+                ->first();
 
-            if (! $exists) {
+            if (! $row) {
                 $missing[] = $perm;
+
+                continue;
+            }
+
+            // ⭐⭐ **الوصف والـgroup الناقصين** — ده الـbackfill
+            // بتاع `2026_10_15_000004`.
+            //
+            // ⭐ أول تشغيل للـأمر بعد الـmigration بيرجّع `null`
+            // في الصفين، والصفحة بتطلع «صلاحية من غير وصف».
+            if ($row->description !== $perm['description'] || $row->group !== $perm['group']) {
+                $stale[] = $perm['name'];
             }
         }
 
@@ -88,8 +140,15 @@ class SyncPermissions extends Command
             $this->info('✅ كل الصلاحيات موجودة.');
         }
 
-        // ② صلاحيات زائدة (في القاعدة بس، مش في المصدر)
-        $knownNames = array_column($source, 'name');
+        if ($stale) {
+            $this->warn('وصف/مجموعة ناقصة: ' . count($stale).' — '.implode(', ', $stale));
+        }
+
+        // ② صلاحيات في القاعدة بس
+        $knownNames = array_merge(
+            array_column($source, 'name'),
+            $legacy,
+        );
 
         $extra = Permission::where('guard_name', 'web')
             ->whereNotIn('name', $knownNames)
@@ -104,14 +163,36 @@ class SyncPermissions extends Command
             return self::SUCCESS;
         }
 
-        // ③ إنشاء الناقص
-        foreach ($missing as $perm) {
-            Permission::create([
-                'name' => $perm['name'],
-                'slug' => str_replace('.', '-', $perm['name']),
-                'module' => $perm['module'],
-                'guard_name' => 'web',
-            ]);
+        // ③ إنشاء الناقص — **مع** الوصف والـgroup
+        foreach (array_merge($missing, $stale) as $perm) {
+            Permission::updateOrCreate(
+                ['name' => $perm['name'], 'guard_name' => 'web'],
+                [
+                    'slug' => str_replace('.', '-', $perm['name']),
+                    'module' => $perm['module'],
+                    'group' => $perm['group'],
+                    'description' => $perm['description'],
+                    'guard_name' => 'web',
+                ],
+            );
+        }
+
+        // ③.١ الأسماء القديمة — بنفس المنطق
+        foreach ($legacy as $name) {
+            // ⭐ الخريطة قيمها **قوائم** — والوحدة من أول وجهة
+            $targets = \Database\Seeders\SeedRolesPermissions::migrationMap()[$name] ?? [$name];
+            $target = $targets[0];
+
+            Permission::updateOrCreate(
+                ['name' => $name, 'guard_name' => 'web'],
+                [
+                    'slug' => str_replace('.', '-', $name),
+                    'module' => explode('.', $target)[0],
+                    'group' => 'أسماء قديمة',
+                    'description' => 'اسم قديم — بيشتغل لحد ما PR 1.7 يطبّق خريطة التحويل',
+                    'guard_name' => 'web',
+                ],
+            );
         }
 
         // ④ إعادة توزيع كل الصلاحيات على admin
@@ -130,6 +211,47 @@ class SyncPermissions extends Command
         );
 
         $this->info('✅ دور admin اتوزّع على ' . count($knownNames) . ' صلاحية.');
+
+        // ④.١ ⭐⭐⭐ `--prune` — **العملية الوحيدة اللي بتحذف**
+        //
+        // ⭐ بتطلب تأكيد. والسبب إن كل صلاحية بتشيلها بتتصل من
+        // `role_has_permissions` — يعني **كل** الأدوار اللي عندها
+        // الصلاحية دي بتفقدها في نفس اللحظة.
+        //
+        // ⭐ والتأكيد الافتراضي **لا** حتى مع `--prune`: `--prune`
+        // بيقول «عايز»، والتأكيد بيقول «متأكد إنك عارف بتعمل إيه».
+        if ($this->option('prune')) {
+            $orphans = Permission::where('guard_name', 'web')
+                ->whereNotIn('name', $knownNames)
+                ->get();
+
+            if ($orphans->isEmpty()) {
+                $this->info('لا حاجة للحذف.');
+            } elseif ($this->confirm(
+                '⚠️  حذف ' . $orphans->count() . ' صلاحية من ' . count($orphans) . '؟',
+                false,
+            )) {
+                $names = $orphans->pluck('name')->all();
+
+                // ⭐ `syncPermissions` قبل الحذف: Spatie بيربط
+                // `model_has_roles` بـ`personal_access_tokens` مش
+                // هنا، بس بي Cleopatra pivot cleanup لوحده.
+                foreach ($orphans as $permission) {
+                    $permission->roles()->detach();
+                }
+
+                Permission::whereIn('name', $names)->delete();
+
+                $this->info('🗑  اتشالت: ' . implode(', ', $names));
+            } else {
+                $this->warn('اتلغى — مافيش حاجة اتغيّرت.');
+            }
+        } elseif ($extra->isNotEmpty()) {
+            $this->line(
+                'ℹ️  ' . $extra->count()
+                . ' صلاحية في القاعدة بس. للحذف: permissions:sync --prune'
+            );
+        }
 
         // ⑤ ⭐⭐⭐ **إعادة ربط أي admin فقد دوره**
         //

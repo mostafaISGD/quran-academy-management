@@ -230,7 +230,9 @@ function ChildCard({ child }: { child: ParentChildView }) {
         )}
 
         {/* ===== المستحقات ===== */}
-        {outstanding.invoices > 0 && (
+        {/* ⭐ `outstanding` بيبقى `null` لما `can_view_finance=false`
+            (بPR 1.8) — القسم بيختفي كله بدل ما يعرض أصفار مضللة */}
+        {outstanding && outstanding.invoices > 0 && (
           <div className="rounded-lg bg-amber-50 p-3 ring-1 ring-amber-200">
             <p className="text-sm text-amber-900">
               {/* ⭐ `money` بتعمل التحويل لـ«ج.م» جواها */}

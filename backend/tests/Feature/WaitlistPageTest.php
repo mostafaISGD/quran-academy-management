@@ -102,9 +102,18 @@ class WaitlistPageTest extends TestCase
         $this->assertSame(0, WaitingListEntry::count());
     }
 
-    public function test_a_guest_is_sent_to_login(): void
+    /**
+ * ⭐⭐ **وضع المستخدم الواحد**: مافيش ضيف.
+ *
+ * ⚠️ السلوك القديم كان 401 «مش داخل». القرار الجديد إن
+ * `AutoLoginAdmin` بيسجّل دخول الأدمن على أي طلب بلا توكن —
+ * فمفيش «ضيف». الاختبار ده اتغيّر **بالقرار** مش بالتخطيط،
+ * والأدمن التلقائي في الـfixture ده مالوش `groups.manage`
+ * فالرد 403 زي أي دور من غير صلاحية.
+ */
+public function test_a_request_without_a_token_gets_the_admin_role_not_a_redirect(): void
     {
-        $this->getJson('/api/waitlist')->assertUnauthorized();
+        $this->getJson('/api/waitlist')->assertForbidden();
     }
 
     // ============================================================

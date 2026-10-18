@@ -128,10 +128,36 @@ return [
     |
     */
 
-    'cookie' => env(
-        'SESSION_COOKIE',
-        Str::slug(env('APP_NAME', 'laravel'), '_').'_session'
-    ),
+    /*
+|--------------------------------------------------------------------------
+| Session Cookie Name
+|--------------------------------------------------------------------------
+|
+| ⭐⭐⭐ **مابتنفعش`** `Str::slug(APP_NAME).'_session'` — والاسم
+| القديم كان كده بالظبط.
+|
+| ⭐ `APP_NAME` اسم **عرض**. وهو كمان كان بيلفّ اسم كوكي
+| يعني تغيير اسم المشروع في `APP_NAME` بيكسر الـlogin بصمت.
+|
+| ⭐⭐ والأDamage كان أكبر من الكسر:
+|
+|   • `config/session.php` القديم → `quran_academy_session`
+|     (`APP_NAME="Quran Academy"`)
+|   • `frontend/proxy.ts` → بيدوّر على `laravel_session`
+|
+| ⭐ فـ`hasSessionCookie()` بترجع **false دايمًا**، والـproxy
+| بيعمل redirect لـ`/login` لكل صفحة محمية — حتى لمستخدم داخل
+| فعلاً. الـlogin شغّال، والـproxy **مش شغّال خالص**.
+|
+| ⭐ والاسم ثابت دلوقتي: `SESSION_COOKIE` من الـenv، والـfallback
+| الثابت `laravel_session` — مش مشتق من حاجة.
+|
+| @see frontend/proxy.ts
+| @see \Tests\Feature\SessionAuthenticationTest::test_the_session_cookie_name_is_shared_with_the_frontend
+|
+*/
+
+'cookie' => env('SESSION_COOKIE', 'laravel_session'),
 
     /*
     |--------------------------------------------------------------------------

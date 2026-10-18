@@ -29,10 +29,15 @@ use App\Models\TeacherEarning;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
+use Database\Seeders\Concerns\RefusesToRunInProduction;
+
 class TestdataSeeder extends Seeder
 {
+    use RefusesToRunInProduction;
     public function run(): void
     {
+        $this->guardProduction('TestdataSeeder');
+
         $org = Organization::first();
         if (!$org) {
             $org = Organization::create([

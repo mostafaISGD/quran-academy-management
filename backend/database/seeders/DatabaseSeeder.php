@@ -11,10 +11,15 @@ use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
 
+use Database\Seeders\Concerns\RefusesToRunInProduction;
+
 class DatabaseSeeder extends Seeder
 {
+    use RefusesToRunInProduction;
     public function run(): void
     {
+        $this->guardProduction('DatabaseSeeder');
+
         // Create organization
         $org = Organization::create([
             'name' => 'أكاديمية القرآن',
@@ -55,18 +60,23 @@ class DatabaseSeeder extends Seeder
          * يعني `/accounts` و `/finance` و `/pricing-admin` كانوا
          * بيرجعوا **403** للمدير نفسه.
          *
-         * ⭐ دلوقتي في **مصدر واحد**. ضيف صلاحية في
-         * `SeedRolesPermissions::PERMISSIONS` وخلاص — مش هتحتاج
-         * تفتكر مكان تاني.
+         * ⭐ دلوقتي في **مصدر واحد**: `config/permissions.php`.
+         * ضيف صلاحية هناك وخلاص — مش هتحتاج تفتكر مكان تاني.
          *
-         * @see \Database\Seeders\SeedRolesPermissions::PERMISSIONS
+         * ⚠️ **PR 1.6:** ده بقى يقرأ من `config/permissions.php`
+         * مش من `SeedRolesPermissions::PERMISSIONS` (اللي اتشال).
+         *
+         * @see config/permissions.php
+         * @see \Database\Seeders\SeedRolesPermissions::permissions()
          */
-        foreach (SeedRolesPermissions::PERMISSIONS as $perm) {
-            Permission::firstOrCreate(
+        foreach (SeedRolesPermissions::permissions() as $perm) {
+            Permission::updateOrCreate(
                 ['name' => $perm['name'], 'guard_name' => 'web'],
                 [
                     'slug' => str_replace('.', '-', $perm['name']),
                     'module' => $perm['module'],
+                    'group' => $perm['group'],
+                    'description' => $perm['description'],
                     'guard_name' => 'web',
                 ]
             );

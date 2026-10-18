@@ -17,3 +17,8 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
+
+# ⭐ سجلات التثبيت بتتعمل وقت `php artisan migrate` في الإنتاج.
+# ⭐ متتبّعة في git = أي حد بيعمل clone بياخد نسخة من سجل
+# installs بتاع بيئتنا (أسماء مستخدمين/إصدارات/تواريخ).
+install_log.txt

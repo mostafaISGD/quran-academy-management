@@ -11,8 +11,11 @@ use Illuminate\Support\Facades\Hash;
  *
  * بيانات متنوعة: أقسام ووظائف مختلفة، مدير مباشر، حالات توظيف متنوعة.
  */
+use Database\Seeders\Concerns\RefusesToRunInProduction;
+
 class SeedEmployees extends Seeder
 {
+    use RefusesToRunInProduction;
     /**
      * صف موظف: [الاسم، الوظيفة، القسم، نوع التوظيف، الحالة، رقم المدير]
      * رقم المدير بيشير لرقم الموظف في القائمة دي (1-based).
@@ -37,46 +40,42 @@ class SeedEmployees extends Seeder
 
     public function run(): void
     {
+        $this->guardProduction('SeedEmployees');
+
         mt_srand(20261004);
 
         $now = now();
         $ids = [];
 
-        // أدوار الموظفين — كل دور بصلاحيات مختلفة.
-        // ليش بنعملها هنا؟ عشان قسم «الدور والصلاحيات» في ملف الموظف
-        // يبقى فيه حاجة تتعرض، مش «بدون دور» لكل الـ 12.
+        // ⭐⭐⭐ الأدوار **بتقرأ** من الكتالوج، مش بتتعرّف هنا.
         //
-        // `programs.view` في كل الأدوار: الموظف محتاج يعرف الأكاديمية
-        // بتقدم إيه وبكام عشان يرد على أولياء الأمور.
+        // ⚠️⚠️ ليه؟ كان هنا **قائمة صلاحيات مكتوبة** لـ
+        // `accountant` و `receptionist` و `supervisor`، وفي نفس
+        // الوقت `SeedRolesPermissions` كان معرّف `accountant`
+        // بقايمة **مختلفة تماماً**. والاتنين بيستخدموا
+        // `syncPermissions` فاللي بيشتغل آخر بيفوز.
         //
-        // الحضور والمرتبات: `attendance.manage` للاستقبال و supervisor
-        // (تسجيل الحضور)، و `payroll.manage` للمحاسب (المرتبات).
-        // الفصل ده مقصود — مش لازم نفس الشخص يعمل الاتنين.
-        $rolePermissions = [
-            'accountant' => [
-                'students.view', 'payments.view', 'payments.create', 'payments.edit',
-                'reports.view', 'programs.view',
-                'attendance.view', 'payroll.manage',
-            ],
-            'receptionist' => [
-                'students.view', 'students.create', 'students.edit',
-                'leads.view', 'leads.create', 'leads.edit', 'programs.view',
-                'attendance.view', 'attendance.manage',
-            ],
-            'supervisor' => [
-                'students.view', 'students.edit', 'teachers.view',
-                'lessons.view', 'lessons.edit', 'reports.view', 'programs.view',
-                'attendance.view', 'attendance.manage',
-            ],
-        ];
-
+        // و`RealisticDataSeeder` بيشغّل `SeedEmployees` **بعد**
+        // `SeedRolesPermissions`، فالنتيجة: المحاسب فقد ٨ صلاحيات
+        // مالية ومقدرش يفتح صفحة الحسابات أصلاً.
+        //
+        // ⭐ دلوقتي: `SeedRolesPermissions::ROLES` هو المصدر
+        // الوحيد، وهذا الملف **بيحطّ الدور على الموظف** بس.
+        //
+        // ⚠️ `firstOrCreate` مش `Role::findByName` عشان لو حد
+        // شغّل `SeedEmployees` من غير `SeedRolesPermissions` ما
+        // ينفجرش — بس من غير ما يكتب صلاحيات.
+        //
+        // @see \Database\Seeders\SeedRolesPermissions::ROLES
+        // @see \Tests\Feature\RoleIsolationTest::test_no_role_is_defined_by_two_different_seeders
         $roleIds = [];
-        foreach ($rolePermissions as $roleName => $perms) {
+
+        foreach (array_keys(SeedRolesPermissions::ROLES) as $roleName) {
             $role = \Spatie\Permission\Models\Role::firstOrCreate(
                 ['name' => $roleName, 'guard_name' => 'web'],
-                ['slug' => $roleName, 'guard_name' => 'web', 'is_system' => false],
+                ['slug' => $roleName, 'guard_name' => 'web', 'is_system' => $roleName === 'admin'],
             );
-            $role->syncPermissions(\Spatie\Permission\Models\Permission::whereIn('name', $perms)->get());
+
             $roleIds[$roleName] = $role->id;
         }
 

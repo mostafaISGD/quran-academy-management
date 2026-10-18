@@ -24,19 +24,25 @@ class AccountsApiTest extends TestCase
     private function manager()
     {
         return $this->makeUserWithRole('admin', [
-            'finance.view', 'finance.accounts', 'finance.movements',
-            'finance.reverse', 'finance.periods.lock', 'finance.periods.unlock',
+            'finance.accounts.view', 'finance.accounts.manage', 'finance.movements.create',
+            'finance.movements.reverse', 'finance.periods.lock', 'finance.periods.unlock',
         ]);
     }
 
     private function accountant()
     {
         return $this->makeUserWithRole('accountant', [
-            'finance.view', 'finance.accounts', 'finance.movements',
+            'finance.accounts.view', 'finance.accounts.manage', 'finance.movements.create',
             'finance.periods.lock',
             // ⭐ اللي تحتاجه الاختبارات عشان تسجّل تحصيل وتدفع معلم
-            'payroll.manage', 'payments.view', 'payments.create',
-            'payments.refund', 'students.view',
+            'payroll.periods.manage', 'payroll.payments.create', 'finance.payments.view', 'finance.payments.create',
+            'finance.payments.refund', 'students.view',
+
+            // ⭐ المصروفات — راوتس كانت **مفتوحة** قبل PR 0.1
+            // (auth:sanctum من غير permission)، فالاختبارات دي كانت
+            // بتعدّي من غير ما تطلب صلاحية. دلوقتي محمية، فلازم
+            // المستخدم ياخد الصلاحيات صراحة.
+            'finance.expenses.view', 'finance.expenses.create',
         ]);
     }
 
@@ -365,11 +371,13 @@ class AccountsApiTest extends TestCase
 
         $movement = AccountMovement::where('reference_type', 'payment')->first();
 
+        $manager = $this->manager();
+
         $this->postJsonAs("/api/movements/{$movement->id}/reverse", [
             'reason' => 'اتسجل غلط',
-        ], $this->manager())->assertCreated();
+        ], $manager)->assertCreated();
 
-        $r = $this->getJsonAs('/api/accounts/movements', $this->manager());
+        $r = $this->getJsonAs('/api/accounts/movements', $manager);
 
         // ⭐ الأحدث فوق
         $this->assertStringStartsWith('عكس ', $r->json('data.0.description'));
@@ -554,15 +562,17 @@ class AccountsApiTest extends TestCase
     {
         $account = $this->makeAccount(['opening_balance' => 1000]);
         $movement = $this->makeMovement($account, ['direction' => 'in', 'category' => 'income', 'amount' => 500]);
+        $manager = $this->manager();
+
 
         // ⭐ من غير سبب، مينفعش نعرف بعد سنة ليه اتصحّح الرقم
-        $r = $this->postJsonAs("/api/movements/{$movement->id}/reverse", [], $this->manager());
+        $r = $this->postJsonAs("/api/movements/{$movement->id}/reverse", [], $manager);
         $r->assertStatus(422);
         $this->assertStringContainsString('سبب العكس إجباري', $r->json('message'));
 
         $r = $this->postJsonAs("/api/movements/{$movement->id}/reverse", [
             'reason' => 'الدفعة اتسجلت على الطالب الغلط',
-        ], $this->manager());
+        ], $manager);
 
         $r->assertCreated();
         $this->assertMoney(1000, $account->fresh()->balance());
@@ -599,10 +609,12 @@ class AccountsApiTest extends TestCase
         // ⭐⭐ **مين فتح وإمتى** معلومة محاسبية. فبنضيف `unlocked_by`
         // بدل ما نمسح القفل — سجل القفل الأولاني يفضل موجود.
         $lock = $this->makeLock(['reason' => 'قفل أول']);
+        $manager = $this->manager();
+
 
         $r = $this->postJsonAs("/api/period-locks/{$lock->id}/unlock", [
             'reason' => 'صححنا الغلط',
-        ], $this->manager());
+        ], $manager);
 
         $r->assertOk();
         $lock->refresh();
@@ -618,13 +630,16 @@ class AccountsApiTest extends TestCase
     {
         // ⭐ دبل-كليك مايرميش 500.
         $lock = $this->makeLock();
+        $manager = $this->manager();
+
+
         $this->postJsonAs("/api/period-locks/{$lock->id}/unlock", [
             'reason' => 'أول مرة',
-        ], $this->manager())->assertOk();
+        ], $manager)->assertOk();
 
         $r = $this->postJsonAs("/api/period-locks/{$lock->id}/unlock", [
             'reason' => 'تاني مرة',
-        ], $this->manager());
+        ], $manager);
 
         $r->assertStatus(422);
         $this->assertStringContainsString('مفتوحة', $r->json('message'));
@@ -711,7 +726,7 @@ class AccountsApiTest extends TestCase
         ]);
 
         $other = $this->makeUserWithRole('admin', [
-            'finance.view', 'finance.accounts', 'finance.movements',
+            'finance.accounts.view', 'finance.accounts.manage', 'finance.movements.create',
         ]);
         $other->forceFill(['organization_id' => $otherOrg->id])->save();
 

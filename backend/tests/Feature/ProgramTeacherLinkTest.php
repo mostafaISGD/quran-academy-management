@@ -21,7 +21,7 @@ class ProgramTeacherLinkTest extends TestCase
 {
     private function admin(): \App\Models\User
     {
-        return $this->makeUserWithRole('admin', ['programs.view', 'lessons.edit', 'settings.manage']);
+        return $this->makeUserWithRole('admin', ['programs.view', 'programs.update', 'programs.manage', 'lessons.update', 'settings.view', 'settings.update']);
     }
 
     /** برنامج فيه معلمين وحصص جاهزة */
@@ -111,7 +111,7 @@ class ProgramTeacherLinkTest extends TestCase
         ['program' => $program] = $this->scenario();
         $admin = $this->admin();
 
-        // ٣ معلمين في的现实: شغّال (مسجّل) + مشغول (مسجّل) + واحد تاني
+        // ٣ معلمين فيالفعلي: شغّال (مسجّل) + مشغول (مسجّل) + واحد تاني
         $student = $this->makeStudent();
         $other = \App\Models\Teacher::first();
         $this->makeLesson($program, $student, \App\Models\Teacher::query()->where('display_name', 'مشغول')->firstOrFail(), [

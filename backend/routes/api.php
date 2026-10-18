@@ -6,7 +6,9 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\EmployeePayrollController;
+use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\TeacherPayrollController;
+use App\Http\Controllers\Api\UserController;
 use App\Http\Controllers\Api\PricingController;
 use App\Http\Controllers\Api\GroupController;
 use App\Http\Controllers\Api\WaitlistController;
@@ -38,8 +40,10 @@ use Illuminate\Support\Facades\Route;
 
 // ---- Public ----
 Route::post('/auth/login', [AuthController::class, 'login']);
-Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword']);
-Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
+Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])
+    ->middleware('throttle:5,1');
+Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])
+    ->middleware('throttle:5,1');
 
     // ===== جدول الأسعار =====
     //
@@ -57,13 +61,13 @@ Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
     // ⭐ التعديل **مش** عام — بيحتاج تسجيل دخول + صلاحية.
     // العرض عام، والتعديل قرار تجاري للإدارة بس.
     Route::put('/pricing/{plan}', [PricingController::class, 'update'])
-        ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+        ->middleware(['auth:sanctum', 'account.active', 'password.changed', 'permission:pricing.plans.manage']);
 
     // ⭐ إنشاء/حذف باقة — الأدمن بس (قرار تجاري)
     Route::post('/pricing', [PricingController::class, 'store'])
-        ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+        ->middleware(['auth:sanctum', 'account.active', 'password.changed', 'permission:pricing.plans.manage']);
     Route::delete('/pricing/{plan}', [PricingController::class, 'destroy'])
-        ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+        ->middleware(['auth:sanctum', 'account.active', 'password.changed', 'permission:pricing.plans.manage']);
 
     // ============================================================
     // ⭐⭐ الأكواد الترويجية (Promo Codes)
@@ -81,20 +85,20 @@ Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
     // والترتيب مهم: `auth:sanctum` **قبل** `permission`.
     // ============================================================
     Route::get('/promo-codes', [PromoCodeController::class, 'index'])
-        ->middleware(['auth:sanctum', 'permission:pricing.view']);
+        ->middleware(['auth:sanctum', 'account.active', 'password.changed', 'permission:pricing.view']);
     Route::post('/promo-codes', [PromoCodeController::class, 'store'])
-        ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+        ->middleware(['auth:sanctum', 'account.active', 'password.changed', 'permission:pricing.plans.manage']);
     Route::get('/promo-codes/{promoCode}', [PromoCodeController::class, 'show'])
-        ->middleware(['auth:sanctum', 'permission:pricing.view']);
+        ->middleware(['auth:sanctum', 'account.active', 'password.changed', 'permission:pricing.view']);
     Route::put('/promo-codes/{promoCode}', [PromoCodeController::class, 'update'])
-        ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+        ->middleware(['auth:sanctum', 'account.active', 'password.changed', 'permission:pricing.plans.manage']);
     Route::delete('/promo-codes/{promoCode}', [PromoCodeController::class, 'destroy'])
-        ->middleware(['auth:sanctum', 'permission:pricing.manage']);
+        ->middleware(['auth:sanctum', 'account.active', 'password.changed', 'permission:pricing.plans.manage']);
     // التحقق من كود (عامة للواجهة عند الإدخال، محمية عشان ما يتسحبش الكودات)
     Route::post('/promo-codes/validate', [PromoCodeController::class, 'validate'])
-        ->middleware(['auth:sanctum', 'permission:pricing.view']);
+        ->middleware(['auth:sanctum', 'account.active', 'password.changed', 'permission:pricing.view']);
     Route::get('/promo-codes/{promoCode}/stats', [PromoCodeController::class, 'stats'])
-        ->middleware(['auth:sanctum', 'permission:pricing.view']);
+        ->middleware(['auth:sanctum', 'account.active', 'password.changed', 'permission:pricing.view']);
 
     // ===== المجموعات الأونلاين + قائمة الانتظار =====
     //
@@ -130,12 +134,70 @@ Route::post('/auth/reset-password', [AuthController::class, 'resetPassword']);
     });
 
     Route::get('/groups/{group}', [GroupController::class, 'show']);
-    Route::post('/groups/{group}/waitlist', [GroupController::class, 'joinWaitingList']);
 
-// ---- Authenticated ----
-Route::middleware('auth:sanctum')->group(function () {
+    // ⭐⭐ حد على التسجيل في الطابور — ١٠ في الساعة لكل IP.
+    //
+    // ⭐ الراوت ده **عام** (أي حد من غير حساب) و**بيكتب في
+    // الداتابيز**. من غير حد، حد يبعت ١٠٠٠ طلب ويسبّute في
+    // الطابور — والصفحات العامة عند أولاد الأهالي بتتأثر.
+    Route::post('/groups/{group}/waitlist', [GroupController::class, 'joinWaitingList'])
+        ->middleware('throttle:10,60');
+
+// ═══════════════════════════════════════════════════════════
+    // ⭐⭐⭐ الدعوات
+    // ═══════════════════════════════════════════════════════════
+
+    /**
+     * ⭐⭐⭐ **قبول الدعوة — `auth:sanctum` عمداً مفيش.**
+     *
+     * ⭐ **السبب الوحيد**: اللي بيقبّل الدعوة **لسه مالوش حساب** —
+     * هو أكتر حد محتاج يسجّل دخول في النظام. فلو حطّينا
+     * `auth:sanctum`، الـendpoint يبقى مستحيل.
+     *
+     * ⭐ وبنفس السبب ده الراوت **مش** جوه مجموعة
+     * `RouteProtectionTest::EXCEPTIONS` — هي مش جوه `auth:sanctum`
+     * أصلاً، فمش محتاجة استثناء.
+     *
+     * ⚠️⚠️ **`throttle:5,1` إجباري.** ده سطح **عام** بيقرأ من
+     * توكنات، ومحدش مقدرش يخمّن توكن (2^512)، بس **بيقدر يجرّب
+     * توكنات مستعملة قبل كده**. من غير حد، ده مطارد لكل التوكنات
+     * المسرّبة على الإنترنت — والمستعملة لسه.
+     *
+     * ⭐ `StrongPassword` (مش `uncompromised()`) — قرار PR 0.4 موثّق
+     * في `InvitationController::accept()`.
+     */
+    Route::post('/invitations/accept', [InvitationController::class, 'accept'])
+        ->middleware('throttle:5,1')
+        ->name('invitations.accept');
+
+    // ---- Authenticated ----
+//
+// ⭐⭐ `password.changed` على **المجموعة كلها** مش على راو راو.
+//
+// ⭐ السبب: لو حطيناه على راوت واحد، أي راو جديد جوه
+// `auth:sanctum` بيتسرّب من غير ما حد ياخد باله — والقاعدة
+// الأمنية بت dépend على إن المطور فاكر يضيفه.
+//
+// ⭐ الترتيب: `auth:sanctum` الأول عشان `request->user()` يبقى
+// متاح للفلاتر اللي محتاجاه.
+//
+// ⭐ `account.active` هو اللي بيوقّف الحساب الموقوف **فوراً** —
+// كان بيتقفل وقت الدخول بس، فالتوكن الصادر قبل الوقفة كان بيفضل
+// شغّال (و`expiration = null` كان بيخلّيه صالح للأبد).
+//
+// ⭐ والاثنين بيرجّعوا `$next` لما الـuser null، فالراوتات
+// العامة ما بتتأثرش.
+Route::middleware(['auth:sanctum', 'account.active', 'password.changed'])->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/me', [AuthController::class, 'me']);
+
+    // ⭐⭐ تغيير كلمة المرور لحساب مجبور يغيّرها.
+    //
+    // ⭐ الراوت ده **استثناء** في `RouteProtectionTest` لازم
+    // يتضاف — لأنه مالهوش `permission:` بالمعنى المعتاد: أي
+    // حساب يقدر يغيّر كلمة مروره، والفلتر اللي بيحميه هو
+    // `EnsurePasswordChanged` نفسه.
+    Route::post('/auth/change-password', [AuthController::class, 'changePassword']);
 
     // ===== المجموعات — كل حاجة بعد كده محمية بـ `groups.manage` =====
     // ⚠️ `/groups/alerts` **مش** هنا — لازم يسبق `{group}` فوق.
@@ -185,29 +247,29 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/students', [StudentController::class, 'index'])->middleware('permission:students.view');
     Route::post('/students', [StudentController::class, 'store'])->middleware('permission:students.create');
     Route::get('/students/{student}', [StudentController::class, 'show'])->middleware('permission:students.view');
-    Route::put('/students/{student}', [StudentController::class, 'update'])->middleware('permission:students.edit');
+    Route::put('/students/{student}', [StudentController::class, 'update'])->middleware('permission:students.update');
     Route::delete('/students/{student}', [StudentController::class, 'destroy'])->middleware('permission:students.delete');
 // إجراءات جماعية — لازم تيجي قبل /students/{student} عشان ما تلتقطش كـ id
-Route::post('/students/bulk/change-teacher', [StudentController::class, 'bulkChangeTeacher'])->middleware('permission:students.edit');
-Route::post('/students/bulk/create-invoices', [StudentController::class, 'bulkCreateInvoices'])->middleware('permission:payments.create');
-Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->middleware('permission:students.edit');
+Route::post('/students/bulk/change-teacher', [StudentController::class, 'bulkChangeTeacher'])->middleware('permission:students.update');
+Route::post('/students/bulk/create-invoices', [StudentController::class, 'bulkCreateInvoices'])->middleware('permission:finance.payments.create');
+Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->middleware('permission:students.update');
     Route::get('/students/{student}/schedule', [StudentController::class, 'schedule'])->middleware('permission:students.view');
     Route::get('/students/{student}/attendance', [StudentController::class, 'attendance'])->middleware('permission:students.view');
     Route::get('/students/{student}/progress', [StudentController::class, 'progress'])->middleware('permission:students.view');
-    Route::get('/students/{student}/payments', [StudentController::class, 'payments'])->middleware('permission:payments.view');
+    Route::get('/students/{student}/payments', [StudentController::class, 'payments'])->middleware('permission:finance.payments.view');
 
     // Teachers
     Route::get('/teachers', [TeacherController::class, 'index'])->middleware('permission:teachers.view');
     Route::post('/teachers', [TeacherController::class, 'store'])->middleware('permission:teachers.create');
     Route::get('/teachers/{teacher}', [TeacherController::class, 'show'])->middleware('permission:teachers.view');
-    Route::put('/teachers/{teacher}', [TeacherController::class, 'update'])->middleware('permission:teachers.edit');
+    Route::put('/teachers/{teacher}', [TeacherController::class, 'update'])->middleware('permission:teachers.update');
     Route::delete('/teachers/{teacher}', [TeacherController::class, 'destroy'])->middleware('permission:teachers.delete');
     Route::get('/teachers/{teacher}/schedule', [TeacherController::class, 'schedule'])->middleware('permission:teachers.view');
     Route::get('/teachers/{teacher}/overview', [TeacherController::class, 'overview'])->middleware('permission:teachers.view');
     Route::get('/teachers/{teacher}/students', [TeacherController::class, 'students'])->middleware('permission:teachers.view');
     Route::get('/teachers/{teacher}/lessons-summary', [TeacherController::class, 'lessonsSummary'])->middleware('permission:teachers.view');
-    Route::get('/teachers/{teacher}/financial-summary', [TeacherController::class, 'financialSummary'])->middleware('permission:payments.view');
-    Route::get('/teachers/{teacher}/earnings', [TeacherController::class, 'earnings'])->middleware('permission:payments.view');
+    Route::get('/teachers/{teacher}/financial-summary', [TeacherController::class, 'financialSummary'])->middleware('permission:finance.payments.view');
+    Route::get('/teachers/{teacher}/earnings', [TeacherController::class, 'earnings'])->middleware('permission:finance.payments.view');
     Route::get('/teachers/{teacher}/contracts', [TeacherController::class, 'contracts'])->middleware('permission:teachers.view');
     Route::get('/teachers/{teacher}/rates', [TeacherController::class, 'rates'])->middleware('permission:teachers.view');
     Route::get('/teachers/{teacher}/ratings', [TeacherController::class, 'ratings'])->middleware('permission:teachers.view');
@@ -239,51 +301,140 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/programs', [ProgramController::class, 'index'])->middleware('permission:programs.view');
     Route::get('/programs/slug-preview', [ProgramController::class, 'slugPreview'])->middleware('permission:programs.view');
     Route::get('/programs/{program}', [ProgramController::class, 'show'])->middleware('permission:programs.view');
-    Route::post('/programs', [ProgramController::class, 'store'])->middleware('permission:settings.manage');
-    Route::put('/programs/{program}', [ProgramController::class, 'update'])->middleware('permission:settings.manage');
-    Route::delete('/programs/{program}', [ProgramController::class, 'destroy'])->middleware('permission:settings.manage');
+    Route::post('/programs', [ProgramController::class, 'store'])->middleware('permission:programs.update');
+    Route::put('/programs/{program}', [ProgramController::class, 'update'])->middleware('permission:programs.update');
+    Route::delete('/programs/{program}', [ProgramController::class, 'destroy'])->middleware('permission:programs.update');
 
     // مستويات/مراحل البرنامج
     Route::get('/programs/{program}/levels', [ProgramController::class, 'levels'])->middleware('permission:programs.view');
-    Route::post('/programs/{program}/levels', [ProgramController::class, 'storeLevel'])->middleware('permission:lessons.edit');
-    Route::put('/programs/{program}/levels/{level}', [ProgramController::class, 'updateLevel'])->middleware('permission:lessons.edit');
-    Route::delete('/programs/{program}/levels/{level}', [ProgramController::class, 'destroyLevel'])->middleware('permission:lessons.edit');
-    Route::post('/programs/{program}/levels/reorder', [ProgramController::class, 'reorderLevels'])->middleware('permission:lessons.edit');
+    Route::post('/programs/{program}/levels', [ProgramController::class, 'storeLevel'])->middleware('permission:programs.manage');
+    Route::put('/programs/{program}/levels/{level}', [ProgramController::class, 'updateLevel'])->middleware('permission:programs.manage');
+    Route::delete('/programs/{program}/levels/{level}', [ProgramController::class, 'destroyLevel'])->middleware('permission:programs.manage');
+    Route::post('/programs/{program}/levels/reorder', [ProgramController::class, 'reorderLevels'])->middleware('permission:programs.manage');
 
     // المعلمون القادرون على تدريس البرنامج
     Route::get('/programs/{program}/teachers', [ProgramController::class, 'teachers'])->middleware('permission:programs.view');
-    Route::post('/programs/{program}/teachers', [ProgramController::class, 'linkTeacher'])->middleware('permission:lessons.edit');
-    Route::delete('/programs/{program}/teachers/{teacherId}', [ProgramController::class, 'unlinkTeacher'])->middleware('permission:lessons.edit');
+    Route::post('/programs/{program}/teachers', [ProgramController::class, 'linkTeacher'])->middleware('permission:programs.manage');
+    Route::delete('/programs/{program}/teachers/{teacherId}', [ProgramController::class, 'unlinkTeacher'])->middleware('permission:programs.manage');
     // إصلاح جماعي — لسه محتاج تأكيد من الواجهة
-    Route::post('/programs/{program}/teachers/link-missing', [ProgramController::class, 'linkAllMissingTeachers'])->middleware('permission:lessons.edit');
-    Route::post('/programs/{program}/teachers/unlink-idle', [ProgramController::class, 'unlinkIdleTeachers'])->middleware('permission:lessons.edit');
+    Route::post('/programs/{program}/teachers/link-missing', [ProgramController::class, 'linkAllMissingTeachers'])->middleware('permission:programs.manage');
+    Route::post('/programs/{program}/teachers/unlink-idle', [ProgramController::class, 'unlinkIdleTeachers'])->middleware('permission:programs.manage');
 
     // طلاب البرنامج (ملخص عن طريق الاشتراكات — مش إدارة اشتراك)
     Route::get('/programs/{program}/students', [ProgramController::class, 'students'])->middleware('permission:programs.view');
 
     // تصنيفات البرامج — قابلة للإدارة من النظام مش مثبتة في الكود
     Route::get('/program-categories', [ProgramController::class, 'categories'])->middleware('permission:programs.view');
-    Route::post('/program-categories', [ProgramController::class, 'storeCategory'])->middleware('permission:settings.manage');
-    Route::put('/program-categories/{category}', [ProgramController::class, 'updateCategory'])->middleware('permission:settings.manage');
-    Route::delete('/program-categories/{category}', [ProgramController::class, 'destroyCategory'])->middleware('permission:settings.manage');
+    Route::post('/program-categories', [ProgramController::class, 'storeCategory'])->middleware('permission:programs.update');
+    Route::put('/program-categories/{category}', [ProgramController::class, 'updateCategory'])->middleware('permission:programs.update');
+    Route::delete('/program-categories/{category}', [ProgramController::class, 'destroyCategory'])->middleware('permission:programs.update');
 
-    // Roles & Permissions
-    Route::get('/roles', [RoleController::class, 'index'])->middleware('permission:settings.manage');
-    Route::post('/roles', [RoleController::class, 'store'])->middleware('permission:settings.manage');
-    Route::put('/roles/{role}/permissions', [RoleController::class, 'updatePermissions'])->middleware('permission:settings.manage');
-    Route::get('/permissions', [RoleController::class, 'allPermissions'])->middleware('permission:settings.manage');
+    // ===== الدعوات — إدارة الحسابات الجديدة =====
+
+    /**
+     * ⭐⭐ **`users.invite` منفصلة عن `users.roles.assign`** عن قصد.
+     *
+     * ⭐ `roles.assign` بتعدّل دور **موجود**، و`invite` بتعمل **حساب
+     * جديد**. عملية مختلفة وصلاحية مختلفة.
+     *
+     * ⭐ والقيد الحقيقي **مش** الـpermission — هو
+     * `RoleGrantService::assertCanAssignRole()` اللي بيفرض إن كل
+     * صلاحية في الدور اللي بتسلّمه تكون موجودة عندك.
+     *
+     * ⭐ `resend` و`destroy` ليهم نفس الصلاحية: إدارة دورة حياة
+     * الدعوة كلها صلاحية واحدة، مش تلاتة.
+     */
+    Route::post('/invitations', [InvitationController::class, 'store'])
+        ->middleware('permission:users.invite');
+    Route::post('/invitations/{invitation}/resend', [InvitationController::class, 'resend'])
+        ->middleware('permission:users.invite');
+    Route::delete('/invitations/{invitation}', [InvitationController::class, 'destroy'])
+        ->middleware('permission:users.invite');
+
+    // ===== إدارة الحسابات (PR 1.5) =====
+
+    /**
+     * ⭐⭐⭐ `/users` و `/users/{user}` — العرض فقط.
+     *
+     * ⭐ `users.view` لوحدها. **مش** `settings.manage` — دي
+     * صلاحيات مختلفة: تقدر تشوف الحسابات من غير ما تلمسها.
+     */
+    Route::get('/users', [UserController::class, 'index'])
+        ->middleware('permission:users.view');
+    Route::get('/users/{user}', [UserController::class, 'show'])
+        ->middleware('permission:users.view');
+
+    /**
+     * ⭐⭐⭐ **إعادة التفعيل والأرشفة وإعادة التعيين = ٣ راوتات
+     * بـ3 صلاحيات مختلفة** — مش واحدة.
+     *
+     * ⭐ `suspend` و `reactivate` مع بعض: **نفس العملية** بحالتين
+     * متعاكستين، فلا معنى يفصلوا. وبيبطّلوا الوصول وساعتها.
+     *
+     * ⭐ `archive` منفصلة: **نهائية**. اللي يقدر يوقف مؤقتاً مش
+     * بالضرورة اللي يقدر يؤرشف.
+     *
+     * ⚠️ `force-password-reset` تحت `users.suspend` **عن قصد** —
+     * الاتنين عملية «إغلاق وصول» واحدة: المستخدم داخل بس ما
+     * يعملش حاجة غير تغيير كلمة المرور.
+     *
+     * ⭐ و🚫 مافيش `DELETE /users/{user}` — البند 7: **مافيش**
+     * حذف لـ`users` ولا تصفية (`PRAGMA foreign_keys` / REFERENCES).
+     * الأرشفة بتسيب كل الروابط المالية سليمة؛ الحذف بيكسر
+     * `audit_logs` ورأس الشجرة المالي. سيبه لـSQL اجتهاداً
+     * بعد مراجعة — مش زرار.
+     */
+    Route::post('/users/{user}/suspend', [UserController::class, 'suspend'])
+        ->middleware('permission:users.suspend');
+    Route::post('/users/{user}/reactivate', [UserController::class, 'reactivate'])
+        ->middleware('permission:users.suspend');
+    Route::post('/users/{user}/force-password-reset', [UserController::class, 'forcePasswordReset'])
+        ->middleware('permission:users.suspend');
+    Route::post('/users/{user}/archive', [UserController::class, 'archive'])
+        ->middleware('permission:users.archive');
+
+    /**
+     * ⭐ تغيير الدور — `users.roles.assign` (PR 0.3).
+     *
+     * ⭐⚠️ الراوت ده **مش** بيعدّي على `assertCanAssignRole` بس —
+     * `UserController::updateRole` بيطلب القيدين: التصعيد ممنوع
+     * (**RoleGrantService**) وتغيير الدور على النفس ممنوع
+     * (**UserStatusService::assertNotSelf**).
+     *
+     * ⭐ والقاعدة الحقيقية مش الـ`permission` أصلاً — الفريق
+     * بيمسك لو حد عنده صلاحية بس مش كل الصلاحيات.
+     */
+    Route::put('/users/{user}/role', [UserController::class, 'updateRole'])
+        ->middleware('permission:users.roles.assign');
+
+    // ===== الأدوار والصلاحيات =====
+    //
+    // ⭐ القراءة بـ `settings.manage`، والكتابة بـ `users.roles.assign`.
+    //
+    // ⭐ السبب: تعديل صلاحيات دور = تسليم صلاحيات. ده مش
+    // «إعداد» — ده أرخص عملية تصعيد موجودة في النظام. لازم يكون
+    // ليه تصريح صريح، مش إن حد عنده صلاحية الإعدادات بالوراثة.
+    Route::get('/roles', [RoleController::class, 'index'])->middleware('permission:roles.view');
+    Route::get('/permissions', [RoleController::class, 'allPermissions'])->middleware('permission:roles.view');
+
+    Route::post('/roles', [RoleController::class, 'store'])
+        ->middleware('permission:users.roles.assign');
+    Route::put('/roles/{role}/permissions', [RoleController::class, 'updatePermissions'])
+        ->middleware('permission:users.roles.assign');
+    Route::delete('/roles/{role}', [RoleController::class, 'destroy'])
+        ->middleware('permission:users.roles.assign');
 
     // Subscriptions
     Route::get('/subscriptions', [SubscriptionController::class, 'index'])->middleware('permission:students.view');
-    Route::post('/subscriptions', [SubscriptionController::class, 'store'])->middleware('permission:students.edit');
+    Route::post('/subscriptions', [SubscriptionController::class, 'store'])->middleware('permission:students.update');
     Route::get('/subscriptions/{subscription}', [SubscriptionController::class, 'show'])->middleware('permission:students.view');
-    Route::put('/subscriptions/{subscription}', [SubscriptionController::class, 'update'])->middleware('permission:students.edit');
-    Route::delete('/subscriptions/{subscription}', [SubscriptionController::class, 'destroy'])->middleware('permission:students.edit');
+    Route::put('/subscriptions/{subscription}', [SubscriptionController::class, 'update'])->middleware('permission:students.update');
+    Route::delete('/subscriptions/{subscription}', [SubscriptionController::class, 'destroy'])->middleware('permission:students.update');
 
     // المعالجة اليومية — نفس اللي بيحصل بالأمر التلقائي، عشان
     // الأدمن يشغّلها بإيده لما يفضّل
     Route::post('/subscriptions/process-day', [SubscriptionController::class, 'processDay'])
-        ->middleware('permission:students.edit');
+        ->middleware('permission:students.update');
 
     // ===== واجهة ولي الأمر =====
     // البراوت يضمن إن الحساب ده ولي أمر فعلاً. وكمان الـ controller
@@ -295,57 +446,59 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/schedule', [LessonController::class, 'schedule'])->middleware('permission:lessons.view');
     Route::post('/lessons', [LessonController::class, 'store'])->middleware('permission:lessons.create');
     Route::post('/lessons/recurring', [LessonController::class, 'storeRecurring'])->middleware('permission:lessons.create');
-    Route::put('/lessons/{lesson}', [LessonController::class, 'update'])->middleware('permission:lessons.edit');
+    Route::put('/lessons/{lesson}', [LessonController::class, 'update'])->middleware('permission:lessons.update');
     Route::post('/lessons/{lesson}/cancel', [LessonController::class, 'cancel'])->middleware('permission:lessons.cancel');
     Route::post('/lessons/{lesson}/makeup', [LessonController::class, 'makeup'])->middleware('permission:lessons.create');
-    Route::post('/lessons/{lesson}/complete', [LessonController::class, 'complete'])->middleware('permission:lessons.edit');
-    Route::post('/lessons/{lesson}/attendance', [LessonController::class, 'attendance'])->middleware('permission:lessons.edit');
-    Route::post('/lessons/{lesson}/memorization', [LessonController::class, 'memorization'])->middleware('permission:lessons.edit');
+    Route::post('/lessons/{lesson}/complete', [LessonController::class, 'complete'])->middleware('permission:lessons.update');
+    Route::post('/lessons/{lesson}/attendance', [LessonController::class, 'attendance'])->middleware('permission:lessons.update');
+    Route::post('/lessons/{lesson}/memorization', [LessonController::class, 'memorization'])->middleware('permission:lessons.update');
 
     // Invoices
-    Route::get('/invoices', [InvoiceController::class, 'index'])->middleware('permission:payments.view');
-    Route::post('/invoices', [InvoiceController::class, 'store'])->middleware('permission:payments.create');
-    Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->middleware('permission:payments.view');
-    Route::put('/invoices/{invoice}', [InvoiceController::class, 'update'])->middleware('permission:payments.edit');
-    Route::delete('/invoices/{invoice}', [InvoiceController::class, 'destroy'])->middleware('permission:payments.edit');
+    Route::get('/invoices', [InvoiceController::class, 'index'])->middleware('permission:finance.payments.view');
+    Route::post('/invoices', [InvoiceController::class, 'store'])->middleware('permission:finance.payments.create');
+    Route::get('/invoices/{invoice}', [InvoiceController::class, 'show'])->middleware('permission:finance.payments.view');
+    Route::put('/invoices/{invoice}', [InvoiceController::class, 'update'])->middleware('permission:finance.payments.update');
+    Route::delete('/invoices/{invoice}', [InvoiceController::class, 'destroy'])->middleware('permission:finance.payments.update');
 
     // Payments
-    Route::get('/payments', [PaymentController::class, 'index'])->middleware('permission:payments.view');
-    Route::post('/payments', [PaymentController::class, 'store'])->middleware('permission:payments.create');
-    Route::get('/payments/{payment}', [PaymentController::class, 'show'])->middleware('permission:payments.view');
-    Route::post('/payments/{payment}/refund', [PaymentController::class, 'refund'])->middleware('permission:payments.refund');
-    Route::get('/payments/{payment}/refunds', [PaymentController::class, 'refunds'])->middleware('permission:payments.view');
+    Route::get('/payments', [PaymentController::class, 'index'])->middleware('permission:finance.payments.view');
+    Route::post('/payments', [PaymentController::class, 'store'])->middleware('permission:finance.payments.create');
+    Route::get('/payments/{payment}', [PaymentController::class, 'show'])->middleware('permission:finance.payments.view');
+    Route::post('/payments/{payment}/refund', [PaymentController::class, 'refund'])
+        ->middleware('permission:finance.payments.refund');
+    Route::get('/payments/{payment}/refunds', [PaymentController::class, 'refunds'])->middleware('permission:finance.payments.view');
     // ⭐ توزيع الدفعة على فواتير — القاعدة 5 من الخطة
-    Route::post('/payments/{payment}/allocate', [PaymentController::class, 'allocate'])->middleware('permission:payments.edit');
+    Route::post('/payments/{payment}/allocate', [PaymentController::class, 'allocate'])->middleware('permission:finance.payments.update');
 
     // ⭐ الرصيد الدائن
-    Route::get('/student-credits', [StudentCreditController::class, 'index'])->middleware('permission:payments.view');
-    Route::post('/student-credits', [StudentCreditController::class, 'store'])->middleware('permission:payments.create');
-    Route::post('/student-credits/{studentCredit}/apply', [StudentCreditController::class, 'apply'])->middleware('permission:payments.edit');
-    Route::post('/student-credits/{studentCredit}/refund', [StudentCreditController::class, 'refund'])->middleware('permission:payments.refund');
+    Route::get('/student-credits', [StudentCreditController::class, 'index'])->middleware('permission:finance.payments.view');
+    Route::post('/student-credits', [StudentCreditController::class, 'store'])->middleware('permission:finance.payments.create');
+    Route::post('/student-credits/{studentCredit}/apply', [StudentCreditController::class, 'apply'])->middleware('permission:finance.payments.update');
+    Route::post('/student-credits/{studentCredit}/refund', [StudentCreditController::class, 'refund'])
+        ->middleware('permission:finance.payments.refund');
 
     // ⭐ سياسة الحصص
-    Route::get('/lesson-policy', [LessonPolicyController::class, 'show'])->middleware('permission:settings.manage');
-    Route::put('/lesson-policy', [LessonPolicyController::class, 'update'])->middleware('permission:settings.manage');
+    Route::get('/lesson-policy', [LessonPolicyController::class, 'show'])->middleware('permission:settings.view');
+    Route::put('/lesson-policy', [LessonPolicyController::class, 'update'])->middleware('permission:settings.update');
 
     // ⭐ تصدير CSV (Excel-compatible)
-    Route::get('/exports/account-movements', [ExportController::class, 'accountMovements'])->middleware('permission:finance.movements');
-    Route::get('/exports/account-balances', [ExportController::class, 'accountBalances'])->middleware('permission:finance.accounts');
-    Route::get('/exports/invoices', [ExportController::class, 'invoices'])->middleware('permission:payments.view');
-    Route::get('/exports/expenses', [ExportController::class, 'expenses'])->middleware('permission:payments.view');
+    Route::get('/exports/account-movements', [ExportController::class, 'accountMovements'])->middleware('permission:finance.accounts.view');
+    Route::get('/exports/account-balances', [ExportController::class, 'accountBalances'])->middleware('permission:finance.accounts.view');
+    Route::get('/exports/invoices', [ExportController::class, 'invoices'])->middleware('permission:finance.payments.view');
+    Route::get('/exports/expenses', [ExportController::class, 'expenses'])->middleware('permission:finance.payments.view');
 
     // CRM — Leads
     Route::get('/leads', [LeadController::class, 'index'])->middleware('permission:leads.view');
     Route::post('/leads', [LeadController::class, 'store'])->middleware('permission:leads.create');
     Route::get('/leads/{lead}', [LeadController::class, 'show'])->middleware('permission:leads.view');
-    Route::put('/leads/{lead}', [LeadController::class, 'update'])->middleware('permission:leads.edit');
-    Route::put('/leads/{lead}/status', [LeadController::class, 'updateStatus'])->middleware('permission:leads.edit');
-    Route::delete('/leads/{lead}', [LeadController::class, 'destroy'])->middleware('permission:leads.edit');
+    Route::put('/leads/{lead}', [LeadController::class, 'update'])->middleware('permission:leads.update');
+    Route::put('/leads/{lead}/status', [LeadController::class, 'updateStatus'])->middleware('permission:leads.update');
+    Route::delete('/leads/{lead}', [LeadController::class, 'destroy'])->middleware('permission:leads.update');
 
     // CRM — Assessments
     Route::get('/assessments', [AssessmentController::class, 'index'])->middleware('permission:leads.view');
-    Route::post('/assessments', [AssessmentController::class, 'store'])->middleware('permission:leads.edit');
-    Route::put('/assessments/{assessment}/result', [AssessmentController::class, 'updateResult'])->middleware('permission:leads.edit');
+    Route::post('/assessments', [AssessmentController::class, 'store'])->middleware('permission:leads.update');
+    Route::put('/assessments/{assessment}/result', [AssessmentController::class, 'updateResult'])->middleware('permission:leads.update');
     Route::post('/assessments/{assessment}/convert', [AssessmentController::class, 'convert'])->middleware('permission:students.create');
 
     // Notifications
@@ -354,7 +507,7 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
 
     // Audit Logs
-    Route::get('/audit-logs', [AuditLogController::class, 'index'])->middleware('permission:settings.manage');
+    Route::get('/audit-logs', [AuditLogController::class, 'index'])->middleware('permission:audit.view');
 
     // Dashboard & Reports
     Route::get('/dashboard/summary', [ReportController::class, 'dashboardSummary'])->middleware('permission:reports.view');
@@ -363,63 +516,63 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/reports/sales', [ReportController::class, 'sales'])->middleware('permission:reports.view');
 
     // Settings
-    Route::get('/settings', [SettingController::class, 'index'])->middleware('permission:settings.manage');
-    Route::post('/settings', [SettingController::class, 'store'])->middleware('permission:settings.manage');
-    Route::delete('/settings/{key}', [SettingController::class, 'destroy'])->middleware('permission:settings.manage');
+    Route::get('/settings', [SettingController::class, 'index'])->middleware('permission:settings.view');
+    Route::post('/settings', [SettingController::class, 'store'])->middleware('permission:settings.update');
+    Route::delete('/settings/{key}', [SettingController::class, 'destroy'])->middleware('permission:settings.update');
 
     // Employees
     Route::get('/employees', [EmployeeController::class, 'index'])->middleware('permission:students.view');
-    Route::post('/employees', [EmployeeController::class, 'store'])->middleware('permission:students.edit');
+    Route::post('/employees', [EmployeeController::class, 'store'])->middleware('permission:students.update');
     Route::get('/employees/{employee}', [EmployeeController::class, 'show'])->middleware('permission:students.view');
-    Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->middleware('permission:students.edit');
-    Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->middleware('permission:students.edit');
+    Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->middleware('permission:students.update');
+    Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->middleware('permission:students.update');
     Route::get('/employees/{employee}/activity', [EmployeeController::class, 'activity'])->middleware('permission:students.view');
 
     // ===== الحضور والانصراف — كله على الأدمن =====
     // تسجيل الحضور — موظف الاستقبال والمشرف بيسجّلوا، الأدمن يشوف الكل.
     // كان على students.* وده غلط: حضور الموظفين مش part من الطلاب.
     Route::get('/attendance/day', [AttendanceController::class, 'day'])->middleware('permission:attendance.view');
-    Route::post('/attendance', [AttendanceController::class, 'store'])->middleware('permission:attendance.manage');
+    Route::post('/attendance', [AttendanceController::class, 'store'])->middleware('permission:attendance.update');
     Route::get('/employees/{employee}/attendance-month', [AttendanceController::class, 'month'])->middleware('permission:attendance.view');
 
     // ===== مرتبات الموظفين بالساعات =====
     // الاحتساب بيقرأ الحضور المسجّل، والـ `payroll_periods` جدول
     // مشترك مع مرتبات المعلمين — الفترة الواحدة فيها الاتنين.
-    Route::get('/payroll/periods', [EmployeePayrollController::class, 'periods'])->middleware('permission:payroll.manage');
-    Route::post('/payroll/periods', [EmployeePayrollController::class, 'createPeriod'])->middleware('permission:payroll.manage');
-    Route::get('/payroll/periods/{period}/lines', [EmployeePayrollController::class, 'lines'])->middleware('permission:payroll.manage');
-    Route::get('/payroll/periods/{period}/report', [EmployeePayrollController::class, 'report'])->middleware('permission:payroll.manage');
-    Route::post('/payroll/periods/{period}/generate', [EmployeePayrollController::class, 'generate'])->middleware('permission:payroll.manage');
-    Route::post('/payroll/periods/{period}/approve', [EmployeePayrollController::class, 'approve'])->middleware('permission:payroll.manage');
+    Route::get('/payroll/periods', [EmployeePayrollController::class, 'periods'])->middleware('permission:payroll.periods.manage');
+    Route::post('/payroll/periods', [EmployeePayrollController::class, 'createPeriod'])->middleware('permission:payroll.periods.manage');
+    Route::get('/payroll/periods/{period}/lines', [EmployeePayrollController::class, 'lines'])->middleware('permission:payroll.periods.manage');
+    Route::get('/payroll/periods/{period}/report', [EmployeePayrollController::class, 'report'])->middleware('permission:payroll.periods.manage');
+    Route::post('/payroll/periods/{period}/generate', [EmployeePayrollController::class, 'generate'])->middleware('permission:payroll.periods.manage');
+    Route::post('/payroll/periods/{period}/approve', [EmployeePayrollController::class, 'approve'])->middleware('permission:payroll.periods.manage');
     // إقفال / إعادة فتح الفترة. الإقفال بيقفل الأرقام بس —
     // المدفوعات بتكمّل بعده (قرار «مرحلتين»).
-    Route::post('/payroll/periods/{period}/close', [EmployeePayrollController::class, 'close'])->middleware('permission:payroll.manage');
-    Route::post('/payroll/periods/{period}/reopen', [EmployeePayrollController::class, 'reopen'])->middleware('permission:payroll.manage');
-    Route::put('/payroll/lines/{line}', [EmployeePayrollController::class, 'updateLine'])->middleware('permission:payroll.manage');
-    Route::post('/payroll/lines/{line}/pay', [EmployeePayrollController::class, 'pay'])->middleware('permission:payroll.manage');
+    Route::post('/payroll/periods/{period}/close', [EmployeePayrollController::class, 'close'])->middleware('permission:payroll.periods.manage');
+    Route::post('/payroll/periods/{period}/reopen', [EmployeePayrollController::class, 'reopen'])->middleware('permission:payroll.periods.manage');
+    Route::put('/payroll/lines/{line}', [EmployeePayrollController::class, 'updateLine'])->middleware('permission:payroll.periods.manage');
+    Route::post('/payroll/lines/{line}/pay', [EmployeePayrollController::class, 'pay'])->middleware('permission:payroll.payments.create');
 
     // ===== مرتبات المعلمين =====
     // نفس الدورة بالظبط، والفرق في الإحساس: المعلمين بالحصة أو
     // راتب شهري، مش بالساعة. الجدول منفصل (`teacher_payroll_lines`)
     // لأن `teacher_earnings` هو المستحق مش السطر القابل للدفع.
-    Route::get('/teacher-payroll/periods', [TeacherPayrollController::class, 'periods'])->middleware('permission:payroll.manage');
-    Route::get('/teacher-payroll/periods/{period}/lines', [TeacherPayrollController::class, 'lines'])->middleware('permission:payroll.manage');
-    Route::get('/teacher-payroll/periods/{period}/report', [TeacherPayrollController::class, 'report'])->middleware('permission:payroll.manage');
-    Route::post('/teacher-payroll/periods/{period}/generate', [TeacherPayrollController::class, 'generate'])->middleware('permission:payroll.manage');
-    Route::post('/teacher-payroll/periods/{period}/approve', [TeacherPayrollController::class, 'approve'])->middleware('permission:payroll.manage');
-    Route::post('/teacher-payroll/periods/{period}/close', [TeacherPayrollController::class, 'close'])->middleware('permission:payroll.manage');
-    Route::post('/teacher-payroll/periods/{period}/reopen', [TeacherPayrollController::class, 'reopen'])->middleware('permission:payroll.manage');
-    Route::put('/teacher-payroll/lines/{line}', [TeacherPayrollController::class, 'updateLine'])->middleware('permission:payroll.manage');
-    Route::post('/teacher-payroll/lines/{line}/pay', [TeacherPayrollController::class, 'pay'])->middleware('permission:payroll.manage');
+    Route::get('/teacher-payroll/periods', [TeacherPayrollController::class, 'periods'])->middleware('permission:payroll.periods.manage');
+    Route::get('/teacher-payroll/periods/{period}/lines', [TeacherPayrollController::class, 'lines'])->middleware('permission:payroll.periods.manage');
+    Route::get('/teacher-payroll/periods/{period}/report', [TeacherPayrollController::class, 'report'])->middleware('permission:payroll.periods.manage');
+    Route::post('/teacher-payroll/periods/{period}/generate', [TeacherPayrollController::class, 'generate'])->middleware('permission:payroll.periods.manage');
+    Route::post('/teacher-payroll/periods/{period}/approve', [TeacherPayrollController::class, 'approve'])->middleware('permission:payroll.periods.manage');
+    Route::post('/teacher-payroll/periods/{period}/close', [TeacherPayrollController::class, 'close'])->middleware('permission:payroll.periods.manage');
+    Route::post('/teacher-payroll/periods/{period}/reopen', [TeacherPayrollController::class, 'reopen'])->middleware('permission:payroll.periods.manage');
+    Route::put('/teacher-payroll/lines/{line}', [TeacherPayrollController::class, 'updateLine'])->middleware('permission:payroll.periods.manage');
+    Route::post('/teacher-payroll/lines/{line}/pay', [TeacherPayrollController::class, 'pay'])->middleware('permission:payroll.payments.create');
 
     // ⭐ الخزائن والحسابات + دفتر الحركات
     //
     // ⚠️ ترتيب مهم: `/accounts/movements` و `/accounts/transfer`
     // **قبل** `/accounts/{account}` — لو العكس، Laravel هياخد
     // «movements» كـ id وهيرمي 404.
-    Route::get('/accounts', [FinancialAccountController::class, 'index'])->middleware('permission:finance.accounts');
-    Route::post('/accounts', [FinancialAccountController::class, 'store'])->middleware('permission:finance.accounts');
-    Route::get('/accounts/movements', [FinancialAccountController::class, 'movements'])->middleware('permission:finance.movements');
+    Route::get('/accounts', [FinancialAccountController::class, 'index'])->middleware('permission:finance.accounts.view');
+    Route::post('/accounts', [FinancialAccountController::class, 'store'])->middleware('permission:finance.accounts.manage');
+    Route::get('/accounts/movements', [FinancialAccountController::class, 'movements'])->middleware('permission:finance.accounts.view');
 
     // ⭐ التحويل بياخد `finance.movements` — **مش** صلاحية جديدة.
     //
@@ -427,42 +580,58 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     // خرجت» — هو حركتين داخل الدفتر نفسه. فاللي يقدر يسجّل
     // حركة يقدر يسجّل التحويل، والحساب (accountant) يقدر
     // ينقل من الخزينة للبنك من غير ما نعمل صلاحية زيادة.
-    Route::post('/accounts/transfer', [FinancialAccountController::class, 'transfer'])->middleware('permission:finance.movements');
+    Route::post('/accounts/transfer', [FinancialAccountController::class, 'transfer'])->middleware('permission:finance.movements.create');
 
     // ⭐⭐ العكس — **المدير بس**، زي فتح الفترات.
     // الحساب (accountant) **مالوش** `finance.reverse`.
-    Route::post('/movements/{movement}/reverse', [FinancialAccountController::class, 'reverse'])->middleware('permission:finance.reverse');
+    Route::post('/movements/{movement}/reverse', [FinancialAccountController::class, 'reverse'])
+        ->middleware('permission:finance.movements.reverse');
 
-    Route::get('/period-locks', [FinancialAccountController::class, 'locks'])->middleware('permission:finance.movements');
+    Route::get('/period-locks', [FinancialAccountController::class, 'locks'])->middleware('permission:finance.accounts.view');
     Route::post('/period-locks', [FinancialAccountController::class, 'lockPeriod'])->middleware('permission:finance.periods.lock');
-    Route::post('/period-locks/{lock}/unlock', [FinancialAccountController::class, 'unlockPeriod'])->middleware('permission:finance.periods.unlock');
+    Route::post('/period-locks/{lock}/unlock', [FinancialAccountController::class, 'unlockPeriod'])
+        ->middleware('permission:finance.periods.unlock');
 
-    Route::get('/accounts/{account}', [FinancialAccountController::class, 'show'])->middleware('permission:finance.accounts');
-    Route::put('/accounts/{account}', [FinancialAccountController::class, 'update'])->middleware('permission:finance.accounts');
+    Route::get('/accounts/{account}', [FinancialAccountController::class, 'show'])->middleware('permission:finance.accounts.view');
+    Route::put('/accounts/{account}', [FinancialAccountController::class, 'update'])->middleware('permission:finance.accounts.manage');
 
-    // Expenses
-    Route::get('/expenses', [ExpenseController::class, 'index']);
-    Route::post('/expenses', [ExpenseController::class, 'store']);
+    // ===== المصروفات =====
+    // ⚠️ دي كانت تحت auth:sanctum بس — أي حد داخل يقدر يشوف
+    // مصروفات ويسجّل مصروف. `RouteProtectionTest` بيحرس السطور دي.
+    Route::get('/expenses', [ExpenseController::class, 'index'])
+        ->middleware('permission:finance.expenses.view');
+    Route::post('/expenses', [ExpenseController::class, 'store'])
+        ->middleware('permission:finance.expenses.create');
 
     // Teacher Earnings & Payments
-    Route::get('/teacher-earnings', [TeacherEarningController::class, 'index']);
-    Route::get('/teacher-payments', [TeacherPaymentController::class, 'index']);
+    // ⭐ `payroll.view` للقراءة بس. الصرف والاعتماد محتاجين
+    // `payroll.manage` — دي منفصلة عن قصد.
+    Route::get('/teacher-earnings', [TeacherEarningController::class, 'index'])
+        ->middleware('permission:payroll.view');
+    Route::get('/teacher-payments', [TeacherPaymentController::class, 'index'])
+        ->middleware('permission:payroll.view');
 
-    // Parents
-    Route::get('/parents', [ParentController::class, 'index']);
-    Route::post('/parents', [ParentController::class, 'store']);
+    // ===== أولياء الأمور =====
+    // ⚠️ `POST /parents` = إنشاء **صلاحية وصول** لحد يشوف بيانات
+    // الأبناء — فمفصولة عن القراءة.
+    Route::get('/parents', [ParentController::class, 'index'])
+        ->middleware('permission:parents.view');
+    Route::post('/parents', [ParentController::class, 'store'])
+        ->middleware('permission:parents.create');
 
-    // Student Phones
-    Route::get('/students/{student}/phones', [StudentPhoneController::class, 'index']);
-    Route::post('/students/{student}/phones', [StudentPhoneController::class, 'store']);
-    Route::post('/students/{student}/phones/bulk', [StudentPhoneController::class, 'bulkStore']);
-    Route::put('/students/{student}/phones/{phone}', [StudentPhoneController::class, 'update']);
-    Route::delete('/students/{student}/phones/{phone}', [StudentPhoneController::class, 'destroy']);
-    Route::post('/students/{student}/phones/{phone}/set-primary', [StudentPhoneController::class, 'setPrimary']);
-    Route::post('/students/{student}/phones/{phone}/toggle', [StudentPhoneController::class, 'toggleField']);
-    Route::get('/parents/search', [StudentPhoneController::class, 'searchParents']);
-    Route::get('/students/{student}/parents', [StudentPhoneController::class, 'listParents']);
-    Route::post('/students/{student}/parents/{parent}/set-primary', [StudentPhoneController::class, 'setPrimaryParent']);
-    Route::get('/phones/search', [StudentPhoneController::class, 'search']);
-    Route::get('/phones/search/parent', [StudentPhoneController::class, 'searchByParentPhone']);
+    // ===== هواتف الطلاب والربط بالأبناء =====
+    // ⚠️ `/phones/search` بتجيب **أهل** الطالب من رقمه — فدي حساسية
+    // بيانات ولي الأمر مش الطالب بس.
+    Route::get('/students/{student}/phones', [StudentPhoneController::class, 'index'])->middleware('permission:students.phones.manage');
+    Route::post('/students/{student}/phones', [StudentPhoneController::class, 'store'])->middleware('permission:students.phones.manage');
+    Route::post('/students/{student}/phones/bulk', [StudentPhoneController::class, 'bulkStore'])->middleware('permission:students.phones.manage');
+    Route::put('/students/{student}/phones/{phone}', [StudentPhoneController::class, 'update'])->middleware('permission:students.phones.manage');
+    Route::delete('/students/{student}/phones/{phone}', [StudentPhoneController::class, 'destroy'])->middleware('permission:students.phones.manage');
+    Route::post('/students/{student}/phones/{phone}/set-primary', [StudentPhoneController::class, 'setPrimary'])->middleware('permission:students.phones.manage');
+    Route::post('/students/{student}/phones/{phone}/toggle', [StudentPhoneController::class, 'toggleField'])->middleware('permission:students.phones.manage');
+    Route::get('/parents/search', [StudentPhoneController::class, 'searchParents'])->middleware('permission:parents.view');
+    Route::get('/students/{student}/parents', [StudentPhoneController::class, 'listParents'])->middleware('permission:parents.view');
+    Route::post('/students/{student}/parents/{parent}/set-primary', [StudentPhoneController::class, 'setPrimaryParent'])->middleware('permission:parents.create');
+    Route::get('/phones/search', [StudentPhoneController::class, 'search'])->middleware('permission:students.phones.manage');
+    Route::get('/phones/search/parent', [StudentPhoneController::class, 'searchByParentPhone'])->middleware('permission:students.phones.manage');
 });

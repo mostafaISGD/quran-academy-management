@@ -528,7 +528,7 @@ class PricingPlansTest extends TestCase
      */
     public function test_admin_can_change_a_price(): void
     {
-        $admin = $this->makeUserWithRole('admin', ['pricing.manage']);
+        $admin = $this->makeUserWithRole('admin', ['pricing.plans.manage']);
         $plan = $this->packages()->where('category', 'traditional')
             ->where('lesson_duration_minutes', 30)
             ->where('lessons_count', 8)
@@ -544,7 +544,7 @@ class PricingPlansTest extends TestCase
     /** ⭐ السعر بيفضل **رقم** — مش نص ولا ٣٧٥٫٠٠ ج */
     public function test_the_returned_price_is_a_number_not_a_formatted_string(): void
     {
-        $admin = $this->makeUserWithRole('admin', ['pricing.manage']);
+        $admin = $this->makeUserWithRole('admin', ['pricing.plans.manage']);
         $plan = $this->packages()->firstOrFail();
 
         $r = $this->putJson("/api/pricing/{$plan->id}", ['price' => '399.5'], $this->authHeaders($admin));
@@ -558,7 +558,7 @@ class PricingPlansTest extends TestCase
     /** ⭐ صفر مسموح — حصة مجانية ممكنة */
     public function test_zero_price_is_allowed(): void
     {
-        $admin = $this->makeUserWithRole('admin', ['pricing.manage']);
+        $admin = $this->makeUserWithRole('admin', ['pricing.plans.manage']);
         $plan = $this->packages()->firstOrFail();
 
         $this->putJson("/api/pricing/{$plan->id}", ['price' => 0], $this->authHeaders($admin))
@@ -569,7 +569,7 @@ class PricingPlansTest extends TestCase
     /** ⭐ السعر السالب مرفوض — برسالة عربية */
     public function test_negative_price_is_rejected_in_arabic(): void
     {
-        $admin = $this->makeUserWithRole('admin', ['pricing.manage']);
+        $admin = $this->makeUserWithRole('admin', ['pricing.plans.manage']);
         $plan = $this->packages()->firstOrFail();
 
         $this->putJson("/api/pricing/{$plan->id}", ['price' => -5], $this->authHeaders($admin))
@@ -589,7 +589,7 @@ class PricingPlansTest extends TestCase
     /** ⭐ من غير سعر خالص — مرفوض */
     public function test_price_is_required(): void
     {
-        $admin = $this->makeUserWithRole('admin', ['pricing.manage']);
+        $admin = $this->makeUserWithRole('admin', ['pricing.plans.manage']);
         $plan = $this->packages()->firstOrFail();
 
         $this->putJson("/api/pricing/{$plan->id}", [], $this->authHeaders($admin))
@@ -613,8 +613,11 @@ class PricingPlansTest extends TestCase
 
         $plan = $this->packages()->firstOrFail();
 
+        // ⭐⭐ **وضع المستخدم الواحد**: مافيش «حد بلا حساب» يبقى
+        // 401. الطلب بيروح للأدمن التلقائي — وهو **مالوش**
+        // `pricing.plans.manage` فالرد 403: التعديل لسه مقفول.
         $this->putJson("/api/pricing/{$plan->id}", ['price' => 1])
-            ->assertStatus(401);
+            ->assertStatus(403);
     }
 
     /** ⭐ المحاسب والاستقبال **مش** يعدّلوا أسعار */
@@ -639,7 +642,7 @@ class PricingPlansTest extends TestCase
     /** ⭐ الباقة القديمة (ليها برنامج) مش بتتعدّل — فيها اشتراكات */
     public function test_a_plan_attached_to_a_program_cannot_be_edited(): void
     {
-        $admin = $this->makeUserWithRole('admin', ['pricing.manage']);
+        $admin = $this->makeUserWithRole('admin', ['pricing.plans.manage']);
 
         $plan = SubscriptionPlan::create([
             'organization_id' => $this->org->id,

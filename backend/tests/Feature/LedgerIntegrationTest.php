@@ -20,7 +20,7 @@ use Tests\TestCase;
  *    يعني «صافي التشغيل» في التقرير كان **غلط**: المعلم اتدفع
  *    والمصروف ده ما ظهرش خالص.
  *
- *  • **الاسترداد** — نفس الكلام. الخزن�� نقصت وقت التحصيل،
+ *    • **الاسترداد** — نفس الكلام. الخزنة نقصت وقت التحصيل،
  *    وبعدين رجعنا للطالب من غير تسجيل خروج.
  *
  *  • **المصروف** — بيتخزن `pending` دايماً (مفيش endpoint
@@ -33,9 +33,14 @@ class LedgerIntegrationTest extends TestCase
     private function accountant()
     {
         return $this->makeUserWithRole('accountant', [
-            'payments.view', 'payments.create', 'payments.refund',
-            'payroll.manage', 'students.view',
-            'finance.view', 'finance.movements', 'finance.accounts',
+            'finance.payments.view', 'finance.payments.create', 'finance.payments.refund',
+            'payroll.periods.manage', 'payroll.payments.create', 'students.view',
+            'finance.accounts.view', 'finance.movements.create', 'finance.accounts.manage',
+
+            // ⭐ المصروفات — راوتس كانت **مفتوحة** قبل PR 0.1
+            // (auth:sanctum من غير permission)، فاختبارات المصروفات
+            // هنا كانت بتعدّي من غير ما تطلب صلاحية. دلوقتي محمية.
+            'finance.expenses.view', 'finance.expenses.create',
         ]);
     }
 
@@ -201,10 +206,13 @@ class LedgerIntegrationTest extends TestCase
         $paymentId = $payment->json('id');
         $this->assertSame(1500.0, $account->fresh()->balance());
 
+        $accountant = $this->accountant();
+
+
         $r = $this->postJsonAs("/api/payments/{$paymentId}/refund", [
             'amount' => 500,
             'reason' => 'ألغى الاشتراك',
-        ], $this->accountant());
+        ], $accountant);
 
         $r->assertCreated();
         $r->assertJsonPath('ledger.recorded', true);

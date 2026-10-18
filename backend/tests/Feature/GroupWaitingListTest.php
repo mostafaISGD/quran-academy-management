@@ -815,8 +815,11 @@ class GroupWaitingListTest extends TestCase
         // ⭐ المجموعة دي: فيه مقعدين فاضيين وفيه ناس ⇒ ⭐ تنبيه
         $this->assertTrue($g1->fresh()->hasWaitingAndSpace());
 
-        // ① من غير حساب = 401
-        $this->getJson('/api/groups/alerts')->assertStatus(401);
+        // ① من غير حساب = الأدمن التلقائي (وضع المستخدم الواحد):
+//    مافيش ضيوف، فالطلب بيتعامل معاه كطلب داخل — و`admin` من
+//    الـfixture ده **مالوش** `groups.manage` فالرد 403 زي بدور
+//    من غير صلاحية بالظبط.
+$this->getJson('/api/groups/alerts')->assertStatus(403);
 
         // ② بدور من غير صلاحية = 403
         $this->getJson('/api/groups/alerts', $this->authHeaders($reception))->assertStatus(403);

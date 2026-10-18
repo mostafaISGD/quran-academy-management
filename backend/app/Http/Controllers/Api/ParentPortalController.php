@@ -12,7 +12,7 @@ use Illuminate\Http\Request;
 /**
  * صفحة ولي الأمر.
  *
- * المبدأ: البا��ة ترجع بيانات الأبناء المسجّلين عند ولي الأمر بس.
+ * المبدأ: الصفحة ترجع بيانات الأبناء المسجّلين عند ولي الأمر بس.
  * كل استعلام بيبدأ من `parents.user_id = المستخدم الحالي` — فمفيش
  * أي طريقة نعدّل الـ id ونشوف طالب تاني.
  */
@@ -92,6 +92,23 @@ class ParentPortalController extends Controller
 
             $subscription = ($subscriptions[$studentId] ?? collect())->first();
 
+            /**
+             * ⚡⭐ أعلام الربط (PR 1.8).
+             *
+             * `can_view_finance` / `can_view_progress` كانت أعمدة
+             * مقترحة من غير قارئ — من اليوم ده البورتال بيحترمها:
+             *
+             * - المال (`outstanding` + `lesson_credit`) بيظهر فقط
+             *   مع `can_view_finance=true` (الافتراضي true يحفظ
+             *   السلوك الحالي لكل والدين قائمين).
+             * - الحصص القادمة بيظهر فقط مع `can_view_progress=true`.
+             *
+             * الطلب المستقبلي (تعليق حصة...) هيتحكم فيه
+             * `can_request_changes` في PR 4.5.
+             */
+            $canViewFinance = (bool) $student->pivot->can_view_finance;
+            $canViewProgress = (bool) $student->pivot->can_view_progress;
+
             return [
                 'student' => [
                     'id' => $studentId,
@@ -102,8 +119,8 @@ class ParentPortalController extends Controller
                 ],
                 'relationship' => $link['relationship'],
                 'subscription' => $subscription ? $this->subscriptionView($subscription) : null,
-                'lesson_credit' => ($credits[$studentId] ?? null),
-                'upcoming_lessons' => ($upcoming[$studentId] ?? collect())
+                'lesson_credit' => $canViewFinance ? ($credits[$studentId] ?? null) : null,
+                'upcoming_lessons' => $canViewProgress ? ($upcoming[$studentId] ?? collect())
                     ->take(12)
                     ->map(fn (Lesson $lesson) => [
                         'id' => $lesson->id,
@@ -112,10 +129,10 @@ class ParentPortalController extends Controller
                         'status' => $lesson->status,
                     ])
                     ->values()
-                    ->all(),
-                'outstanding' => $outstanding[$studentId] ?? [
+                    ->all() : [],
+                'outstanding' => $canViewFinance ? ($outstanding[$studentId] ?? [
                     'invoices' => 0, 'total' => 0.0, 'currency' => 'EGP',
-                ],
+                ]) : null,
             ];
         })->values();
 

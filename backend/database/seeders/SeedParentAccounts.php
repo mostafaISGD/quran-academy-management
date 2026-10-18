@@ -18,13 +18,18 @@ use Illuminate\Support\Facades\Hash;
  *
  * التشغيل: php artisan db:seed --class=SeedParentAccounts
  */
+use Database\Seeders\Concerns\RefusesToRunInProduction;
+
 class SeedParentAccounts extends Seeder
 {
+    use RefusesToRunInProduction;
     /** كلمة المرور الموحّدة للحسابات التجريبية */
     private const PASSWORD = 'password';
 
     public function run(): void
     {
+        $this->guardProduction('SeedParentAccounts');
+
         $now = now();
 
         // الإيميلات اللي مستخدمة فعلاً — عشان لو ولي أمر إيميلو
@@ -38,6 +43,23 @@ class SeedParentAccounts extends Seeder
         $linked = 0;
         $noEmail = 0;
         $emailClash = 0;
+        $phoneClash = 0;
+
+        // ⭐⭐ الأرقام المأخوذة — **مش بس الإيميلات**.
+        //
+        // ⭐ PR 1.3 عمل قيد تفرّد عام عل `users.phone`. قبلها كان
+        // ممكن نفس الرقم يبقى في كذا حساب بصمت. دلوقتي أي تكرار
+        // بيرمي `UniqueConstraintViolationException` — **في نص
+        // الـseeder**، فالداتابيز بتتقفل نص مكسور.
+        //
+        // ⭐ فبنحجز الرقم قبل الكتابة، ونتخطى السطر. السطر ده
+        // بيشيل بيبقى ليه حساب **بدون** رابط لولي أمر — وده أقل
+        // ضرراً من إيقاف الـseed كله.
+        $takenPhones = DB::table('users')
+            ->whereNotNull('phone')
+            ->pluck('phone')
+            ->mapWithKeys(fn ($p) => [(string) $p => true])
+            ->all();
 
         $parents = DB::table('parents')->whereNull('user_id')->get();
 
@@ -56,22 +78,42 @@ class SeedParentAccounts extends Seeder
                 continue;
             }
 
+            // ⭐ الرقم مستخدم — نفس المعالجة. ⭐ `null` مسموح
+            // في قيد التفرّد، فحساب من غير رقم مفيش مشكلة.
+            $phone = $parent->phone !== null && $parent->phone !== ''
+                ? (string) $parent->phone
+                : null;
+
+            if ($phone !== null && isset($takenPhones[$phone])) {
+                $phoneClash++;
+                continue;
+            }
+
             $userId = DB::table('users')->insertGetId([
                 'organization_id' => 1,
                 'name' => $parent->name,
                 'email' => $email,
-                'phone' => $parent->phone,
+                'phone' => $phone,
                 'password' => Hash::make(self::PASSWORD),
                 'timezone' => 'Africa/Cairo',
                 'locale' => 'ar',
                 'job_title' => 'ولي أمر',
                 'department' => null,
                 'status' => 'active',
-                'is_parent' => true,
+                // ⭐⭐ **مافيش `is_parent`** — بقى مشتقّ (PR 1.3).
+                //
+                // ⭐ `DB::table()` بيتخطّي الـaccessor والـsetter،
+                // فكان ممكن نكتب العمود «Webpack» وهو بقى مش
+                // قابل للقراءة من الـModel. السطر ده كان بيكتب
+                // قيمة **مش بتتقرا** — كود ميت.
                 'email_verified_at' => $now,
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
+
+            if ($phone !== null) {
+                $takenPhones[$phone] = true;
+            }
 
             $takenEmails[$email] = true;
 
@@ -91,6 +133,12 @@ class SeedParentAccounts extends Seeder
         }
         if ($emailClash > 0) {
             $this->command?->warn("⚠️  {$emailClash} إيميل مستخدم بحساب تاني — اتخطّى");
+        }
+
+        // ⭐ رقم مستخدم بحساب تاني — سطر اتخطّى فعلاً، فالعدد قلّ.
+        // وده **مش** bug، ده سلوك مقصود بعد قيد التفرّد.
+        if ($phoneClash > 0) {
+            $this->command?->warn("⚠️  {$phoneClash} رقم موبايل مستخدم بحساب تاني — اتخطّى");
         }
         if ($created === 0) {
             $this->command?->info('   كل أولياء الأمور ليهم حسابات بالفعل');
