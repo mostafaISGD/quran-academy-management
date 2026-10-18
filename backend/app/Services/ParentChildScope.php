@@ -51,8 +51,16 @@ final class ParentChildScope
             : $user->parentProfile()->first();
 
         if ($parent) {
+            // ⭐⭐⭐ **الرابط المؤكد بس** (PR 1.11): لو لقيت حد بنفس
+            // الرقم وربط اتسجل، هو ده **معايا لحد ما الموظف يأكّد**.
+            // الفلتر ده في *كل* قارئ — هنا وفي `flag()` — لأن أي
+            // قارئ تاني غير ده = باب مفتوح (انتحال صفة ورقية).
             $scopes[] = Student::query()
-                ->whereHas('parents', fn ($q) => $q->where('parents.id', $parent->id))
+                ->whereHas(
+                    'parents',
+                    fn ($q) => $q->where('parents.id', $parent->id)
+                        ->where('student_parents.status', ParentLinker::STATUS_VERIFIED)
+                )
                 ->pluck('students.id')
                 ->all();
         }
@@ -110,7 +118,10 @@ final class ParentChildScope
         $row = DB::table('student_parents')
             ->where('parent_id', $parent->id)
             ->where('student_id', $studentId)
-            ->first(['parent_id', 'student_id', $flag]);
+            // ⭐ رابط معلّق = مافيش أي صلاحية، حتى لو `can_manage`
+            // في الصف (صف قديم اتعمل قبل الـmigration).
+            ->where('status', ParentLinker::STATUS_VERIFIED)
+            ->first(['parent_id', 'student_id', 'status', $flag]);
 
         // ⭐ لا ربط → لا علم.
         return (bool) ($row?->$flag ?? false);

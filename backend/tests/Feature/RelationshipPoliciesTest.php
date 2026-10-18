@@ -350,9 +350,14 @@ class RelationshipPoliciesTest extends TestCase
         $user = $this->makeUser();
         $parent = $this->makeParentProfile($user);
 
+        // ⚠️ `status = verified` **مطلوب** من PR 1.11: الربط اللي
+        // محددش أكده = `pending_verification`، والـ`ParentChildScope`
+        // بيقفل على المؤكد بس. والـfixture هنا بتمثّل **ربط موظف
+        // أكّده** — مش رقم مكرر حد أرسله.
         $student->parents()->attach($parent->id, $pivot + [
             'relationship' => 'father',
             'is_primary' => true,
+            'status' => 'verified',
         ]);
 
         $this->assignRole($user, 'parent-linked', [

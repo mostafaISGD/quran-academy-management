@@ -12,9 +12,9 @@ import {
   getAvailableTeachers,
   getAttendanceReport, getSubscriptionReport,
   searchParents, PARENT_RELATIONSHIPS, parentRelationshipLabel,
-  getStudentParents, setPrimaryParent,
+  getStudentParents, setPrimaryParent, verifyParentLink, rejectParentLink,
   type Student, type Teacher, type Program, type Subscription, type Lesson, type StudentPhone,
-  type StudentParent,
+  type StudentParent, type PendingParentLink,
 } from "@/lib/api";
 import { usePage, useResetPageOnChange } from "@/lib/use-page";
 import Pagination from "@/components/Pagination";
@@ -1139,23 +1139,59 @@ export default function StudentsPage() {
    */
   const fetchGuardians = useCallback(async () => {
     const r = await getStudentParents(selectedStudent!.id);
-    return r.data;
+
+    // نرجّع **الاثنين** مع بعض (PR 1.11):链表 المؤكدة والمعلّقة.
+    return { data: r.data, pending: r.pending ?? [] };
   }, [selectedStudent]);
 
   const studentTabIsGuardians = studentTab === "guardians";
 
   const {
-    data: guardiansData,
+    data: guardiansResult,
     loading: guardiansLoading,
     reload: reloadGuardians,
-  } = usePage<StudentParent[]>(
+  } = usePage<{ data: StudentParent[]; pending: PendingParentLink[] }>(
     `guardians:${selectedStudent?.id ?? "none"}`,
     fetchGuardians,
-    { enabled: !!selectedStudent && studentTabIsGuardians, initial: [] as StudentParent[] },
+    {
+      enabled: !!selectedStudent && studentTabIsGuardians,
+      initial: { data: [] as StudentParent[], pending: [] as PendingParentLink[] },
+    },
   );
 
   /** ⭐ القائمة بتتحدّث من الـ hook بدل الـ state */
-  const guardians = guardiansData;
+  const guardians = guardiansResult.data;
+
+  /** ⭐⭐ الروابط المعلّقة — محتاجة قرار موظف (PR 1.11) */
+  const pendingGuardians = guardiansResult.pending;
+
+  /** ⭐ تأكيد رابط معلّق: الموظف قرّر إن ده نفس الشخص */
+  async function handleVerifyGuardian(parentId: number) {
+    if (!selectedStudent) return;
+    setGuardianBusyId(parentId);
+    try {
+      await verifyParentLink(selectedStudent.id, parentId);
+      reloadGuardians();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "تعذر تأكيد ولي الأمر");
+    } finally {
+      setGuardianBusyId(null);
+    }
+  }
+
+  /** ⭐ رفض رابط معلّق */
+  async function handleRejectGuardian(parentId: number) {
+    if (!selectedStudent) return;
+    setGuardianBusyId(parentId);
+    try {
+      await rejectParentLink(selectedStudent.id, parentId);
+      reloadGuardians();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "تعذر رفض الربط");
+    } finally {
+      setGuardianBusyId(null);
+    }
+  }
 
   /** تغيير ولي الأمر الأساسي */
   async function handleSetPrimaryGuardian(parentId: number) {
@@ -2373,6 +2409,63 @@ export default function StudentsPage() {
                       </div>
                     </div>
                   ))}
+
+                  {/* ⭐⭐⭐ الروابط المعلّقة — محتاجة قرار موظف (PR 1.11)
+
+                      ⭐ ليش معروضة في نفس التبويب؟ لأن القرار ده **عن
+                      الطالب ده**: «الرقم ده بتاع حد، يا إما فعلاً أبوه
+                      أو حد بيحاول ياخد الطالب». مكانه جنب اللي أكّده
+                      هو اللي بيخلّي الموظف يقارن (الاسم المسجّل مقابل
+                      الاسم المُدخل) — وهو **الرقم لوحده مش بيحسم**.
+
+                      ⭐ ولازم **التأكيد يكون صريح**: ضغطة واحدة بتدي
+                      وصول تعديل وسداد، فبنتركه قرار واعي. */}
+                  {pendingGuardians.length > 0 && (
+                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-3">
+                      <h4 className="mb-1 text-sm font-semibold text-amber-900">
+                        ⚠️ روابط بانتظار التأكيد ({pendingGuardians.length})
+                      </h4>
+                      <p className="mb-2 text-xs text-amber-800">
+                        حد دخل رقم ولي أمر موجود بالفعل. الرقم مش بيثبت
+                        هوية — قارن الاسم المسجّل بالاسم المُدخل قبل ما
+                        تأكّد. الرابط المعلّق مامنحش أي وصول قبل كده.
+                      </p>
+
+                      <div className="space-y-2">
+                        {pendingGuardians.map((p) => (
+                          <div
+                            key={p.parent_id}
+                            className="flex items-center justify-between gap-2 rounded-lg bg-white p-2"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm text-slate-800">
+                                {p.name ?? "—"}
+                              </p>
+                              <p className="text-xs text-slate-500" dir="ltr">
+                                {p.phone} {p.relationship ? `· ${parentRelationshipLabel(p.relationship)}` : ""}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 gap-1.5">
+                              <button
+                                onClick={() => handleVerifyGuardian(p.parent_id)}
+                                disabled={guardianBusyId === p.parent_id}
+                                className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs text-white hover:bg-emerald-700 disabled:opacity-50"
+                              >
+                                {guardianBusyId === p.parent_id ? "..." : "تأكيد"}
+                              </button>
+                              <button
+                                onClick={() => handleRejectGuardian(p.parent_id)}
+                                disabled={guardianBusyId === p.parent_id}
+                                className="rounded-lg border border-red-300 px-2.5 py-1 text-xs text-red-700 hover:bg-red-50 disabled:opacity-50"
+                              >
+                                رفض
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               {studentTab === "finance" && (

@@ -136,7 +136,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 1.8 — Relationship-based permission policies (Policies)
 - [ ] PR 1.9 - ~~Two-factor authentication~~ (**cancelled — single-user mode**)
 - [ ] PR 1.10 — Devices, sessions, and login security
-- [ ] PR 1.11 — Parent identity and linking to students
+- [x] PR 1.11 - Parent identity and linking to students
 - [ ] PR 1.12 — Student and child accounts
 
 **Phase 2 — Financial System Integrity**
@@ -857,7 +857,51 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - Fix `organization_id ?? 1` (take it from the student or throw an exception).
 - Linking the parent's account to the `parents` profile happens by invitation only (1.4), not by phone matching.
 **Acceptance:** A duplicate number grants no access before confirmation; a parent does not see a student without a `verified` link.
-**Depends on:** 1.8 · 1.4
+**Depends on:** 1.4
+
+> **✅ As implemented (2026-10-18).** 9 tests in `tests/Feature/ParentIdentityTest.php`. Backend 632 → **641 passed**.
+>
+> ⭐⭐⭐ **الثغرة**: `findOrCreate()` كان بيدوّر على الرقم في
+> `parents` → يلاقي ولي أمر → **يربطه بالطالب فوراً** ومعاه
+> `can_manage` + `can_pay` = true.
+>
+> يعني: أي حد يفتح صفحة «أرقام الطالب» ويدخل **رقم أم لمي** —
+> يصير أبوها على طول، ويقدر يعدّل بياناتها ويسدّد عنها.
+>
+> ⭐ والرقم **مش هوية**: شقق في مصر بتشارك نفس الرقم، وأرقام
+> المتاجر بتتكرر. فالربط التلقائي = **انتحال صفة ورقية**.
+>
+> ⭐ **الحل — عمود `status` في `student_parents`** (migration
+> `2026_10_18_000003`): `pending_verification` (الافتراضي) أو
+> `verified` + `verified_at`/`verified_by`.
+>
+>   • رقم **جديد** → ولي أمر جديد + رابط **مؤكد** (الموظف إدخل
+>     البيانات وهو شايف اللي قدامه).
+>   • رقم **موجود** → الرابط الجديد **معلّق**: `can_manage` و
+>     `can_pay` = false، و`is_primary` مش بيتحسب.
+>
+> ⭐ **كل قارئ بيحترم الحالة** — و`ParentChildScope` هو القارئ
+> الموحّد (يخدم كل الـendpoints عن طريق الـpolicies بتاع PR 1.8):
+> `allowedStudentIds()` و`flag()` بقى لهم فلتر `status = verified`.
+> ⭐ نفس الفلتر اتطبّق في **قارئ** واحد بالظبط عشان أي قارئ تاني
+> = باب مفتوح.
+>
+> ⭐ **شاشة التأكيد عند الموظف**: `GET /students/{id}/parents`
+> بيرجّع `pending[]` (مع اسم ولي الأمر المسجّل والرقم والصلابة
+> مع بعض عشان الموظف **يقارن**)، و`POST .../verify` و
+> `DELETE .../parents/{parent}` — التحويل قرار مش قراءة، فمحمي
+> بـ`parents.create` (اختبار بيمنع التأكيد بصلاحية أقل).
+> `verify()`/`reject()` بيكتبوا في `audit_logs`.
+>
+> ⭐ **`organization_id ?? 1` اتصلّح**: `Student::findOrFail()`
+> بدل `find() ?? 1` — طالب مش موجود كان بيعمل ولي أمر منسوب
+> لمنظمة من فراغ (وFK بيرمي). اختبار بيثبت الاستثناء.
+>
+> ⚠️ **تغيير سلوك (موثّق)**: `can_manage`/`can_pay` بقت مربوطة
+> بالحالة — قبل كده كانت `true` لكل رابط. وfixture
+> `RelationshipPoliciesTest::linkParent()` بقت تمرّر
+> `status = verified` (هي بتمثّل ربط موظف أكّده). **مافيش اختبار
+> اتشال** — 18/18 في ذلك الملف لسه خضرا بعد التغيير.
 
 ### PR 1.12 — Student and child accounts
 **Goal:** Implement the children decision: a sub-profile under 13, and an independent account above it with consent.

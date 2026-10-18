@@ -3172,9 +3172,47 @@ export function parentRelationshipLabel(value: string | null): string {
   return PARENT_RELATIONSHIPS.find((r) => r.value === value)?.label ?? value;
 }
 
+/**
+ * ⭐ أولياء أمر طالب — **مع الروابط المعلّقة** (PR 1.11).
+ *
+ * ⭐ `pending` = روابط اتسجلت لأن حد دخل **رقم** ولي أمر موجود
+ * بالفعل. الرقم مش هوية (الشقق بتشارك رقمها)، فالموظف هو اللي
+ * بيحسم — والاسم الحقيقي جنب الاسم اللي حد أرسله عشان يقارن.
+ */
+export type PendingParentLink = {
+  parent_id: number;
+  name: string;
+  phone: string;
+  relationship: string | null;
+  entered_at: string | null;
+};
+
 /** أولياء أمر طالب مع العلاقات */
 export function getStudentParents(studentId: number) {
-  return apiFetch<{ data: StudentParent[] }>(`/students/${studentId}/parents`);
+  return apiFetch<{ data: StudentParent[]; pending: PendingParentLink[] }>(
+    `/students/${studentId}/parents`,
+  );
+}
+
+/**
+ * ⭐ تأكيد رابط معلّق — الموظف أكّد إن ده ولي الأمر نفسه.
+ *
+ * ⚠️ **التأكيد مش قراءة**: بيمنح وصول للتعديل والسداد وبيغيّر
+ * `is_primary` لو مافيش أساسي. فسطر تأكيدي واحد، مش ضغطة.
+ */
+export function verifyParentLink(studentId: number, parentId: number) {
+  return apiFetch<{ data: StudentParent[]; message: string }>(
+    `/students/${studentId}/parents/${parentId}/verify`,
+    { method: "POST" },
+  );
+}
+
+/** ⭐ رفض رابط معلّق */
+export function rejectParentLink(studentId: number, parentId: number) {
+  return apiFetch<{ data: StudentParent[]; message: string }>(
+    `/students/${studentId}/parents/${parentId}`,
+    { method: "DELETE" },
+  );
 }
 
 /** تغيير ولي الأمر الأساسي */

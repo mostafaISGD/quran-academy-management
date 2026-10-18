@@ -318,11 +318,59 @@ class StudentPhoneController extends Controller
     {
         try {
             $student = Student::findOrFail($studentId);
-            return response()->json(['data' => $this->parentLinker->forStudent((int) $studentId)]);
+
+            return response()->json([
+                'data' => $this->parentLinker->forStudent((int) $studentId),
+                // ⭐⭐ الروابط المعلّقة: الموظف هو اللي بيحسمها،
+                // والاسم الحقيقي لولي الأمر موجود في `parents`
+                // جنب الاسم اللي حد أرسله — عشان يقارن، لأن
+                // **مطابقة الرقم مش إثبات هوية** (PR 1.11).
+                'pending' => $this->parentLinker->pendingForStudent((int) $studentId),
+            ]);
         } catch (\Exception $e) {
             // ⭐⭐ كان بيرجّع getMessage() — بيسلّم تفاصيل
             throw $e;
         }
+    }
+
+    /**
+     * ⭐ تأكيد رابط معلّق — الموظف أكّد إن ده ولي الأمر نفسه.
+     *
+     * ⭐ الـpermission: نفس صلاحية تعديل بيانات الطالب. فالتأكيد
+     * **تحويل لطالب لولي أمر** — قرار مش قراءة.
+     */
+    public function verifyParent(Request $request, $studentId, $parentId)
+    {
+        Student::findOrFail($studentId);
+
+        $exists = \Illuminate\Support\Facades\DB::table('student_parents')
+            ->where('student_id', $studentId)
+            ->where('parent_id', $parentId)
+            ->exists();
+
+        if (! $exists) {
+            return response()->json(['error' => 'مافيش رابط معلّق بين الطالب وده'], 422);
+        }
+
+        $this->parentLinker->verify((int) $studentId, (int) $parentId, $request->user());
+
+        return response()->json([
+            'message' => 'تم تأكيد ولي الأمر.',
+            'data' => $this->parentLinker->forStudent((int) $studentId),
+        ]);
+    }
+
+    /** ⭐ رفض رابط معلّق */
+    public function rejectParent(Request $request, $studentId, $parentId)
+    {
+        Student::findOrFail($studentId);
+
+        $this->parentLinker->reject((int) $studentId, (int) $parentId, $request->user());
+
+        return response()->json([
+            'message' => 'تم رفض الربط.',
+            'data' => $this->parentLinker->forStudent((int) $studentId),
+        ]);
     }
 
     /** تغيير ولي الأمر الأساسي للطالب */

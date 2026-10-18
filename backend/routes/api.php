@@ -632,6 +632,11 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/parents/search', [StudentPhoneController::class, 'searchParents'])->middleware('permission:parents.view');
     Route::get('/students/{student}/parents', [StudentPhoneController::class, 'listParents'])->middleware('permission:parents.view');
     Route::post('/students/{student}/parents/{parent}/set-primary', [StudentPhoneController::class, 'setPrimaryParent'])->middleware('permission:parents.create');
+
+    // ⭐ PR 1.11 — تأكيد/رفض ربط معلّق (رقم مكرر). التحويل ده قرار:
+    // الموظف هو اللي بيقارن اسم ولي الأمر المسجّل بالاسم اللي حد أرسله.
+    Route::post('/students/{student}/parents/{parent}/verify', [StudentPhoneController::class, 'verifyParent'])->middleware('permission:parents.create');
+    Route::delete('/students/{student}/parents/{parent}', [StudentPhoneController::class, 'rejectParent'])->middleware('permission:parents.create');
     Route::get('/phones/search', [StudentPhoneController::class, 'search'])->middleware('permission:students.phones.manage');
     Route::get('/phones/search/parent', [StudentPhoneController::class, 'searchByParentPhone'])->middleware('permission:students.phones.manage');
 });
