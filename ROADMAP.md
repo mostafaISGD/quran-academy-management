@@ -141,7 +141,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 
 **Phase 2 — Financial System Integrity**
 
-- [ ] PR 2.1 — Money Foundation: `Money` and Currencies
+- [x] PR 2.1 — Money Foundation: `Money` and Currencies
 - [ ] PR 2.2 — Migrate Money Columns to `bigint` (Backend)
 - [ ] PR 2.3 — Financial API Contract (Frontend)
 - [ ] PR 2.4 — Financial Accounts and Their Movements
@@ -952,6 +952,24 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - Extensive unit tests: rounding, distribution (100 across 3), currencies with different exponents, negative numbers.
 **Acceptance:** Full coverage of the class; no `float` in any public function.
 **Depends on:** 0.7
+
+> **✅ As implemented (2026-10-19).** 49 tests (30 unit + 19 feature). Backend 703 passed / 0 failed.
+>
+> ⭐ **`app/Support/Money.php`** — immutable value object. كل الـAPI بـ `int|Money`:
+> `add`, `sub`, `multiply(numerator, denominator)`, `divide(parts)`,
+> `compare`, `equals`, `format()`, `fromMajor()`, `isZero/Positive/Negative`.
+>
+> ⭐ **التقريب half-up بـ `intdiv`** — مفيش float خالص. `divide(3)` على
+> 100 → 34 + 33 + 33 (الباقي على الأول، المجموع ثابت).
+>
+> ⭐ **`config/currencies.php`** — الأساس لكل عملة (EGP=2, USD=2,
+> KWD=3, JPY=0) + الأسماء العربية.
+>
+> ⭐ **`MoneyCast`** — بدل `Piastres`. بيقرأ العملة من نفس الـattributes
+> أو من الـdefault. `set()` بيقبل `Money|int|float|string`.
+>
+> ⭐ **`ValidMoney`** — rule بـ `currency` و `nullable`. بتقبل رقم بالوحدة
+> الكبرى وبتتحقق من الأس والعملة والحد الأقصى.
 
 ### PR 2.2 — Migrate Money Columns to `bigint` (Backend)
 **Goal:** Convert every `decimal(12,2)` to integers in the smallest unit.
