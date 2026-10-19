@@ -60,6 +60,29 @@ class FinancialLedgerService
         $this->assertNotLocked($account, $date);
 
         /**
+         * ⭐⭐⭐ **فحص العملة — قبل أي كتابة** (PR 2.4).
+         *
+         * الحساب له **عملة واحدة بس**. لو دخلت عليه حركة بعملة
+         * تانية، الرصيد بقى خليط ماينفعش يتفسّر — ومش فيه
+         * `exchange_rate` يت salvه.
+         *
+         * ⭐ والتحويل بين العملات شغل **PR 2.5**
+         * (`ExchangeRateService`) — وهو بيعمل **حركتين** (خارج من
+         * حساب自己的工作 + داخل لواحد تاني)، مش حركة واحدة
+         *Guessing.
+         */
+        $movementCurrency = strtoupper($currency ?? $account->currency);
+        $accountCurrency = strtoupper($account->currency);
+
+        if ($movementCurrency !== $accountCurrency) {
+            throw new \RuntimeException(
+                "الحساب «{$account->name}» بـ{$accountCurrency} — "
+                ."الحركة {$movementCurrency} مرفوضة. "
+                .'لو ده تحويل، اعمله بـ`ExchangeRateService` (حركتين).'
+            );
+        }
+
+        /**
          * ⚠️ ⚠️ **نقطة التحويل للمبالغ.**
          *
          * هنا بالظبط — مش في الـ controller، مش في الـ model.
@@ -76,7 +99,7 @@ class FinancialLedgerService
             // ⚠️ **دايماً موجب** — الاتجاه منفصل في `direction`.
             // مبلغ سالب في دفتر الحركات = أول خطأ بيطلّع نتيجة غلط.
             'amount' => abs($normalizedAmount),
-            'currency' => $currency ?? $account->currency,
+            'currency' => $movementCurrency,
             'reference_type' => $referenceType,
             'reference_id' => $referenceId,
             'movement_date' => $date,

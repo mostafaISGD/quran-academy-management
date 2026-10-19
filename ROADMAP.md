@@ -144,7 +144,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.1 — Money Foundation: `Money` and Currencies
 - [x] PR 2.2 — Migrate Money Columns to `bigint` (Backend)
 - [x] PR 2.3 — Financial API Contract (Frontend)
-- [ ] PR 2.4 — Financial Accounts and Their Movements
+- [x] PR 2.4 — Financial Accounts and Their Movements
 - [ ] PR 2.5 — Exchange Rates and Transfers Between Accounts
 - [ ] PR 2.6 — Invoice Numbering and the Single Invoice Service
 - [ ] PR 2.7 — Payments: Allocation, Idempotency, and the Account
@@ -1059,6 +1059,34 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - `AccountBalanceService::balance($account, $asOf)` = opening balance + sum. CRUD for accounts (`finance.accounts.manage`).
 **Acceptance:** Attempting to modify a movement throws an exception; the balance matches the sum of movements; creating a movement in a currency other than the account's currency is rejected.
 **Depends on:** 2.2
+
+> **✅ As implemented (2026-10-19).** 6 new tests in `tests/Feature/MovementImmutabilityTest.php`. Backend 709 → **715 passed**.
+>
+> ⭐⭐⭐ **الجداول كانت موجودة فعلاً** — `2026_10_09_000001` أنشأ
+> `financial_accounts` + `account_movements` + `account_transfers`
+> + `exchange_rates` بـfields **أوسع** من اللي في الـroadmap
+> (`direction` منفصل بدل `amount` موقّع، `reverses_movement_id`
+> بدل `reversal_of_id`, `status: pending/posted`).
+>
+> ⭐ **يعني الشغل الناقص كان واحد**: الـ**immutability**.
+> `FinancialLedgerService` كان بيقلب الحركة والسماح بالحذف —
+> وقاعدة AGENTS.md رقم 7 («السجلات المالية ما بتتعدّلش ولا
+> بتتحذفش») كانت مكتوبة ومش مفروضة.
+>
+> ⭐⭐ **`boot()` guard** على `AccountMovement`: `updating` و
+> `deleting` بيرموا `RuntimeException` برسالة بتقول الحل
+> (`reverse()`). والاستثناء الوحيد `pending → posted` — ده
+> **اعتماد** حركة مش تعديل تاريخ.
+>
+> ⭐⭐ **trigger على PostgreSQL** (`2026_10_19_000002`):
+> `BEFORE UPDATE` + `BEFORE DELETE` بـ`RAISE EXCEPTION`.
+> ⭐ لأن `AccountMovement::query()->update()` **متخفّي عن الـevents**
+> — فحماية PHP بتحمي الكود بس، والقاعدة هي اللي بتحمي البيانات.
+> (السكربت بيتخطّى على SQLite — مافيش triggers فيه.)
+>
+> ⭐ **فحص العملة** بقى في `record()`: الحساب له عملة واحدة،
+> وحركة بعملة تانية مرفوضة برسالة بتوجّه لـ`ExchangeRateService`
+> (2.5) — لأن التحويل = **حركتين**، مش حركة واحدة.
 
 ### PR 2.5 — Exchange Rates and Transfers Between Accounts
 **Goal:** An internal transfer that is counted as neither revenue nor expense.
