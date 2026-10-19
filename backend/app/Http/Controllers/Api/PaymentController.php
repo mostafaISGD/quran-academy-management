@@ -265,93 +265,78 @@ class PaymentController extends Controller
             'method' => 'nullable|string',
             // ⭐ الحساب اللي اترجعت منه الفلوس — اختياري
             'financial_account_id' => 'nullable|integer',
+            /**
+             * ⭐⭐ PR 2.8 — نوع الاسترداد:
+             *   cash نقدي (حركة من الحساب) | credit_note (رصيد
+             *   دائن بيتخصم من اشتراك جاي).
+             */
+            'mode' => 'nullable|in:cash,credit_note',
         ]);
-
-        $remaining = (float) $payment->amount - $payment->totalRefunded();
-        if ($data['amount'] > $remaining) {
-            return response()->json(['message' => "مبلغ الاسترجاع أكبر من المتبقي ({$remaining})."], 422);
-        }
-
-        $refund = Refund::create([
-            'payment_id' => $payment->id,
-            'invoice_id' => $payment->invoice_id,
-            'amount' => $data['amount'],
-            'currency' => $payment->currency,
-            'reason' => $data['reason'],
-            'method' => $data['method'] ?? null,
-            'status' => 'processed',
-            'processed_by' => $request->user()->id,
-            'processed_at' => now(),
-        ]);
-
-        if ($payment->isFullyRefunded()) {
-            $payment->update(['status' => 'voided']);
-
-            // ⭐⭐ الاسترداد بيلغي التوزيعات — الفاتورة لازم تحسب
-            // من جديد إن المدفوع بتاعها قلّ.
-            //
-            // ⭐ **ما بنشطبش السطر** — بنعلّمه `reversed`، عشان
-            // نفضل نعرف التوزيع كان على أي فاتورة، ونسجل ليه
-            // اتلغي.
-            $payment->allocations()->update(['status' => 'reversed']);
-
-            if ($payment->invoice) {
-                $payment->invoice->recalculateFromAllocations();
-            }
-        }
-
-        app(\App\Services\AuditLogService::class)->log(
-            'refund',
-            'payment',
-            $payment->id,
-            null,
-            [
-                'amount' => $data['amount'],
-                'reason' => $data['reason'],
-                'fully_refunded' => $payment->isFullyRefunded(),
-            ],
-            $request,
-        );
 
         /**
-         * ⭐⭐ الاسترداد = فلوس **رجعت** من الخزينة.
-         *
-         * ⚠️ تخيّل من غير السطر ده: الخزينة نقصت 1000 عند
-         * التحصيل، وبعدين رجعنا للطالب 1000 من غير ما نكتب
-         * حاجة. فالمصروف الش/net بينجب **بارتفاع**.
-         *
-         * ⭐ قرار الإدارة: الاسترداد **نقدي** — فالخروج من
-         * الخزينة، مش رصيد دائن للطالب.
+         * ⭐⭐⭐ المداخلة كلها في `RefundService` — transaction
+         * واحدة، السقف مقفول، والاسترداد الجزئي بيظبط الفاتورة.
+         * فوق سقف الإعدادات = `pending_approval` واستنى موافقة
+         * تانية (صلاحية `finance.refunds.approve`).
          */
-        $ledger = app(\App\Services\FinancialLedgerService::class);
-
-        [$account, $pickReason] = $ledger->resolveAccount(
-            $request->user()->organization_id,
-            $data['financial_account_id'] ?? null,
-        );
-
-        $warning = null;
-        $movement = null;
-
-        if ($account) {
-            $res = $ledger->recordFor(
-                account: $account,
-                direction: 'out',
-                // ⭐ `refund` مش `expense` — التقرير يفرّق بين
-                // «استرداد» و«مصروف تشغيلي»
-                category: 'refund',
-                amount: (float) $data['amount'],
-                referenceType: 'refund',
-                referenceId: $refund->id,
-                movementDate: (string) ($refund->processed_at ?? now()->toDateString()),
-                notes: $data['reason'],
-                user: $request->user(),
+        [$refund, $account, $pickReason, $movement, $warning] =
+            app(\App\Services\RefundService::class)->refund(
+                $payment,
+                (float) $data['amount'],
+                $data['mode'] ?? 'cash',
+                $data['reason'],
+                $data['method'] ?? null,
+                $data['financial_account_id'] ?? null,
+                $request->user(),
             );
-            $movement = $res['movement'];
-            $warning = $res['warning'];
-        } else {
-            $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';
-        }
+
+        return response()->json([
+            ...$refund->toArray(),
+            'pending_approval' => $refund->status === 'pending_approval',
+            'ledger' => [
+                'recorded' => $movement !== null,
+                'movement_id' => $movement?->id,
+                'account_id' => $account?->id,
+                'account_name' => $account?->name,
+                'account_pick' => $pickReason,
+            ],
+            'warning' => $warning,
+        ], 201);
+    }
+
+    /**
+     * ⭐⭐ PR 2.8 — عكس دفعة خاطئة (مش استرداد).
+     *
+     * دي للخطأ في **التسجيل** نفسه: دفعة مالوش فلوس حقيقية.
+     * الفرق عن refund: عكس الحركات بالسطر (قاعدة 7) والدفع
+     * بتاخد `reversed` مش `voided`.
+     */
+    public function reverse(Request $request, Payment $payment)
+    {
+        $data = $request->validate([
+            'reason' => 'required|string|max:255',
+        ]);
+
+        $reversed = app(\App\Services\RefundService::class)
+            ->reverse($payment, $data['reason'], $request->user());
+
+        return response()->json([
+            'message' => 'عُكست الدفعة — سجل جديد لو دفعة تصحيحية',
+            'data' => $reversed->only(['id', 'student_id', 'amount', 'currency', 'status']),
+        ]);
+    }
+
+    /**
+     * ⭐⭐ PR 2.8 — الموافقة التانية على استرداد فوق السقف.
+     *
+     * دي الفعّالة دي الحقيقية: الموافقة بتشغل نفس دفعة
+     * `settleRefund` — الحركة والتوزيعات والفاتورة.
+     */
+    public function approveRefund(Request $request, \App\Models\Refund $refund)
+    {
+        [$refund, $account, $pickReason, $movement, $warning] =
+            app(\App\Services\RefundService::class)
+                ->approve($refund, $request->user(), $request->integer('financial_account_id') ?: null);
 
         return response()->json([
             ...$refund->toArray(),
@@ -363,7 +348,18 @@ class PaymentController extends Controller
                 'account_pick' => $pickReason,
             ],
             'warning' => $warning,
-        ], 201);
+        ]);
+    }
+
+    public function pendingApprovalRefunds(Request $request)
+    {
+        $refunds = \App\Models\Refund::query()
+            ->where('status', 'pending_approval')
+            ->with(['payment.student', 'requester'])
+            ->orderByDesc('id')
+            ->get();
+
+        return response()->json($refunds);
     }
 
     public function refunds(Payment $payment)

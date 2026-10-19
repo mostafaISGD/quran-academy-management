@@ -22,7 +22,12 @@ class SettingController extends Controller
     {
         $data = $request->validate(['key' => 'required|string|max:100', 'value' => 'nullable|json']);
         $data['organization_id'] = $request->user()->organization_id;
-        Setting::set($data['key'], $data['value'] ?? null);
+        /**
+         * ⭐ PR 2.8 — إصلاح الـbug: قبلها الـorg كان بيتحسب في
+         * `$data` وبعدين **مهمل** في النداء → كتابة بـorganization_id
+         * فاضية (constraint violation ع الموصل).
+         */
+        Setting::set($data['key'], $data['value'] ?? null, $data['organization_id']);
         return response()->json(['message' => 'تم حفظ الإعداد', 'key' => $data['key']], 201);
     }
 

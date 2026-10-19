@@ -477,6 +477,14 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/payments/{payment}', [PaymentController::class, 'show'])->middleware('permission:finance.payments.view');
     Route::post('/payments/{payment}/refund', [PaymentController::class, 'refund'])
         ->middleware('permission:finance.payments.refund');
+    // ⭐⭐ PR 2.8 — عكس دفعة خاطئة (status= reversed + سطور عكسية)
+    Route::post('/payments/{payment}/reverse', [PaymentController::class, 'reverse'])
+        ->middleware('permission:finance.payments.refund');
+    // ⭐⭐ موافقة الاسترداد — صلاحية منفصلة، وطالب الطلب مرفوض
+    Route::post('/refunds/{refund}/approve', [PaymentController::class, 'approveRefund'])
+        ->middleware('permission:finance.refunds.approve');
+    Route::get('/refunds/pending-approval', [PaymentController::class, 'pendingApprovalRefunds'])
+        ->middleware('permission:finance.refunds.approve');
     Route::get('/payments/{payment}/refunds', [PaymentController::class, 'refunds'])->middleware('permission:finance.payments.view');
     // ⭐ توزيع الدفعة على فواتير — القاعدة 5 من الخطة
     Route::post('/payments/{payment}/allocate', [PaymentController::class, 'allocate'])->middleware('permission:finance.payments.update');

@@ -486,6 +486,7 @@ class PermissionCatalogTest extends TestCase
             'payments.create' => 'انتقال إلى وحدة finance',
             'payments.edit' => 'انتقال إلى وحدة finance + توحيد الفعل',
             'payments.refund' => 'انتقال إلى وحدة finance',
+            'refunds.approve' => 'PR 2.8: موافقة الاسترداد صارت مصدر مستقل finance.refunds.approve — انتقال لصلاحية واحدة مش تفكيك مجموعة',
             'expenses.view' => 'انتقال إلى وحدة finance',
             'expenses.create' => 'انتقال إلى وحدة finance',
             'phones.manage' => 'انتقال إلى وحدة students',

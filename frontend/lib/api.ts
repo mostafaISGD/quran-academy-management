@@ -904,7 +904,8 @@ export type Payment = {
   currency: string;
   payment_method: "cash" | "bank_transfer" | "wallet" | "online_payment" | "card" | "other";
   transaction_reference: string | null;
-  status: "pending" | "completed" | "failed" | "voided";
+  /** ⭐⭐ PR 2.8 — reversed: عكس دفعة خاطئة (مش voided اللي معناها استُردّت) */
+  status: "pending" | "completed" | "failed" | "voided" | "reversed";
   paid_at: string;
   received_by: number;
   notes: string | null;
@@ -925,6 +926,33 @@ export type Payment = {
    * رجّعت نفس الدفعة (مش دفعة جديدة، ومفيش حركة مزدوجة).
    */
   idempotent?: boolean;
+};
+
+/**
+ * ⭐⭐ PR 2.8 — سجل استرداد.
+ *
+ * `pending_approval` = فوق سقف الاعتماد ومستني موافقة تانية
+ * (صلاحية `finance.refunds.approve`) — مفيش حركة ولا توزيع
+ * لحد الموافقة.
+ */
+export type Refund = {
+  id: number;
+  payment_id: number;
+  invoice_id: number | null;
+  amount: string;
+  currency: string;
+  reason: string;
+  method: string | null;
+  /** نقدي من الحساب | رصيد دائن للاشتراكات الجاية */
+  mode: "cash" | "credit_note";
+  status: "pending" | "pending_approval" | "processed" | "failed";
+  processed_by: number;
+  processed_at: string;
+  approved_by: number | null;
+  approved_at: string | null;
+  created_at?: string;
+  payment?: Payment;
+  requester?: { id: number; name: string };
 };
 
 export type Lead = {
@@ -3786,8 +3814,51 @@ export function createPayment(payload: {
   return apiFetch<Payment>("/payments", { method: "POST", body: JSON.stringify(payload) });
 }
 
-export function refundPayment(paymentId: number, amount: number, reason: string) {
-  return apiFetch(`/payments/${paymentId}/refund`, { method: "POST", body: JSON.stringify({ amount, reason }) });
+/**
+ * ⭐⭐ PR 2.8 — الاسترداد عبر `RefundService`:
+ *   - `mode: "cash"` (افتراضي) = حركة خارجة من الحساب.
+ *   - `mode: "credit_note"` = رصيد دائن بيتخصم من اشتراك جاي.
+ *   - فوق سقف `finance.refund_approval_threshold` بيرجع
+ *     `pending_approval: true` ومفيش حركة لحد الموافقة.
+ */
+export function refundPayment(
+  paymentId: number,
+  amount: number,
+  reason: string,
+  options?: { mode?: "cash" | "credit_note"; financial_account_id?: number },
+) {
+  return apiFetch<
+    Refund & { pending_approval: boolean; ledger: { recorded: boolean }; warning?: string }
+  >(`/payments/${paymentId}/refund`, {
+    method: "POST",
+    body: JSON.stringify({
+      amount,
+      reason,
+      mode: options?.mode ?? "cash",
+      financial_account_id: options?.financial_account_id,
+    }),
+  });
+}
+
+/** ⭐⭐ PR 2.8 — عكس دفعة خاطئة (status = reversed + سطور عكسية) */
+export function reversePayment(paymentId: number, reason: string) {
+  return apiFetch<{ message: string; data: Payment }>(
+    `/payments/${paymentId}/reverse`,
+    { method: "POST", body: JSON.stringify({ reason }) },
+  );
+}
+
+/** ⭐⭐ PR 2.8 — الموافقة التانية على استرداد فوق السقف */
+export function approveRefund(refundId: number, financial_account_id?: number) {
+  return apiFetch(`/refunds/${refundId}/approve`, {
+    method: "POST",
+    body: JSON.stringify({ financial_account_id }),
+  });
+}
+
+/** ⭐⭐ PR 2.8 — الاستردادات اللي مستنية موافقة */
+export function getPendingApprovalRefunds() {
+  return apiFetch<Refund[]>("/refunds/pending-approval");
 }
 
 export function getLeads(params?: {

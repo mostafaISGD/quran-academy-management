@@ -148,7 +148,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.5 — Exchange Rates and Transfers Between Accounts
 - [x] PR 2.6 — Invoice Numbering and the Single Invoice Service
 - [x] PR 2.7 — Payments: Allocation, Idempotency, and the Account
-- [ ] PR 2.8 — Refunds, Reversals, and Credit Notes
+- [x] PR 2.8 — Refunds, Reversals, and Credit Notes
 - [ ] PR 2.9 — Unified Student Ledger + Daily Reconciliation
 - [ ] PR 2.10 — Teacher Earnings Pipeline
 - [ ] PR 2.11 — Paying Teacher and Employee Payroll
@@ -1240,6 +1240,8 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - `Refund::status` reflects reality (not a fixed `processed`).
 **Acceptance:** A partial then a full refund returns the invoice to its correct state and matches the ledger and the account; two concurrent refunds do not exceed the amount paid (`pgsql`).
 **Depends on:** 2.7
+
+> **✅ As implemented (2026-10-19).** `RefundService` جديد (`refund` / `approve` / `reverse` / `refundableAmount`) — transaction واحدة + `lockForUpdate` على الدفعة والسجل؛ الاسترداد الجزئي بيعكِس التوزيع (`reversed` + سطر نشط جديد بالباقي) وبيرجع الفاتورة عبر `InvoiceService::recalculateFromAllocations()` (الاسترداد الجزئي قبل PR 2.8 كان مش بيمسّ الفاتورة خالص). `mode: cash | credit_note` (عمود جديد على `refunds`) — النقدي حركة `out/refund`، والائتمان سجل في `student_credits` بـ`source_type = credit_note` من غير حركة. الموافقة التانية: `finance.refund_approval_threshold` من `settings` (بتقرا مؤسسياً + إصلاح bug في `SettingController::store` كان بيرمي الـorg)، فوق السقف بيرجع `pending_approval` بدون أي أثر مالي، `POST /refunds/{id}/approve` بصلاحية `finance.refunds.approve` جديدة وطالب الطلب ممنوع يوافق على نفسه، والطفل المعلّق بيحجز من السقف. عكس الدفعة الخاطئة: `POST /payments/{id}/reverse` (نفس صلاحية الطلب) — عكس كل حركات الدفعة عبر `FinancialLedgerService::reverse` (بقفل الفترة)، عكس التوزيعات، إعادة حساب الفواتير، سطر عكسي في دفتر الطالب، وstatus الدفعة `reversed` (عمود enum اتزاد). الميجريشن `2026_10_19_000005` reversible. 15 اختبار جديد في `tests/Feature/RefundServiceTest.php` (14 عدّوا + 1 pgsql skip للتوازن الحقيقي). Backend 755 → **769 passed** (+1 pgsql skip). Frontend: `Refund` type + `reversePayment` + `approveRefund` + `getPendingApprovalRefunds` + mode في نموذج الاسترداد؛ 163 ✓ `tsc` ✓ `build` ✓، lint زي الـbaseline (10).
 
 ### PR 2.9 — Unified Student Ledger + Daily Reconciliation
 **Goal:** A single meaning for `balance_after` and detection of any drift.

@@ -10,7 +10,8 @@ class Refund extends Model
 {
     protected $fillable = [
         'payment_id', 'invoice_id', 'amount', 'currency', 'reason',
-        'method', 'status', 'processed_by', 'processed_at',
+        'method', 'mode', 'status', 'processed_by', 'processed_at',
+        'approved_by', 'approved_at',
     ];
 
     /**
@@ -24,7 +25,23 @@ class Refund extends Model
 
     protected function casts(): array
     {
-        return ['amount' => MoneyCast::class, 'processed_at' => 'datetime'];
+        return [
+            'amount' => MoneyCast::class,
+            'processed_at' => 'datetime',
+            'approved_at' => 'datetime',
+        ];
+    }
+
+    /** ⭐⭐ من طلب الاسترداد (اللي ممنوع يوافق بعدين) */
+    public function requester()
+    {
+        return $this->belongsTo(User::class, 'processed_by');
+    }
+
+    /** ⭐⭐ من اعتمد الاسترداد (الموافقة التانية) */
+    public function approvedBy()
+    {
+        return $this->belongsTo(User::class, 'approved_by');
     }
 
     public function payment()

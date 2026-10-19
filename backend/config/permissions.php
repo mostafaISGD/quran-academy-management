@@ -273,6 +273,11 @@ return [
             'group' => 'المالية',
             'description' => 'عمل استرداد — بيلغي دفعة بتبقى معتمدة',
         ],
+        'finance.refunds.approve' => [
+            'module' => 'finance',
+            'group' => 'المالية',
+            'description' => 'اعتماد الاسترداد فوق سقف الطلب — طالب الطلب مرفوض، أساليب، الموافقة التانية',
+        ],
         'finance.expenses.view' => [
             'module' => 'finance',
             'group' => 'المالية',
@@ -438,7 +443,8 @@ return [
         'payments.create' => ['finance.payments.create'],
         'payments.edit' => ['finance.payments.update'],
         'payments.refund' => ['finance.payments.refund'],
-
+        // ⭐ PR 2.8 — الموافقة التانية على الاسترداد الكبير
+        'refunds.approve' => ['finance.refunds.approve'],
         // ⭐ المصروفات مالية كمان — نفس السبب
         'expenses.view' => ['finance.expenses.view'],
         'expenses.create' => ['finance.expenses.create'],
