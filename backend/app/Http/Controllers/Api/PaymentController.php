@@ -42,7 +42,15 @@ class PaymentController extends Controller
             'currency' => 'required|string|size:3',
             'payment_method' => 'required|in:cash,bank_transfer,wallet,online_payment,card,other',
             'transaction_reference' => 'nullable|string',
-            'status' => 'nullable|in:pending,completed,failed,voided',
+
+            /**
+             * ⭐⭐ PR 2.7 — الحالة من العميل: نقبل `completed` و
+             * `pending` بس (الـ`pending` للدفعة المعلّقة اللي
+             * بتحفظ من غير حركة). `failed`/`voided` حالات دورة
+             * حياة الدفع الإلكتروني الداخلي — النظام بس اللي
+             * بيكتبها.
+             */
+            'status' => 'nullable|in:pending,completed',
             'paid_at' => 'required|date',
 
             /**
@@ -60,162 +68,45 @@ class PaymentController extends Controller
              * ⭐ المبلغ الواصل الفعلي بعد خصم عمولة بوابة الدفع.
              *
              * ⭐ **ليه ده مهم؟** لو الطالب دفع 1000 وبوابة الدفع
-             * خصمت 30، فتحساب الأكاديمية دخل 970. لو سجّلنا
+             * خصمت 30، فحساب الأكاديمية دخل 970. لو سجّلنا
              * 1000، الرصيد هيبقى أعلى من الحقيقي والفرق 30
              * بيختفي من التقارير.
              *
-             * فلو `net_amount` مبعوت: الي دخل = `net_amount`،
-             * والفرق (عمولة) بيتسجل كمصروف تلقائي.
+             * ⭐⭐ **`lte:amount`** — الواصل أكبر من الاسمي =
+             * خطأ إدخال (كان هيبقى عمولة **سالب**).
              */
-            'net_amount' => 'nullable|numeric|min:0|max:100000',
+            'net_amount' => 'nullable|numeric|min:0|max:100000|lte:amount',
+
+            /**
+             * ⭐⭐⭐ PR 2.7 — مفتاح منع التكرار.
+             *
+             * العميل أداس «ادفع» مرتين = دفعتين. المفتاح ده
+             * بيخلي إعادة الإرسال رجّع نفس الدفعة مش دفعة
+             * جديدة — والحركة المالية بيتسجل مرة واحدة.
+             */
+            'idempotency_key' => 'nullable|string|max:64',
         ]);
 
-        $data['organization_id'] = $request->user()->organization_id;
-        $data['received_by'] = $request->user()->id;
-
-        $payment = Payment::create($data);
-
-        if ($payment->invoice) {
-            $invoice = $payment->invoice;
-
-            /**
-             * ⭐⭐⭐ **هنا اللي بتتلعّب القاعدة 5.**
-             *
-             * بدل ما نعدّل `paid_amount` و `balance_due` مباشرةً
-             * كاأرقام مستقلة، بنعمل سطر توزيع في
-             * `payment_allocations` — وبعدين الفاتورة بتحسب
-             * المدفوع والمتبقي من التوزيعات دي.
-             *
-             * يعني:
-             *   - الدفعة الواحدة بدفعة 500 → سطر توزيع بمبلغ 500
-             *   - لو جت دفعة تانية بمبلغ 300 → سطر توزيع تاني 300
-             *   - المدفوع = 800، المتبقي = 1200 — **محسوب**
-             *
-             * ولو دفعة كبيرة انقسمت على فاتورتين، بنتكتب
-             * سطرين توزيع — وده بقى منفصل.
-             */
-            \App\Models\PaymentAllocation::create([
-                'organization_id' => $request->user()->organization_id,
-                'payment_id' => $payment->id,
-                'invoice_id' => $invoice->id,
-                'amount' => $payment->amount,
-                'status' => 'active',
-                'created_by' => $request->user()->id,
-            ]);
-
-            // ⭐ الفاتورة بتحسب المدفوع والمتبقي من التوزيعات
-            $invoice->recalculateFromAllocations();
-            $newBalance = (float) $invoice->fresh()->balance_due;
-
-            StudentLedgerEntry::create([
-                'student_id' => $payment->student_id,
-                'invoice_id' => $invoice->id,
-                'payment_id' => $payment->id,
-                'type' => 'payment',
-                'credit' => $payment->amount,
-                'balance_after' => $newBalance,
-                'currency' => $payment->currency,
-                'description' => 'دفعة للفاتورة ' . $invoice->invoice_number,
-                'reference_type' => 'payment',
-                'reference_id' => $payment->id,
-                'created_by' => $request->user()->id,
-                'created_at' => now(),
-            ]);
-        }
-
-        app(\App\Services\AuditLogService::class)->logCreate(
-            'payment',
-            $payment->id,
-            [
-                'amount' => $payment->amount,
-                'student_id' => $payment->student_id,
-                'invoice_id' => $payment->invoice_id,
-                'method' => $payment->method,
-            ],
-            $request,
-        );
-
         /**
-         * ⭐⭐ الحركة المالية — «فين الفلوس دي».
-         *
-         * ⚠️ **النقطة المهمة:** الدفعة **بتتحفظ** سواء اتسجلت
-         * الحركة أو لأ. الفلوس دخلت فعلاً — اللي بيفشل هو
-         * **التسجيل**، مش التحصيل. فلو رمينا exception هنا،
-         * العميل واقف في البوابة ومااتسجلش عنده حاجة.
-         *
-         * ⭐ لو مفيش حساب ولا الفترة مقفولة، بنرجّع **تحذير
-         * صريح** في الرد — عشان حد يعرف إن في دفعة من غير حركة.
+         * ⭐⭐⭐ **الدماغ كلها في `PaymentService::record()`** —
+         * حرفياً كل خطوة في transaction واحدة، الفاتورة
+         * مقفولة، والتحقق تاع الملكية والعملة محكي هناك.
          */
-        $ledger = app(\App\Services\FinancialLedgerService::class);
+        [$payment, $account, $pickReason, $movement, $feeMovement, $warning, $idempotent] =
+            app(\App\Services\PaymentService::class)->record($data, $request->user());
 
-        [$account, $pickReason] = $ledger->resolveAccount(
-            $request->user()->organization_id,
-            $data['financial_account_id'] ?? null,
-            $ledger->accountTypeForPaymentMethod((string) $payment->payment_method),
-        );
-
-        $warning = null;
-        $movement = null;
-
-        if ($account) {
-            /**
-             * ⭐ `status` = `pending`/`failed`/`voided` **مش** تحصيل.
-             *
-             * الدفعة المعلّقة مش فلوس دخلت. لو سجّلناها
-             * `posted` كان الرصيد هيبقى أعلى من الحقيقي، والتقارير
-             * بتقول «دخل» والمفيش.
-             */
-            if (in_array($payment->status, ['completed'], true)) {
-                $res = $ledger->recordFor(
-                    account: $account,
-                    direction: 'in',
-                    category: 'income',
-                    /**
-                     * ⭐⭐ تسجيل **المبلغ الواصل** مش المبلغ الاسمي.
-                     *
-                     * لو فيه عمولة (net_amount < amount)، الرصيد
-                     * الحقيقي بتاع الحساب هو net_amount.
-                     */
-                    amount: (float) ($payment->net_amount ?: $payment->amount),
-                    referenceType: 'payment',
-                    referenceId: $payment->id,
-                    movementDate: (string) $payment->paid_at,
-                    notes: $payment->notes ?: $payment->transaction_reference,
-                    user: $request->user(),
-                );
-                $movement = $res['movement'];
-                $warning = $res['warning'];
-
-                /**
-                 * ⭐ لو فيه عمولة، بتتسجل كمصروف عمولة.
-                 *
-                 * ⭐ السبب: الدفتر لازم يبيّن عَفْو أيه 500 - 30 = 470
-                 * مش بس «470 دخل». فلو مُسَجَّلت 470 فقط، المصروف
-                 * التشغيلي ناقص — والتقارير بتقول «الربحerranta
-                 * أكتر من الحقيقي» بـ30.
-                 */
-                if ($payment->net_amount && $payment->net_amount < $payment->amount) {
-                    $commission = (float) $payment->amount - (float) $payment->net_amount;
-
-                    $feeRes = $ledger->recordFor(
-                        account: $account,
-                        direction: 'out',
-                        category: 'fee',
-                        amount: $commission,
-                        referenceType: 'payment_fee',
-                        referenceId: $payment->id,
-                        movementDate: (string) $payment->paid_at,
-                        notes: 'عمولة بوابة الدفع على دفعة #'.$payment->id,
-                        user: $request->user(),
-                    );
-
-                    if (! $feeRes['movement'] && ! $warning) {
-                        $warning = $feeRes['warning'];
-                    }
-                }
-            }
-        } else {
-            $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';
+        if (! $idempotent) {
+            app(\App\Services\AuditLogService::class)->logCreate(
+                'payment',
+                $payment->id,
+                [
+                    'amount' => $payment->amount,
+                    'student_id' => $payment->student_id,
+                    'invoice_id' => $payment->invoice_id,
+                    'method' => $payment->payment_method,
+                ],
+                $request,
+            );
         }
 
         return response()->json([
@@ -225,13 +116,16 @@ class PaymentController extends Controller
             'ledger' => [
                 'recorded' => $movement !== null,
                 'movement_id' => $movement?->id,
+                'fee_movement_id' => $feeMovement?->id,
                 'account_id' => $account?->id,
                 'account_name' => $account?->name,
                 'account_pick' => $pickReason,
             ],
-            // ⚠️ التحذير **بcernب** لو الحركة ماتسجلتش
+            // ⚠️ التحذير **جاي** لو الحركة ماتسجلتش
             'warning' => $warning,
-        ], 201);
+            // ⭐ مكرر = "هذي دفعة موجودة، أو أعيد حملها نفسها"
+            'idempotent' => $idempotent,
+        ], $idempotent ? 200 : 201);
     }
 
     public function show(Payment $payment)
@@ -282,21 +176,62 @@ class PaymentController extends Controller
 
         $created = [];
 
-        foreach ($data['allocations'] as $row) {
-            $allocation = PaymentAllocation::create([
-                'organization_id' => $request->user()->organization_id,
-                'payment_id' => $payment->id,
-                'invoice_id' => $row['invoice_id'],
-                'amount' => $row['amount'],
-                'status' => 'active',
-                'created_by' => $request->user()->id,
-            ]);
+        /**
+         * ⭐⭐ PR 2.7 — نفس التحويل بيتطبق هنا، وبتوقيع القفل.
+         *
+         * قبلها التوزيع المتأخر كان بيخلق أي فاتورة أي واحد.
+         * الان يتم التحقق + القفل جوه transaction.
+         */
+        \Illuminate\Support\Facades\DB::transaction(function () use ($data, $payment, $request, &$created) {
+            foreach ($data['allocations'] as $row) {
+                /** ⭐ القفل — توزيعين متزامنين */
+                $invoice = Invoice::whereKey($row['invoice_id'])->lockForUpdate()->first();
 
-            // ⭐ الفاتورة بتحسب المدفوع/المتبقي من التوزيعات
-            Invoice::find($row['invoice_id'])->recalculateFromAllocations();
+                if (! $invoice) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'allocations' => 'فاتورة #'.$row['invoice_id'].' مش موجودة',
+                    ]);
+                }
 
-            $created[] = $allocation;
-        }
+                if ((string) $invoice->organization_id !== (string) $request->user()->organization_id) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'allocations' => 'فاتورة #'.$row['invoice_id'].' مش من مؤسستك',
+                    ]);
+                }
+
+                if ((string) $invoice->student_id !== (string) $payment->student_id) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'allocations' => 'فاتورة #'.$row['invoice_id'].' مش بتاعة الطالب',
+                    ]);
+                }
+
+                if ($invoice->currency !== $payment->currency) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'allocations' => 'عملة الفاتورة #'.$row['invoice_id'].' مش متطابقة',
+                    ]);
+                }
+
+                if ($invoice->status === 'void') {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'allocations' => 'فاتورة #'.$row['invoice_id'].' ملغاة',
+                    ]);
+                }
+
+                $allocation = PaymentAllocation::create([
+                    'organization_id' => $request->user()->organization_id,
+                    'payment_id' => $payment->id,
+                    'invoice_id' => $row['invoice_id'],
+                    'amount' => $row['amount'],
+                    'status' => 'active',
+                    'created_by' => $request->user()->id,
+                ]);
+
+                // ⭐ الفاتورة بتحسب المدفوع/المتبقي من التوزيعات
+                $invoice->recalculateFromAllocations();
+
+                $created[] = $allocation;
+            }
+        });
 
         app(\App\Services\AuditLogService::class)->log(
             'allocate_payment',

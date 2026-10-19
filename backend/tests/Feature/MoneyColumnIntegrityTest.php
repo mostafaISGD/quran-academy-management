@@ -137,7 +137,7 @@ class MoneyColumnIntegrityTest extends TestCase
     }
 
     /**
-     * ⭐⭐ الأعمدة المالية **فعلاً** أعداد صحيحة — مش просто
+     * ⭐⭐ الأعمدة المالية **فعلاً** أعداد صحيحة — مش بس
      * «مش decimal».
      *
      * ⭐ ليه اختبار لوحده؟ لأن `numeric` في SQLite = float،

@@ -13,8 +13,9 @@ class Payment extends Model
 
     protected $fillable = [
         'organization_id', 'student_id', 'parent_id', 'invoice_id',
-        'amount', 'currency', 'payment_method', 'transaction_reference',
-        'status', 'paid_at', 'received_by', 'notes', 'net_amount',
+        'amount', 'fee_amount', 'currency', 'payment_method', 'transaction_reference',
+        'status', 'paid_at', 'received_by', 'account_id', 'notes', 'net_amount',
+        'idempotency_key',
     ];
 
     /**
@@ -45,7 +46,18 @@ class Payment extends Model
 
     protected function casts(): array
     {
-        return ['amount' => MoneyCast::class, 'net_amount' => MoneyCast::class, 'paid_at' => 'datetime'];
+        return [
+            'amount' => MoneyCast::class,
+            'net_amount' => MoneyCast::class,
+            'fee_amount' => MoneyCast::class,
+            'paid_at' => 'datetime',
+        ];
+    }
+
+    /** ⭐ PR 2.7 — الحساب اللي دخلت فيه الفلوس (محفوظ على الدفعة) */
+    public function account()
+    {
+        return $this->belongsTo(FinancialAccount::class);
     }
 
     public function student() { return $this->belongsTo(Student::class); }

@@ -68,8 +68,7 @@ class FinancialLedgerService
          *
          * ⭐ والتحويل بين العملات شغل **PR 2.5**
          * (`ExchangeRateService`) — وهو بيعمل **حركتين** (خارج من
-         * حساب自己的工作 + داخل لواحد تاني)، مش حركة واحدة
-         *Guessing.
+         * حساب لواحد + داخل لواحد تاني)، مش حركة واحدة.
          */
         $movementCurrency = strtoupper($currency ?? $account->currency);
         $accountCurrency = strtoupper($account->currency);

@@ -62,39 +62,19 @@ class Invoice extends Model
     public function recalculateFromAllocations(): self
     {
         /**
-         * ⭐⭐ الـ `sum()` بيرجّع **قرش** — والـ `total` بالتحت
-         * **جنيه** (لأنه خاصية بتعدّي على الـ cast).
+         * ⭐⭐ PR 2.7 — الموديل **مابقاش يكتب بنفسه** (قاعدة 9).
          *
-         * فلو ما مرّرناش التوزيعات على `fromDatabase()`:
-         *     650.00 (جنيه) - 20000 (قرش) = -19350  ⭐ كارثة
+         * ⭐ قبلها الحساب كان كله هنا — يعني فيه **كاتب تاني** لحالة
+         * الفاتورة جنب `InvoiceService`. والنتيجة المعروفة: نسختين
+         * من الصيغة بتتطور مختلف (واحدة بـ`round` والتانية لأ).
          *
-         * @see \App\Casts\MoneyCast::fromAggregate
+         * ⭐ الحساب بقى في `InvoiceService::recalculateFromAllocations()`
+         * والMethod دي بتفوّض — كل النداءات القديمة شغالة زي ما هي.
+         *
+         * @see \App\Services\InvoiceService::recalculateFromAllocations
          */
-        $paid = (float) MoneyCast::fromAggregate(
-            $this->allocations()->active()->sum('amount')
-        );
-
-        $credited = (float) MoneyCast::fromAggregate(
-            $this->creditApplications()->active()->sum('amount')
-        );
-
-        $total = (float) $this->total;
-        $balance = max(0, $total - $paid - $credited);
-
-        $status = match (true) {
-            $paid + $credited <= 0 => 'issued',
-            $balance <= 0 => 'paid',
-            default => 'partially_paid',
-        };
-
-        $this->update([
-            'paid_amount' => round($paid, 2),
-            'credited_amount' => round($credited, 2),
-            'balance_due' => round($balance, 2),
-            'status' => $status,
-        ]);
-
-        return $this->fresh();
+        return app(\App\Services\InvoiceService::class)
+            ->recalculateFromAllocations($this);
     }
 
     /**   كل ما اتدفع على هذه الفاتورة (مجموع التوزيعات النشطة) */

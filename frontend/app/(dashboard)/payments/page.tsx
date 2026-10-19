@@ -40,7 +40,15 @@ export default function PaymentsPage() {
   /** ⭐ خطأ الإجراءات (إنشاء/استرجاع) — منفصل عن `error` (الجلب) */
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const [form, setForm] = useState<{ student_id: string; invoice_id: string; amount: string; net_amount: string; currency: string; payment_method: Payment["payment_method"]; paid_at: string }>({ student_id: "", invoice_id: "", amount: "", net_amount: "", currency: "EGP", payment_method: "cash", paid_at: "" });
+  /**
+   * ⭐⭐ PR 2.7 — مفتاح منع التكرار.
+   *
+   * بيتبني مرة لكل session فتح للنموذج: لو المستخدم داس
+   * "ادفع" مرتين (دبل-كليك أو شبكة ضعيفة)، الـbackend
+   * بيرجّع نفس الدفعة بدل ما يسجّل دفعة جديدة. والنموذج
+   * الجديد بعد النجاح = مفتاح جديد = دفعة جديدة شرعية.
+   */
+  const [form, setForm] = useState<{ student_id: string; invoice_id: string; amount: string; net_amount: string; currency: string; payment_method: Payment["payment_method"]; paid_at: string; idempotency_key: string }>({ student_id: "", invoice_id: "", amount: "", net_amount: "", currency: "EGP", payment_method: "cash", paid_at: "", idempotency_key: crypto.randomUUID() });
 
   const [refundForm, setRefundForm] = useState({ amount: "", reason: "" });
 
@@ -100,12 +108,13 @@ export default function PaymentsPage() {
         invoice_id: form.invoice_id || undefined,
         amount: Number(form.amount),
         net_amount: form.net_amount ? Number(form.net_amount) : undefined,
+        idempotency_key: form.idempotency_key,
         currency: form.currency as string,
         payment_method: form.payment_method,
         paid_at: form.paid_at,
       });
       setShowForm(false);
-      setForm({ student_id: "", invoice_id: "", amount: "", net_amount: "", currency: "EGP", payment_method: "cash", paid_at: "" });
+      setForm({ student_id: "", invoice_id: "", amount: "", net_amount: "", currency: "EGP", payment_method: "cash", paid_at: "", idempotency_key: crypto.randomUUID() });
       // ⭐ نرجع لأول صفحة ونعيد الجلب
       setPage(1);
       reload();

@@ -894,6 +894,10 @@ export type Payment = {
   parent_id: number | null;
   invoice_id: number | null;
   amount: string;
+  /** ⭐⭐ PR 2.7 — العمولة محفوظة صراحةً (amount - net_amount) */
+  fee_amount: string | null;
+  /** ⭐⭐ PR 2.7 — الحساب اللي دخلت فيه الفلوس (محفوظ على الدفعة) */
+  account_id: number | null;
   /** ⭐ المبلغ الواصل الفعلي بعد خصم عمولة بوابة الدفع.
    * لو فاضي = amount (ما فيش عمولة). */
   net_amount: string | null;
@@ -916,6 +920,11 @@ export type Payment = {
     fee_movement_id?: number;
   };
   warning?: string;
+  /**
+   * ⭐⭐⭐ PR 2.7 — إعادة إرسال بنفس `idempotency_key`
+   * رجّعت نفس الدفعة (مش دفعة جديدة، ومفيش حركة مزدوجة).
+   */
+  idempotent?: boolean;
 };
 
 export type Lead = {
@@ -3765,6 +3774,13 @@ export function createPayment(payload: {
   student_id: number; invoice_id?: string; parent_id?: string; amount: number;
   /** ⭐ المبلغ الواصل الفعلي بعد خصم العمولة — اختياري (الافتراضي = amount) */
   net_amount?: number;
+  /**
+   * ⭐⭐ PR 2.7 — مفتاح منع التكرار.
+   *
+   * العميل داس "ادفع" مرتين؟ نفس المفتاح برجّع نفس الدفعة
+   * (response `idempotent: true`) — مش دفعة جديدة.
+   */
+  idempotency_key?: string;
   currency: string; payment_method: string; transaction_reference?: string; paid_at: string; notes?: string;
 }) {
   return apiFetch<Payment>("/payments", { method: "POST", body: JSON.stringify(payload) });

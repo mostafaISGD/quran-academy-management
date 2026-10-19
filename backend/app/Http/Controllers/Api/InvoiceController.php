@@ -176,7 +176,7 @@ class InvoiceController extends Controller
          * ⭐ **محدش كان بيلاحظ** لأن التقارير بتجمع `balance_due`:
          * الفاتورة said مدفوعة والحساب قال «لسه مدفوعةاش».
          *
-         * ⭐ **`status` بتتقفل四处** — ما فيش غيرها (قاعدة 9):
+         * ⭐ **`status` بتتتقفل من 3 أبواب** — ما فيش غيرها (قاعدة 9):
          *   ① `InvoiceService::writeState()` — بعد دفعة
          *   ② `IssueController`/الـactions الصريحة
          *   ③ `overdue` **مش حالة أصلاً** — محسوب (قاعدة 10)

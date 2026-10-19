@@ -127,7 +127,7 @@ class InvoiceServiceTest extends TestCase
         $invoice = $this->invoice(1000.00);
 
         // ⭐⭐ الترتيب: لو service حسب الحالة قبل ما يجمع، أول
-        // دفعة هتعمله `paid` وال余额 هيبقى سالب.
+        // دفعة هتعمله `paid` والرصيد هيبقى سالب.
         app(InvoiceService::class)->applyPayment($invoice, $this->makePayment($invoice, 400.00));
         app(InvoiceService::class)->applyPayment($invoice, $this->makePayment($invoice, 600.00));
 

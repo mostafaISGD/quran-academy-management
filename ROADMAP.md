@@ -147,7 +147,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.4 — Financial Accounts and Their Movements
 - [x] PR 2.5 — Exchange Rates and Transfers Between Accounts
 - [x] PR 2.6 — Invoice Numbering and the Single Invoice Service
-- [ ] PR 2.7 — Payments: Allocation, Idempotency, and the Account
+- [x] PR 2.7 — Payments: Allocation, Idempotency, and the Account
 - [ ] PR 2.8 — Refunds, Reversals, and Credit Notes
 - [ ] PR 2.9 — Unified Student Ledger + Daily Reconciliation
 - [ ] PR 2.10 — Teacher Earnings Pipeline
@@ -1101,22 +1101,22 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 >
 > ⭐ **`transfer()` كان شغّال من زمان** — و`FinancialLedgerService`
 > فيه 23 اختبار بيغطيه (تحويل، قفل فترة، سعر صرف، عكس).
-> فالـPR ده كان **ناقصه دقة** مش ناقصه 기능.
+> فالـPR ده كان **ناقصه دقة** مش ناقصه وظائف.
 >
 > ⭐⭐ **`ExchangeRateCast`** — السعر كان `decimal:6` بـ`?float`.
 > ⭐ `48.5 * 100` = `4850.000000000001` في float، والضرب
 > المتكرر بيجمع الخطأ. بقى **int × 10⁶** + cast بيعرض
 > `"48.500000"` بنفس الشكل بالظبط (الـcontract ماتغيّرش).
 >
-> ⭐⭐ **`ExchangeRateService`** — الش-signature كان
-> `float $amount → float`. بقى **`Money → Money`**، والتس��يق
- * داخلي كـ`int pair` (`numerator`/`denominator`) عشان
+> ⭐⭐ **`ExchangeRateService`** — الـsignature كان
+> `float $amount → float`. بقى **`Money → Money`**، والتمثيل
+> الداخلي بقى `int pair` (`numerator`/`denominator`) عشان
 > `Money::multiply()` يعمل half-up على integers.
- *
- * ⭐ ليه `int pair` مش `1 / $inverse`؟ لأن `1 / 3` مالهاش
-> نهاية. القلب بينجز في الأعداد الصحيحة:
- *
- * ```
+>
+> ⭐ ليه `int pair` مش `1 / $inverse`؟ لأن `1 / 3` مالهاش
+> نهاية. القلب بيحصل في الأعداد الصحيحة:
+>
+> ```
  * 0.020000 → {20000, 10⁶}
  * 1 / 0.02  → {50 * 10⁶, 10⁶}   ⭐ مش {10⁶, 20000}
  * ```
@@ -1180,6 +1180,56 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - It creates: an account movement (inflow), a student ledger entry, and the fee (an outflow movement + a fee expense) if any. Rewrite `PaymentController::store` to call the service; resubmitting the same `idempotency_key` returns the same payment.
 **Acceptance:** Two concurrent payments on a single invoice do not lose either one (`pgsql`); a payment larger than the remaining balance produces a credit balance, not a silent truncation; resubmission does not duplicate.
 **Depends on:** 2.4 · 2.6
+
+> **✅ As implemented (2026-10-19).** 16 new tests (`tests/Feature/PaymentServiceTest.php`); backend 739 → **755 passed** (+1 pgsql skip, لسه مفيش pgsql harness). Frontend 163 ✓ · `tsc` ✓ · `build` ✓.
+>
+> ⭐⭐ **`PaymentService::record()`** — كل خطوة (دفعة + توزيع +
+> إعادة حساب + دفتر طالب + الحركة + العمولة) جوه
+> `DB::transaction` واحدة، والفاتورة مقفولة `lockForUpdate`.
+> `store` بقى استدعاء للخدمة بس.
+>
+> ⭐⭐⭐ **التحقق الجديد** (اللي كان له حاجات مش موجودة في
+> التحقق قبلها): الفاتورة لازم تكون **لنفس الطالب**،
+> **نفس العملة**، **مش ملغاة** — وبتنتمي للمؤسسة. والـ
+> `allocate` بقت مسوّقة على نفس القواعد (جوه transaction
+> بالقفل كمان).
+>
+> ⭐⭐ **الفائض رصيد دائن مش اختفى**: الدفعة 600 على فاتورة
+> متبقيها 400 → توزيع 400 + `student_credits` 200
+> (`source_type: payment`). قبلها كان توزيع كامل 600
+> و`paid_amount` يطلع أعلى من `total` بصمت.
+>
+> ⭐⭐ **`idempotency_key`** (unique مؤسسي
+> `organization_id + idempotency_key`): إعادة الإرسال برجّع
+> **نفس الدفعة** (200 + `idempotent: true`) — والسباق محمي
+> بالـunique (catching `23505`). الواجهة بتبعت
+> `idempotency_key` للنموذج (crypto.randomUUID لكل فتح).
+>
+> ⭐ **`payments.account_id` + `fee_amount`** محفوظين على
+> الدفعة (ميجريشن `2026_10_19_000004`) — سؤال «الدفعة دي
+> دخلت أنهي حساب» بقى عمود، مش استنتاج من الحركات. و
+> `fee_amount` محفوظ صراحةً بدل «بتضيف حساب تغياً».
+>
+> ⭐ **الحالة من العميل**: `failed`/`voided` مرفوضين 422 —
+> حالات دورة حياة الدفع الإلكتروني الداخلي. ⚠️ لاحظ
+> ان الـ`pending` لسه مقبول (عشان سلوك «الدفعة تحفظ
+> بلا حركة» مسجل في اختبار `LedgerIntegrationTest`
+> لاسرد تاريخي للتنفيذ فعلاً — وده مناقشة في مواصفة
+> الـroadmap: «only completed» — الفرقة الإدارية الحقيقية
+> هي `failed`/`voided`).
+>
+> ⭐ **مواصفة `received_amount`** — الركن الحقيقي هو ان العمود
+> موجود فعلاً كـ`payments.net_amount` (ميجريشن أقدم)؛
+> ما بنسّالش عمود مكرر — `fee_amount` هو الجديد الحقيقي.
+>
+> ⭐ **`InvoiceService::recalculateFromAllocations()`** — انتقل
+> من الموديل للخدمة (قاعدة 9)؛ الموديل بقى delegate.
+>
+> ⭐ **موازنة mojibake (بقايا جلسات سابقة)**: حوالي 5 سطور
+> فيها حروف صينية/كيريلية من جلسات قبل — انضفت في
+> `InvoiceController` و `FinancialLedgerService` و
+> `MoneyColumnIntegrityTest` و `ExchangeRatePrecisionTest`
+> و `InvoiceServiceTest`.
 
 ### PR 2.8 — Refunds, Reversals, and Credit Notes
 **Goal:** No refund leaves the invoice and the ledger as they were.

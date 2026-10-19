@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Casts\MoneyCast;
 use App\Models\Invoice;
 use App\Models\NumberSequence;
 use App\Models\Payment;
@@ -117,6 +118,50 @@ class InvoiceService
             $newPaid = max(0.0, (float) $locked->paid_amount - (float) $payment->amount);
 
             $this->writeState($locked, $newPaid);
+        });
+    }
+
+    /**
+     * ⭐⭐ الحالة من **توزيعات الدفعات** — المنقولة من الإ Model.
+     *
+     * ⭐ ليه في الخدمة؟ (قاعدة 9) — قبلها كان في الموديل
+     * `Invoice::recalculateFromAllocations()` كاتب تاني لحالة
+     * الفاتورة. كل كتابة بقت هنا: الخدمة مكانها الوحيد.
+     *
+     * ⭐⭐ **الـ`sum()` بيرجّع قرش** والـ`total` جنيه — لازم
+     * `fromAggregate` (دُرُس 100×).
+     */
+    public function recalculateFromAllocations(Invoice $invoice): Invoice
+    {
+        return DB::transaction(function () use ($invoice) {
+            // ⭐ القفل — توزيعين متزامنين على نفس الفاتورة
+            $locked = Invoice::whereKey($invoice->id)->lockForUpdate()->first();
+
+            $paid = (float) MoneyCast::fromAggregate(
+                $locked->allocations()->active()->sum('amount')
+            );
+
+            $credited = (float) MoneyCast::fromAggregate(
+                $locked->creditApplications()->active()->sum('amount')
+            );
+
+            $total = (float) $locked->total;
+            $balance = max(0, $total - $paid - $credited);
+
+            $status = match (true) {
+                $paid + $credited <= 0 => 'issued',
+                $balance <= 0 => 'paid',
+                default => 'partially_paid',
+            };
+
+            $locked->update([
+                'paid_amount' => round($paid, 2),
+                'credited_amount' => round($credited, 2),
+                'balance_due' => round($balance, 2),
+                'status' => $status,
+            ]);
+
+            return $locked->fresh();
         });
     }
 
