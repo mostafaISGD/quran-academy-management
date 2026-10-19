@@ -327,6 +327,28 @@ class RefundServiceTest extends TestCase
     }
 
     // ═══════════════════════════════════════════════════════════
+    // 6.5 - التدقيق: الاسترداد المنفَذ بيتكتب في audit_logs
+    // ═══════════════════════════════════════════════════════════
+
+    /** ⭐ قاعدة 3 من AGENTS: الاسترداد عملية حساسة → audit_logs */
+    public function test_every_executed_refund_is_audited(): void
+    {
+        $this->makeAccount();
+        $staff = $this->clerk();
+        [, $payment] = $this->payInvoice(500.00, $staff);
+
+        app(RefundService::class)
+            ->refund($payment, 200.00, 'cash', 'استرداد مجرّب', null, null, $staff, null);
+
+        $this->assertDatabaseHas('audit_logs', [
+            'action' => 'refund',
+            'entity_type' => 'payment',
+            'entity_id' => $payment->id,
+            'user_id' => $staff->id,
+        ]);
+    }
+
+    // ═══════════════════════════════════════════════════════════
     // 7 - الAPI
     // ═══════════════════════════════════════════════════════════
 

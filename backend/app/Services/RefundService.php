@@ -391,6 +391,24 @@ class RefundService
             'approved_at' => $cameFromApproval ? now() : $refund->approved_at,
         ]);
 
+        // ⭐⭐ قاعدة 3 — الاسترداد المنفَذ عملية حساسة: audit دايماً،
+        // فوري أو معتمد. المعتمد بيكمل تفصيل في `refund_approved`.
+        app(\App\Services\AuditLogService::class)->log(
+            'refund',
+            'payment',
+            $payment->id,
+            null,
+            [
+                'refund_id' => $refund->id,
+                'amount' => $amount,
+                'mode' => $refund->mode,
+                'reason' => $refund->reason,
+                'fully_refunded' => $payment->fresh()->isFullyRefunded(),
+            ],
+            null,
+            $user->id,
+        );
+
         // 7) الاسترداد الكامل = الدفع ملغات (زي-day سلوック)
         if ($payment->fresh()->isFullyRefunded()) {
             $payment->update(['status' => 'voided']);
