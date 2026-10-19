@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 
 class PromoCodeUsage extends Model
@@ -15,9 +16,9 @@ class PromoCodeUsage extends Model
     protected function casts(): array
     {
         return [
-            'discount_amount' => Piastres::class,
-            'original_amount' => Piastres::class,
-            'final_amount' => Piastres::class,
+            'discount_amount' => MoneyCast::class,
+            'original_amount' => MoneyCast::class,
+            'final_amount' => MoneyCast::class,
             'applied_at' => 'datetime',
         ];
     }

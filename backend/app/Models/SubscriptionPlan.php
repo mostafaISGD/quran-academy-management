@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -45,7 +46,7 @@ class SubscriptionPlan extends Model
     protected function casts(): array
     {
         return [
-            'price' => Piastres::class,
+            'price' => MoneyCast::class,
             'lessons_count' => 'integer',
             'lesson_duration_minutes' => 'integer',
             'sort_order' => 'integer',

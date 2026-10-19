@@ -65,13 +65,13 @@ class TeacherPayrollController extends Controller
              *     → بيتخزّن كـ 4500 × 100 = 45,000,000
              *     → الموديل بيقرأ 450,000 جنيه  ⭐ 100× غلط
              *
-             * @see \App\Casts\Piastres::fromDatabase
+             * @see \App\Casts\MoneyCast::fromAggregate
              */
             ->map(fn ($row) => (object) [
                 'teacher_id' => $row->teacher_id,
                 'earning_count' => $row->earning_count,
                 'first_date' => $row->first_date,
-                'amount' => \App\Casts\Piastres::fromDatabase($row->amount),
+                'amount' => \App\Casts\MoneyCast::fromAggregate($row->amount),
             ])
             ->keyBy('teacher_id');
     }
@@ -144,7 +144,7 @@ class TeacherPayrollController extends Controller
                 'status' => $p->status,
                 'lines_count' => $p->teacher_lines_count,
                 // ⭐ `DB::table` + `sum()` → **قرش خام**، مافيش cast
-                'total_amount' => round((float) \App\Casts\Piastres::fromDatabase($t->total ?? 0), 2),
+                'total_amount' => round((float) \App\Casts\MoneyCast::fromAggregate($t->total ?? 0), 2),
                 'total_hours' => round((float) ($t->hours ?? 0), 2),
                 'payable' => $this->payableCount($p->id),
             ];

@@ -142,7 +142,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 **Phase 2 — Financial System Integrity**
 
 - [x] PR 2.1 — Money Foundation: `Money` and Currencies
-- [ ] PR 2.2 — Migrate Money Columns to `bigint` (Backend)
+- [x] PR 2.2 — Migrate Money Columns to `bigint` (Backend)
 - [ ] PR 2.3 — Financial API Contract (Frontend)
 - [ ] PR 2.4 — Financial Accounts and Their Movements
 - [ ] PR 2.5 — Exchange Rates and Transfers Between Accounts
@@ -979,6 +979,36 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - `items.*.quantity` are integers (or fractions with explicit, defined rounding).
 **Acceptance:** Test: the total of an invoice with five line items equals the sum of its line items exactly; no financial column remains `decimal`.
 **Depends on:** 2.1
+
+> **✅ As implemented (2026-10-19).** 3 new tests in `tests/Feature/MoneyColumnIntegrityTest.php`. Backend 709 passed / 0 failed.
+>
+> ⭐⭐⭐ **الأعمدة كانت `bigint` من زمان** — الميجريشن
+> `2026_10_12_000001_convert_money_columns_to_piastres.php` (من
+> قبل الـroadmap) حوّل ٢٦ جدول وسمّاها `*_legacy`. فمفيش
+> migration تحويل جديد في الـPR ده — الـwork الحقيقي كان **الـcast**.
+>
+> ⭐ **الـcast هو المشكلة الحقيقية**: `Piastres` كان hard-coded
+> لـEGP-2. `MoneyCast` بقى بيقرأ **أساس عملة العمود** من الـconfig
+> في كل عملية — فEGP=2 وKWD=3 وJPY=0 بقت شغالة من غير كود خاص.
+>
+> ⚠️ **قرار معماري (مهم لـ2.3)**: الـcast بيرجّع **نص**
+> (`"350.00"`) زي `Piastres` بالظبط، والـ`Money` object شغل
+> **الجديد** (PR 2.3). السبب: تغيير شكل الـAPI في ٢٣ اختبار
+> موجود هيتكسر من غير داعي. الـcontract كما هو، والقرش في
+> القاعدة int.
+>
+> ⭐ **الرقم في `set()` = وحدة كبرى دايماً** (مش أصغر وحدة).
+> الـقرش الصريح لازم `Money::of(65000, 'EGP')`. تخمين النية من
+> نوع الـPHP = بالظبط الـbug اللي الـcast بيمنعه، والعكس كان
+> بيسبّب 155 اختبار مكسور (قراءة `1000` كقرش = `10.00` جنيه).
+>
+> ⭐ **`fromAggregate()`** يحلّ فخّ الـaggregates: `sum()` بيرجّع
+> خام بالقرش وبيعدّي على الـcast، فلازم يمرّ منه قبل الجمع.
+>
+> ⭐ **باج في الـseeder اتصلّح**: `RealisticDataSeeder` كان بيستخدم
+> `DB::table()->insert()` — وده **متجاوز الـcast**، فبيكتب `60`
+> في عمود `bigint` والـcast بيقراها `0.60` جنيه. بقى
+> `SubscriptionPlan::insert()`.
 
 ### PR 2.3 — Financial API Contract (Frontend)
 **Goal:** The frontend handles amounts as integers + currency.

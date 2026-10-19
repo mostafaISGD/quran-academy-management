@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 
 class TeacherLedgerEntry extends Model
@@ -18,9 +19,9 @@ class TeacherLedgerEntry extends Model
     protected function casts(): array
     {
         return [
-            'debit' => Piastres::class,
-            'credit' => Piastres::class,
-            'balance_after' => Piastres::class,
+            'debit' => MoneyCast::class,
+            'credit' => MoneyCast::class,
+            'balance_after' => MoneyCast::class,
             'created_at' => 'datetime',
         ];
     }

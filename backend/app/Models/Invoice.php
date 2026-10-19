@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -19,13 +20,13 @@ class Invoice extends Model
     protected function casts(): array
     {
         return [
-            'subtotal' => Piastres::class,
-            'discount' => Piastres::class,
-            'tax' => Piastres::class,
-            'total' => Piastres::class,
-            'paid_amount' => Piastres::class,
-            'balance_due' => Piastres::class,
-            'credited_amount' => Piastres::class,
+            'subtotal' => MoneyCast::class,
+            'discount' => MoneyCast::class,
+            'tax' => MoneyCast::class,
+            'total' => MoneyCast::class,
+            'paid_amount' => MoneyCast::class,
+            'balance_due' => MoneyCast::class,
+            'credited_amount' => MoneyCast::class,
             'issue_date' => 'date',
             'due_date' => 'date',
         ];
@@ -66,13 +67,13 @@ class Invoice extends Model
          * فلو ما مرّرناش التوزيعات على `fromDatabase()`:
          *     650.00 (جنيه) - 20000 (قرش) = -19350  ⭐ كارثة
          *
-         * @see \App\Casts\Piastres::fromDatabase
+         * @see \App\Casts\MoneyCast::fromAggregate
          */
-        $paid = (float) Piastres::fromDatabase(
+        $paid = (float) MoneyCast::fromAggregate(
             $this->allocations()->active()->sum('amount')
         );
 
-        $credited = (float) Piastres::fromDatabase(
+        $credited = (float) MoneyCast::fromAggregate(
             $this->creditApplications()->active()->sum('amount')
         );
 
@@ -99,7 +100,7 @@ class Invoice extends Model
     public function paidViaAllocations(): float
     {
         // ⭐ `sum()` بالقرش — لازم `fromDatabase`
-        return (float) Piastres::fromDatabase(
+        return (float) MoneyCast::fromAggregate(
             $this->allocations()->active()->sum('amount')
         );
     }

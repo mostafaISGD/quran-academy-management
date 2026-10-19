@@ -344,21 +344,21 @@ class TeacherController extends Controller
          * لو ما حوّلناش، الملخص بيطلع 100 مرة أكبر من الحقيقي
          * والواجهة بتعرض أرقام غلط للمدير.
          *
-         * @see \App\Casts\Piastres::fromDatabase
+         * @see \App\Casts\MoneyCast::fromAggregate
          */
-        $earnedThisMonth = (float) \App\Casts\Piastres::fromDatabase(
+        $earnedThisMonth = (float) \App\Casts\MoneyCast::fromAggregate(
             (clone $earnings)->whereRange('earning_date', $startOfMonth, $endOfMonth)->sum('amount')
         );
-        $paidThisMonth = (float) \App\Casts\Piastres::fromDatabase(
+        $paidThisMonth = (float) \App\Casts\MoneyCast::fromAggregate(
             (clone $payments)->whereRange('paid_at', $startOfMonth, $endOfMonth)->sum('amount')
         );
-        $earnedTotal = (float) \App\Casts\Piastres::fromDatabase(
+        $earnedTotal = (float) \App\Casts\MoneyCast::fromAggregate(
             (clone $earnings)->sum('amount')
         );
-        $paidTotal = (float) \App\Casts\Piastres::fromDatabase(
+        $paidTotal = (float) \App\Casts\MoneyCast::fromAggregate(
             (clone $payments)->sum('amount')
         );
-        $pendingTotal = (float) \App\Casts\Piastres::fromDatabase(
+        $pendingTotal = (float) \App\Casts\MoneyCast::fromAggregate(
             $teacher->earnings()->where('status', 'pending')->sum('amount')
         );
 

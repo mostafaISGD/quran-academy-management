@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 
 class Subscription extends Model
@@ -20,7 +21,7 @@ class Subscription extends Model
     protected function casts(): array
     {
         return [
-            'price' => Piastres::class,
+            'price' => MoneyCast::class,
             'start_date' => 'date',
             'end_date' => 'date',
             'auto_renew' => 'boolean',

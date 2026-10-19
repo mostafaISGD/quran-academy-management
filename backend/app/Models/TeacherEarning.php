@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 
 class TeacherEarning extends Model
@@ -14,7 +15,7 @@ class TeacherEarning extends Model
 
     protected function casts(): array
     {
-        return ['amount' => Piastres::class, 'earning_date' => 'date'];
+        return ['amount' => MoneyCast::class, 'earning_date' => 'date'];
     }
 
     public function teacher() { return $this->belongsTo(Teacher::class); }

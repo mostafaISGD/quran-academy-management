@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -43,7 +44,7 @@ class Employee extends Model
             'date_of_birth' => 'date',
             'joined_at' => 'date',
             // decimal:2 عشان PHP ما يعملش خطأ فاصلة عائمة في الحساب
-            'hourly_rate' => Piastres::class,
+            'hourly_rate' => MoneyCast::class,
         ];
     }
 

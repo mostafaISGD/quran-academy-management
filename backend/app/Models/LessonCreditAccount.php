@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 
 class LessonCreditAccount extends Model
@@ -15,7 +16,7 @@ class LessonCreditAccount extends Model
     protected function casts(): array
     {
         return [
-            'current_balance' => Piastres::class,
+            'current_balance' => MoneyCast::class,
             'expires_at' => 'datetime',
         ];
     }

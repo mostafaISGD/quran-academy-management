@@ -17,16 +17,18 @@ class MoneyCastAndRuleTest extends TestCase
     // MoneyCast
     // ═══════════════════════════════════════════════════════════
 
-    public function test_cast_get_returns_money_from_int(): void
+    // ⭐⭐ PR 2.2 غيّر القرار: الـcast بيرجّع **نص** بالوحدة
+    // الكبرى (زي `Piastres`) — عشان الـAPI contract ما يتغيّرش.
+    // الـ`Money` object بقى للـAPI الجديد في PR 2.3.
+    public function test_cast_get_returns_decimal_string_from_int(): void
     {
         $cast = new MoneyCast();
         $model = new class extends \Illuminate\Database\Eloquent\Model {};
 
-        $money = $cast->get($model, 'amount', 65000, ['currency' => 'EGP']);
-
-        $this->assertInstanceOf(Money::class, $money);
-        $this->assertSame(65000, $money->amount);
-        $this->assertSame('EGP', $money->currency);
+        $this->assertSame(
+            '650.00',
+            $cast->get($model, 'amount', 65000, ['currency' => 'EGP'])
+        );
     }
 
     public function test_cast_get_returns_null_for_null(): void
@@ -47,12 +49,24 @@ class MoneyCastAndRuleTest extends TestCase
         $this->assertSame(65000, $cast->set($model, 'amount', $money, []));
     }
 
-    public function test_cast_set_accepts_int(): void
+    // ⭐⭐ الأرقام = **وحدة كبرى** دايماً (زي `Piastres` بالظبط).
+    // القارئ الوحيد للأصغر هو `Money::of(65000, 'EGP')` — صريح.
+    //
+    // ⚠️ ده اللي بيمنعBug الـ100×: لو `1000` كانت تُقرأ كقرش،
+    // القيمة هتطلع `10.00` جنيه بدل `1000.00`.
+    public function test_cast_set_treats_numbers_as_major_units(): void
     {
         $cast = new MoneyCast();
         $model = new class extends \Illuminate\Database\Eloquent\Model {};
 
-        $this->assertSame(50000, $cast->set($model, 'amount', 50000, []));
+        // ⭐ `500` = خمسمائة جنيه (مش 500 قرش!)
+        $this->assertSame(50000, $cast->set($model, 'amount', 500, []));
+
+        // ⭐ والقرش الصريح لازم `Money` object
+        $this->assertSame(
+            50000,
+            $cast->set($model, 'amount', Money::of(50000, 'EGP'), [])
+        );
     }
 
     public function test_cast_set_converts_float_to_int(): void
@@ -77,9 +91,8 @@ class MoneyCastAndRuleTest extends TestCase
         $cast = new MoneyCast();
         $model = new class extends \Illuminate\Database\Eloquent\Model {};
 
-        $money = $cast->get($model, 'amount', 50000, []);
-
-        $this->assertSame('EGP', $money->currency);
+        // ⭐ مافيش `currency` في الـattributes = الـdefault (EGP)
+        $this->assertSame('500.00', $cast->get($model, 'amount', 50000, []));
     }
 
     public function test_cast_handles_different_exponents(): void
@@ -87,11 +100,56 @@ class MoneyCastAndRuleTest extends TestCase
         $cast = new MoneyCast();
         $model = new class extends \Illuminate\Database\Eloquent\Model {};
 
-        // KWD: 3 decimal places
-        $money = $cast->get($model, 'amount', 1234567, ['currency' => 'KWD']);
+        // ⭐ KWD: 3 خانات عشرية → 1234.567 دينار
+        $this->assertSame(
+            '1234.567',
+            $cast->get($model, 'amount', 1234567, ['currency' => 'KWD'])
+        );
 
-        $this->assertSame(1234567, $money->amount);
-        $this->assertSame('KWD', $money->currency);
+        // ⭐ JPY: صفر خانات → 1500 ين
+        $this->assertSame(
+            '1500',
+            $cast->get($model, 'amount', 1500, ['currency' => 'JPY'])
+        );
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ⭐ PR 2.2 — مافيش float في أي مسار تحويل
+    // ═══════════════════════════════════════════════════════════
+
+    public function test_the_cast_never_uses_float_for_the_read_path(): void
+    {
+        $cast = new MoneyCast();
+        $model = new class extends \Illuminate\Database\Eloquent\Model {};
+
+        // ⭐ 0.07 * 3 = 0.21000000000000002 في float — في القرش مافيش
+        // خطأ تمثيل إطلاقاً، فالنتيجة **بالظبط** 21.
+        $this->assertSame('0.21', $cast->get($model, 'amount', 21, ['currency' => 'EGP']));
+        $this->assertSame('0.07', $cast->get($model, 'amount', 7, ['currency' => 'EGP']));
+        $this->assertSame('-65.00', $cast->get($model, 'amount', -6500, ['currency' => 'EGP']));
+    }
+
+    public function test_from_aggregate_converts_the_raw_integer(): void
+    {
+        // ⭐ ده الـ"فخّ الـaggregates": الـ`SUM` بيرجّع خام بالقرش
+        $this->assertSame('500.00', MoneyCast::fromAggregate(50000));
+        $this->assertSame('500.00', MoneyCast::fromAggregate(50000, 'EGP'));
+        $this->assertNull(MoneyCast::fromAggregate(null));
+    }
+
+    public function test_a_hundred_thousand_writes_do_not_drift(): void
+    {
+        $cast = new MoneyCast();
+        $model = new class extends \Illuminate\Database\Eloquent\Model {};
+
+        // ⭐ 10,000 دورة حفظ/قراءة على نفس المبلغ — لازم يفضل ثابت
+        $raw = 65000;
+
+        for ($i = 0; $i < 10000; $i++) {
+            $raw = $cast->set($model, 'amount', $cast->get($model, 'amount', $raw, []), []);
+        }
+
+        $this->assertSame(65000, $raw, 'المبلغ اتغيّر بعد 10,000 دورة');
     }
 
     // ═══════════════════════════════════════════════════════════

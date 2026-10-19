@@ -28,11 +28,11 @@ class ReportController extends Controller
         $monthStart = $today->copy()->startOfMonth();
         // ⭐ `sum()` على الـ query بيرجّع **قرش** — الـ cast ما بيشتغلش
         // على aggregates. لازم `fromDatabase` قبل أي مقارنة أو جمع.
-        $monthlyRevenue = \App\Casts\Piastres::fromDatabase(
+        $monthlyRevenue = \App\Casts\MoneyCast::fromAggregate(
             Payment::query()->where('status', 'completed')->whereRange('paid_at', $monthStart, $today)->sum('amount')
         );
         $expiringSoon = Subscription::query()->where('status', 'active')->whereRange('end_date', $today, $today->copy()->addDays(3))->count();
-        $pendingTeacherPayments = \App\Casts\Piastres::fromDatabase(
+        $pendingTeacherPayments = \App\Casts\MoneyCast::fromAggregate(
             TeacherPayment::query()->whereIn('status', ['pending'])->sum('amount')
         );
         $unscheduledLeads = Lead::query()->whereIn('status', ['new', 'contacted'])->count();

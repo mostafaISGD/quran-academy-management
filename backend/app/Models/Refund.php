@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 
 class Refund extends Model
@@ -23,7 +24,7 @@ class Refund extends Model
 
     protected function casts(): array
     {
-        return ['amount' => Piastres::class, 'processed_at' => 'datetime'];
+        return ['amount' => MoneyCast::class, 'processed_at' => 'datetime'];
     }
 
     public function payment()

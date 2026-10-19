@@ -266,13 +266,13 @@ class FinancialAccountController extends Controller
                 'totals' => [
                     // ⭐ `sum()` على الـ query بيرجّع **قرش** — الـ cast
                     // ما بيشتغلش على aggregates. لازم `fromDatabase`.
-                    'in' => round((float) \App\Casts\Piastres::fromDatabase(
+                    'in' => round((float) \App\Casts\MoneyCast::fromAggregate(
                         $query->clone()
                             ->where('direction', 'in')
                             ->where('status', 'posted')
                             ->sum('amount')
                     ), 2),
-                    'out' => round((float) \App\Casts\Piastres::fromDatabase(
+                    'out' => round((float) \App\Casts\MoneyCast::fromAggregate(
                         $query->clone()
                             ->where('direction', 'out')
                             ->where('status', 'posted')

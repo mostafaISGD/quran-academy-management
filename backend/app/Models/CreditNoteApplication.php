@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 
 class CreditNoteApplication extends Model
@@ -14,7 +15,7 @@ class CreditNoteApplication extends Model
 
     protected function casts(): array
     {
-        return ['amount' => Piastres::class];
+        return ['amount' => MoneyCast::class];
     }
 
     protected $attributes = ['status' => 'active'];

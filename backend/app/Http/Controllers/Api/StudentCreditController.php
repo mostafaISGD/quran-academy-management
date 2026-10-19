@@ -144,13 +144,13 @@ class StudentCreditController extends Controller
          *
          * الـ `increment` بتنفيذ `UPDATE ... SET used = used + ?`
          * على مستوى الـ query builder — من غير ما يعدّي على
-         * `Piastres::set`. فالمبلغ ٢٠٠ جنيه كان بيتخزّن **٢٠٠
+         * `MoneyCast::set`. فالمبلغ ٢٠٠ جنيه كان بيتخزّن **٢٠٠
          * قرش**، والرصيد المتبقي بيطلع ١٩٨ بدل صفر.
          *
          * الحل: نقرأ الحالي (وهو **جنيه** من الـ cast) ونمنشنّله
          * بنفسه. كده الاتنين متساويين في الوحدة.
          *
-         * @see \App\Casts\Piastres
+         * @see \App\Casts\MoneyCast
          */
         $studentCredit->update([
             'used' => round((float) $studentCredit->used + (float) $data['amount'], 2),

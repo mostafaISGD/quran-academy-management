@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
 use App\Models\AccountMovement;
 use App\Models\FinancialAccount;
 use App\Models\Invoice;
@@ -47,7 +47,7 @@ class MoneyPrecisionTest extends TestCase
     public function test_the_cast_never_loses_a_piaster(): void
     {
         $model = new Invoice;
-        $cast = new Piastres;
+        $cast = new MoneyCast;
 
         // ⭐ الكسور هي السبب كله — والوزنات الشائعة فعلياً:
         $fractions = [
@@ -74,7 +74,7 @@ class MoneyPrecisionTest extends TestCase
     public function test_the_cast_traps_the_classic_float_trap(): void
     {
         $model = new Invoice;
-        $cast = new Piastres;
+        $cast = new MoneyCast;
 
         /**
          * ⭐⭐⭐ **الحالة اللي الـ float بيرمي فيها فعلاً:**
@@ -99,7 +99,7 @@ class MoneyPrecisionTest extends TestCase
     public function test_the_cast_returns_the_same_shape_as_before(): void
     {
         $model = new Invoice;
-        $cast = new Piastres;
+        $cast = new MoneyCast;
 
         /**
          * ⚠️ ده **شرط التصميم**: الـ API ما يتغيّرش خالص.
@@ -123,10 +123,14 @@ class MoneyPrecisionTest extends TestCase
     public function test_from_database_is_the_only_bridge_for_an_aggregate(): void
     {
         // ⭐ `sum()` بيرجّع قرش — وده **سلوك متوقع**
-        $this->assertSame(250.00, Piastres::fromDatabase(25000));
-        $this->assertSame(0.00, Piastres::fromDatabase(0));
-        $this->assertSame(0.07, Piastres::fromDatabase(7));
-        $this->assertNull(Piastres::fromDatabase(null));
+        //
+        // ⚠️ `fromAggregate` بيرجّع **نص** (`"250.00"`)، مش float
+        // (PR 2.2) — عشان الـ`get()` بيرجّع نص بنفس الشكل، فمفيش
+        // اختلاف بين المسارين.
+        $this->assertSame('250.00', MoneyCast::fromAggregate(25000));
+        $this->assertSame('0.00', MoneyCast::fromAggregate(0));
+        $this->assertSame('0.07', MoneyCast::fromAggregate(7));
+        $this->assertNull(MoneyCast::fromAggregate(null));
     }
 
     // ============================================================

@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -44,7 +45,7 @@ class Payment extends Model
 
     protected function casts(): array
     {
-        return ['amount' => Piastres::class, 'net_amount' => Piastres::class, 'paid_at' => 'datetime'];
+        return ['amount' => MoneyCast::class, 'net_amount' => MoneyCast::class, 'paid_at' => 'datetime'];
     }
 
     public function student() { return $this->belongsTo(Student::class); }
@@ -66,7 +67,7 @@ class Payment extends Model
     public function allocatedAmount(): float
     {
         // ⭐ `sum()` بالقرش — لازم `fromDatabase`
-        return (float) Piastres::fromDatabase(
+        return (float) MoneyCast::fromAggregate(
             $this->allocations()->active()->sum('amount')
         );
     }
@@ -80,7 +81,7 @@ class Payment extends Model
     public function totalRefunded(): float
     {
         // ⭐ `sum()` بالقرش — لازم `fromDatabase`
-        return (float) Piastres::fromDatabase(
+        return (float) MoneyCast::fromAggregate(
             $this->refunds()->where('status', 'processed')->sum('amount')
         );
     }

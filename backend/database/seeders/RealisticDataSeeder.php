@@ -252,7 +252,12 @@ class RealisticDataSeeder extends Seeder
         $now = now();
         foreach ($plans as $i => $p) {
             [$name, $progId, $billing, $price, $cur, $count, $dur, $days, $desc] = $p;
-            DB::table('subscription_plans')->insert([
+            // ⭐⭐ `SubscriptionPlan::insert()` مش `DB::table()`.
+            //
+            // السبب: `DB::table()->insert()` **متجاوز الـcast** — فبيكتب
+            // `60` في عمود `bigint`، والـcast بيقراها `0.60` جنيه.
+            // (PR 2.2 — الأعمدة بقت `bigint` بالقرش.)
+            \App\Models\SubscriptionPlan::insert([
                 'id' => $i + 1, 'organization_id' => 1, 'program_id' => $progId,
                 'name' => $name, 'billing_type' => $billing, 'price' => $price, 'currency' => $cur,
                 'lessons_count' => $count, 'lesson_duration_minutes' => $dur, 'duration_days' => $days,

@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -33,7 +34,7 @@ class AccountTransfer extends Model
     protected function casts(): array
     {
         return [
-            'amount' => Piastres::class,
+            'amount' => MoneyCast::class,
             'exchange_rate' => 'decimal:6',
             'transfer_date' => 'date',
         ];

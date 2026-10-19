@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -27,8 +28,8 @@ class TeacherPayrollLine extends Model
         return [
             'lessons_count' => 'integer',
             'hours' => 'float',
-            'rate_snapshot' => Piastres::class,
-            'amount' => Piastres::class,
+            'rate_snapshot' => MoneyCast::class,
+            'amount' => MoneyCast::class,
             'period_start' => 'date',
             'period_end' => 'date',
             'paid_at' => 'datetime',

@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -31,7 +32,7 @@ class FinancialAccount extends Model
     protected function casts(): array
     {
         return [
-            'opening_balance' => Piastres::class,
+            'opening_balance' => MoneyCast::class,
         ];
     }
 
@@ -91,16 +92,16 @@ class FinancialAccount extends Model
          * ⭐⭐ `$net` **بالقرش** — الـ `SUM` بيتخطّى الـ cast.
          *
          * ⚠️ و`$this->opening_balance` **بالجنيه** — لأنه قراءة
-         * خاصية وبيتعدّي على `Piastres::get`.
+         * خاصية وبيتعدّي على `MoneyCast::get`.
          *
          * فجمعهم من غير تحويل = خلط وحدتين = **غلط 100×**:
          *     1000.00 (جنيه) + 50000 (قرش) = 51000
          *
          * فبنمرّر `SUM` على `fromDatabase()` الأول.
          *
-         * @see \App\Casts\Piastres::fromDatabase
+         * @see \App\Casts\MoneyCast::fromAggregate
          */
-        $net = Piastres::fromDatabase(
+        $net = MoneyCast::fromAggregate(
             $query
                 ->selectRaw(
                     'COALESCE(SUM(CASE WHEN direction = '."'in'".' THEN amount ELSE -amount END), 0) AS net'
@@ -116,8 +117,8 @@ class FinancialAccount extends Model
      */
     public function totalIn($from = null, $to = null): float
     {
-        // ⭐ `sum()` بيرجّع قرش — لازم `fromDatabase`
-        return (float) Piastres::fromDatabase(
+        // ⭐ `sum()` بيرجّع قرش — لازم `fromAggregate`
+        return (float) MoneyCast::fromAggregate(
             $this->movements()
                 ->where('status', 'posted')
                 ->where('direction', 'in')
@@ -133,7 +134,7 @@ class FinancialAccount extends Model
     public function totalOut($from = null, $to = null): float
     {
         // ⭐ `sum()` بيرجّع قرش — لازم `fromDatabase`
-        return (float) Piastres::fromDatabase(
+        return (float) MoneyCast::fromAggregate(
             $this->movements()
                 ->where('status', 'posted')
                 ->where('direction', 'out')

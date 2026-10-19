@@ -2,7 +2,8 @@
 
 namespace App\Models;
 
-use App\Casts\Piastres;
+use App\Casts\MoneyCast;
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Model;
 
 class TeacherRate extends Model
@@ -15,7 +16,7 @@ class TeacherRate extends Model
     protected function casts(): array
     {
         return [
-            'amount' => Piastres::class,
+            'amount' => MoneyCast::class,
             'effective_from' => 'date',
             'effective_to' => 'date',
         ];

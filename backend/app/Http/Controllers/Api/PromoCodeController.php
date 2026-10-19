@@ -241,7 +241,7 @@ class PromoCodeController extends Controller
         abort_if($promoCode->organization_id !== request()->user()->organization_id, 404);
 
         $totalUsage = $promoCode->usages()->count();
-        $totalDiscount = \App\Casts\Piastres::fromDatabase(
+        $totalDiscount = \App\Casts\MoneyCast::fromAggregate(
             $promoCode->usages()->sum('discount_amount')
         );
         $uniqueStudents = $promoCode->usages()->distinct('student_id')->count('student_id');
