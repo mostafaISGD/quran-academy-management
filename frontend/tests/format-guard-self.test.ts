@@ -38,6 +38,10 @@ const VIOLATION: Record<string, string> = {
   "محاذاة فيزيائية جوا CSS": "<style>th { text-align: right; }</style>\n",
   "اسم شهر أو يوم إنجليزي": 'const p = "رواتب October 2026";\n',
   "`AM` / `PM` إنجليزية": 'const t = "الحصة 6:00 PM";\n',
+
+  // ⭐ PR 2.3 — المبالغ
+  "`toFixed` على مبلغ": 'const s = (amount).toFixed(2);\n',
+  "قسمة يدوية للمبلغ (`/ 100` أو `Math.pow`)": 'const major = price_minor / 100;\n',
 };
 
 /** ⭐ كود نضيف تمامًا — لازم يعدّي من غير أي ملاحظة */

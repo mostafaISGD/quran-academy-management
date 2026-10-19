@@ -143,7 +143,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 
 - [x] PR 2.1 — Money Foundation: `Money` and Currencies
 - [x] PR 2.2 — Migrate Money Columns to `bigint` (Backend)
-- [ ] PR 2.3 — Financial API Contract (Frontend)
+- [x] PR 2.3 — Financial API Contract (Frontend)
 - [ ] PR 2.4 — Financial Accounts and Their Movements
 - [ ] PR 2.5 — Exchange Rates and Transfers Between Accounts
 - [ ] PR 2.6 — Invoice Numbering and the Single Invoice Service
@@ -1018,6 +1018,37 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - Update the pages: invoices, payments, finance, pricing, expenses, payroll, teacher-earnings, teacher-payments, subscriptions, and my-children.
 **Acceptance:** `npm run build` passes; no incorrect decimal fractions on any page (tested with boundary values).
 **Depends on:** 2.2
+
+> **✅ As implemented (2026-10-19).** 20 new tests (`format-minor.test.ts` 18 + 2 للحرس). Frontend 143 → **163 passed**.
+>
+> ⭐ **`formatMinor(amount, currency)`** — يقرأ `*_minor` (int) ويعرض
+> بالوحدة الكبرى. وبيعرف **أساس العملة**: KWD=3 (فلس)، JPY=0
+> (مفيش كسور)، EGP=2.
+>
+> ⭐ ليه `minor` مش `major`؟ لأن `"350.00"` **نص**، وأي حساب
+> عليه = float:
+>
+> ```
+> Number("0.07") * 3 = 0.21000000000000002   ⭐ مش 0.21
+> ```
+>
+> والـ`int` بالقرش مالوش خطأ تمثيل: `7 * 3 = 21` بالظبط.
+>
+> ⭐ **`inputToMinor()` / `minorToInput()`** للـforms — تحويل
+> ذهاب وإياب بـ`Math.round` مش `× 100` (لأن `0.07 * 100 =
+> 7.000000000000001`).
+>
+> ⭐⭐ **الحارس اتوسّع بقاعدتين** في `tests/guard.ts`:
+>   • **`toFixed`** — مش بيعرف أساس العملة. `(150000).toFixed(2)`
+>     → `"150000.00"` بدل `1,500`، و`(1234).toFixed(2)` غلط
+>     أساساً في KWD.
+>   • **قسمة يدوية (`/ 100`)** — سبب الـ100× bug، وغلط في
+>     أي عملة أساسها مش 2.
+>
+> ⚠️ **الـcontract نفسه ماتغيّرش** — الـbackend لسه بيرجّع نص
+> (`"350.00"`)، والصفحات لسه بتستخدم `money()`. التحويل للـ
+> `*_minor` شغل الـPRs الجاية (2.4+). الـPR ده بنى **الأدوات
+> + الحارس** عشان التحويل يبقى آمن.
 
 ### PR 2.4 — Financial Accounts and Their Movements
 **Goal:** A single source of truth for where the money is.

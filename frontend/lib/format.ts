@@ -103,6 +103,116 @@ export function currencyLabel(currency: string | null | undefined): string {
   return CURRENCY_LABEL[code] ?? code;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ⭐ PR 2.3 — المبالغ من أصغر وحدة (`*_minor`)
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * ⭐ أساس العملة — عدد الخانات العشرية.
+ *
+ * ⭐ ليه لازم يبقى معرّف هنا كمان (وليس في الـbackend بس)؟
+ * لأن العرض بيحصل في المتصفح، والـAPI بيرجّع `150000` من غير ما
+ * يقول «ده فول不方便. فلو الواجهة_clauseتعارف الأساس غلط، عرض
+ * `150000` بدل `1,500` = خطأ **في الفاتورة**.
+ *
+ * ⭐ لازم يطابق `backend/config/currencies.php` بالظبط.
+ */
+const CURRENCY_EXPONENT: Record<string, number> = {
+  EGP: 2, // قرش
+  USD: 2, // سنت
+  SAR: 2, // هللة
+  AED: 2, // فلس
+  KWD: 3, // فلس
+  QAR: 2, // درهم
+  BHD: 3, // فلس
+  OMR: 3, // بيسة
+  JPY: 0, // ين — مفيش وحدات فرعية
+};
+
+/** ⭐ أساس العملة، و2 افتراضياً للمجهولة */
+export function currencyExponent(currency: string | null | undefined): number {
+  const code = (currency || "EGP").trim().toUpperCase();
+  return CURRENCY_EXPONENT[code] ?? 2;
+}
+
+/**
+ * ⭐⭐ عرض مبلغ **من أصغر وحدة** — `formatMinor(65000, "EGP")` → `650 ج.م`
+ *
+ * ═══════════════════════════════════════════════════════════════
+ * ⭐ ليه `minor` مش `major`؟
+ *
+ * لأن `"350.00"` نص، والواجهة بتعمل حساب (عمولة 10%، نسبة) —
+ * والحساب على نص = float:
+ *
+ *     Number("0.07") * 3 = 0.21000000000000002   ⭐ مش 0.21
+ *
+ * والـ`int` بالقرش مالوش خطأ تمثيل: `7 * 3 = 21` بالظبط.
+ *
+ * ⚠️ **القسمة بتعمل هنا جوه `formatMinor` وبس** — ممنوع أي صفحة
+ * تعمل `/ 100` بنفسها. الـguard بيمنع النمط ده (اختبار
+ * `format-minor.test.ts`).
+ *
+ * @param amount المبلغ **بأصغر وحدة** (`65000` = 650 جنيه)
+ */
+export function formatMinor(
+  amount: number | string | null | undefined,
+  currency: string | null | undefined = "EGP",
+  maxFrac?: number,
+): string {
+  const n = toNumber(amount);
+  if (n === null) return "—";
+
+  const exponent = currencyExponent(currency);
+  const code = (currency || "EGP").trim().toUpperCase();
+
+  // ⭐ الأساس صفر = ما فيش وحدات فرعية. القسمة بـ1 بتتجنّب
+  // `Infinity` من `10 ** 0` في الـedge cases.
+  const factor = exponent === 0 ? 1 : 10 ** exponent;
+
+  const major = n / factor;
+
+  const frac = maxFrac === undefined ? exponent : maxFrac;
+
+  return `${major.toLocaleString(LOCALE, { maximumFractionDigits: frac })}${NBSP}${currencyLabel(code)}`;
+}
+
+/**
+ * ⭐ المبلغ **بأصغر وحدة** → رقم للعرض في input.
+ *
+ * ⭐ للـforms: `<input>` بيقبل نص، فلازم نرجّع `650` مش
+ * `65000`. والقسمة **بـ`intdiv`** على الأعداد الصحيحة عشان
+ * `0.07` ما تطلعش `0.069999`.
+ */
+export function minorToInput(amount: number | null | undefined, currency: string | null | undefined = "EGP"): string {
+  if (amount === null || amount === undefined) return "";
+
+  const exponent = currencyExponent(currency);
+  const factor = exponent === 0 ? 1 : 10 ** exponent;
+
+  const major = Math.trunc(amount / factor);
+
+  return String(major);
+}
+
+/**
+ * ⭐ رقم يكتبه المستخدم بالوحدة الكبرى → `*_minor` للقاعدة.
+ *
+ * ⭐ `round()` مش `parseFloat` + `× 100`:
+ *
+ *     0.07 * 100 = 7.000000000000001   ⭐ مش 7
+ *
+ * الـ`Math.round` بيقفل الفاصلة العائمة.
+ */
+export function inputToMinor(value: number | string | null | undefined, currency: string | null | undefined = "EGP"): number | null {
+  const n = toNumber(value);
+  if (n === null) return null;
+
+  const exponent = currencyExponent(currency);
+  const factor = exponent === 0 ? 1 : 10 ** exponent;
+
+  return Math.round(n * factor);
+}
+
 /**
  * جنيه مصري: `400 ج.م` أو `1,234.5 ج.م`
  *
