@@ -308,6 +308,50 @@ class StudentController extends Controller
     }
 
     /**
+     * ⭐⭐ PR 2.9 — كشف حساب الطالب.
+     *
+     * سطور `student_ledger_entries` (الرصيد التجميعي لكل
+     * عمولة) + إجماليات لكل عملة. البيانات المالية فالولي
+     * يحتاج `can_view_finance` (نفس سياسة المدفوعات).
+     */
+    public function statement(Request $request, Student $student)
+    {
+        Gate::authorize('payments', $student);
+
+        $entries = $student->ledgerEntries()
+            ->with('invoice:id,invoice_number')
+            ->orderBy('id')
+            ->get();
+
+        $currencies = [];
+
+        foreach ($entries as $entry) {
+            $currency = $entry->currency;
+
+            if (! isset($currencies[$currency])) {
+                $currencies[$currency] = [
+                    'balance' => 0.0,
+                    'total_debit' => 0.0,
+                    'total_credit' => 0.0,
+                ];
+            }
+
+            // ⭐ مباشرة على نسخة الـmap — (بدون مرجع = كنا digitalWrite
+            // على نسخة مؤقتة وكل الإجماليات صفر)
+            $currencies[$currency]['total_debit'] += (float) $entry->debit;
+            $currencies[$currency]['total_credit'] += (float) $entry->credit;
+            // آخر سطر بنفس العمولة = رصيدها الحالي
+            $currencies[$currency]['balance'] = (float) $entry->balance_after;
+        }
+
+        return response()->json([
+            'student_id' => $student->id,
+            'currencies' => $currencies,
+            'entries' => $entries,
+        ]);
+    }
+
+    /**
      * تغيير المدرس لمجموعة طلاب مرة واحدة.
      *
      * بيغيّر teacher_id على الاشتراكات النشطة + الحصص المجدولة اللي بعد النهاردة.
@@ -460,14 +504,18 @@ class StudentController extends Controller
                     'total' => $amount,
                 ]);
 
-                StudentLedgerEntry::create([
+                /**
+                 * ⭐⭐ PR 2.9 — الكتابة من `StudentLedgerService`
+                 * (رصيد تجميعي) — القديم كان يكتب المبلغ نفسه
+                 * فأي فاتورة تانية للطالب تمسح رصيده.
+                 */
+                app(\App\Services\StudentLedgerService::class)->write([
                     'student_id' => $sub->student_id,
                     'invoice_id' => $invoice->id,
                     'type' => 'invoice',
                     'debit' => $amount,
-                    'balance_after' => $amount,
                     'currency' => $invoice->currency,
-                    'description' => 'فاتورة ' . $invoice->invoice_number,
+                    'description' => 'فاتورة '.$invoice->invoice_number,
                     'reference_type' => 'invoice',
                     'reference_id' => $invoice->id,
                     'created_by' => $user->id,

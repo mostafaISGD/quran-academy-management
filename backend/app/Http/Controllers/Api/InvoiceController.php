@@ -116,18 +116,21 @@ class InvoiceController extends Controller
             ]);
         }
 
-        StudentLedgerEntry::create([
+        /**
+         * ⭐⭐ PR 2.9 — الكتابة من `StudentLedgerService`:
+         * رصيد تجميعي لكل عمولة (`balance_after` مش المبلغ
+         * نفسه — الفاتورة التانية للطالب تكمل من رصيده).
+         */
+        app(\App\Services\StudentLedgerService::class)->write([
             'student_id' => $invoice->student_id,
             'invoice_id' => $invoice->id,
             'type' => 'invoice',
             'debit' => $total,
-            'balance_after' => $total,
             'currency' => $invoice->currency,
-            'description' => 'فاتورة ' . $invoice->invoice_number,
+            'description' => 'فاتورة '.$invoice->invoice_number,
             'reference_type' => 'invoice',
             'reference_id' => $invoice->id,
             'created_by' => $request->user()->id,
-            'created_at' => now(),
         ]);
 
         app(\App\Services\AuditLogService::class)->logCreate(

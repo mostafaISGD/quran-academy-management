@@ -38,6 +38,8 @@ use App\Http\Controllers\Api\LessonJoinTokenController;
 use App\Http\Controllers\Api\ExportController;
 use App\Http\Controllers\Api\LessonPolicyController;
 use App\Http\Controllers\Api\PromoCodeController;
+// ⭐⭐ PR 2.9 — تنبيهات التسوية المالية
+use App\Http\Controllers\Api\FinanceAlertController;
 use Illuminate\Support\Facades\Route;
 
 // ---- Public ----
@@ -258,6 +260,8 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/students/{student}/schedule', [StudentController::class, 'schedule'])->middleware('permission:students.view');
     Route::get('/students/{student}/attendance', [StudentController::class, 'attendance'])->middleware('permission:students.view');
     Route::get('/students/{student}/progress', [StudentController::class, 'progress'])->middleware('permission:students.view');
+    // ⭐⭐ PR 2.9 — كشف حساب: الدفتر الموحد (رصيد تجميعي لكل عمولة)
+    Route::get('/students/{student}/statement', [StudentController::class, 'statement'])->middleware('permission:students.view');
     Route::get('/students/{student}/payments', [StudentController::class, 'payments'])->middleware('permission:finance.payments.view');
 
     // Teachers
@@ -495,6 +499,12 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::post('/student-credits/{studentCredit}/apply', [StudentCreditController::class, 'apply'])->middleware('permission:finance.payments.update');
     Route::post('/student-credits/{studentCredit}/refund', [StudentCreditController::class, 'refund'])
         ->middleware('permission:finance.payments.refund');
+
+    // ⭐⭐ PR 2.9 — تنبيهات التسوية المالية: شوف بعلم قراءة، أغلق بتحديث
+    Route::get('/finance-alerts', [FinanceAlertController::class, 'index'])
+        ->middleware('permission:finance.payments.view');
+    Route::post('/finance-alerts/{alert}/resolve', [FinanceAlertController::class, 'resolve'])
+        ->middleware('permission:finance.payments.update');
 
     // ⭐ سياسة الحصص
     Route::get('/lesson-policy', [LessonPolicyController::class, 'show'])->middleware('permission:settings.view');

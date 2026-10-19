@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Models\GroupClass;
 use App\Models\Invoice;
 use App\Models\Student;
-use App\Models\StudentLedgerEntry;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\User;
@@ -218,39 +217,22 @@ class GroupEnrollmentService
         // ⭐ كشف الحساب — من غيره رصيد الطالب مش هيتحدث وأرقام
         // صفحة الطالب هتفضل غلط.
         //
-        // ⚠️ لازم **الموديل** مش `DB::table()->insert()`: الجدول
-        // `created_at` NOT NULL، و`insert()` الـ خام مش بتلمّ
-        // الـ timestamps — فكان بيرمي exception والعملية كلها
-        // بترجع 500 (لما الاشتراك والفاتورة يبانوا شغالين).
-        StudentLedgerEntry::create([
+        // ⭐⭐ PR 2.9 — الكتابة من `StudentLedgerService` الوحيدة:
+        // الرصيد التجميعي **مع فلترة العمولة** (القديم من غير
+        // فلترة كان يخلط جنيه طالب عملته دولار).
+        app(\App\Services\StudentLedgerService::class)->write([
             'student_id' => $subscription->student_id,
             'invoice_id' => $invoice->id,
             'type' => 'invoice',
             'debit' => $amount,
-            'balance_after' => $this->currentBalance($subscription->student_id) + $amount,
             'currency' => $invoice->currency,
-            'description' => 'فاتورة ' . $invoice->invoice_number,
+            'description' => 'فاتورة '.$invoice->invoice_number,
             'reference_type' => 'invoice',
             'reference_id' => $invoice->id,
             'created_by' => $by?->id,
         ]);
 
         return $invoice;
-    }
-
-    /**
-     * ⭐ رصيد الطالب الحالي من كشف الحساب.
-     *
-     * ⚠️ مش محتاجين نجمع كل السطور — الرصيد **في آخر سطر**
-     * مثال (`balance_after` بيتحسب وبيتخزن مع كل سطر).
-     */
-    private function currentBalance(int $studentId): float
-    {
-        $last = StudentLedgerEntry::where('student_id', $studentId)
-            ->orderByDesc('id')
-            ->first();
-
-        return (float) ($last?->balance_after ?? 0);
     }
 
     // ============================================================

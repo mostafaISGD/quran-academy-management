@@ -118,14 +118,17 @@ class SubscriptionActivationService
                 'total' => $amount,
             ]);
 
-            StudentLedgerEntry::create([
+            /**
+             * ⭐⭐ PR 2.9 — الكتابة من `StudentLedgerService`
+             * (رصيد تجميعي) — القديم كان يكتب المبلغ نفسه.
+             */
+            app(\App\Services\StudentLedgerService::class)->write([
                 'student_id' => $subscription->student_id,
                 'invoice_id' => $invoice->id,
                 'type' => 'invoice',
                 'debit' => $amount,
-                'balance_after' => $amount,
                 'currency' => $invoice->currency,
-                'description' => 'فاتورة ' . $invoice->invoice_number,
+                'description' => 'فاتورة '.$invoice->invoice_number,
                 'reference_type' => 'invoice',
                 'reference_id' => $invoice->id,
             ]);

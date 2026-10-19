@@ -227,19 +227,18 @@ class RefundService
                 }
             });
 
-            // سطر عكسي في دفتر الطالب
-            StudentLedgerEntry::create([
+            // سطر عكسي في دفتر الطالب — ⭐⭐ PR 2.9: الكتابة من
+            // الخدمة الموحدة برصيد تجميعي (القديم كان يكتب صفر)
+            app(\App\Services\StudentLedgerService::class)->write([
                 'student_id' => $locked->student_id,
                 'payment_id' => $locked->id,
                 'type' => 'refund',
                 'debit' => (float) $locked->amount,
-                'balance_after' => 0.0,
                 'currency' => $locked->currency,
                 'description' => 'عكس دفعة: '.$reason,
                 'reference_type' => 'payment_reversal',
                 'reference_id' => (string) $locked->id,
                 'created_by' => $user->id,
-                'created_at' => now(),
             ]);
 
             $locked->update(['status' => 'reversed']);
@@ -331,21 +330,18 @@ class RefundService
         });
 
         // 3) دفتر الطالب — مدين (فلوس رجعت للطالب)
-        $freshInvoice = $invoiceIds->isNotEmpty() ? Invoice::find($invoiceIds->first()) : null;
-
-        StudentLedgerEntry::create([
+        // ⭐⭐ PR 2.9: كتابة من الخدمة الموحدة برصيد تجميعي
+        app(\App\Services\StudentLedgerService::class)->write([
             'student_id' => $payment->student_id,
             'invoice_id' => $invoiceIds->isNotEmpty() ? $invoiceIds->first() : null,
             'payment_id' => $payment->id,
             'type' => 'refund',
             'debit' => $amount,
-            'balance_after' => $freshInvoice ? (float) $freshInvoice->balance_due : 0.0,
             'currency' => $payment->currency,
             'description' => 'استرداد'.($payment->invoice ? ' من '.$payment->invoice->invoice_number : '').': '.($refund->reason ?? ''),
             'reference_type' => 'refund',
             'reference_id' => (string) $refund->id,
             'created_by' => $user->id,
-            'created_at' => now(),
         ]);
 
         // 4) الأثر المالي

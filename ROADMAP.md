@@ -149,7 +149,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.6 — Invoice Numbering and the Single Invoice Service
 - [x] PR 2.7 — Payments: Allocation, Idempotency, and the Account
 - [x] PR 2.8 — Refunds, Reversals, and Credit Notes
-- [ ] PR 2.9 — Unified Student Ledger + Daily Reconciliation
+- [x] PR 2.9 — Unified Student Ledger + Daily Reconciliation
 - [ ] PR 2.10 — Teacher Earnings Pipeline
 - [ ] PR 2.11 — Paying Teacher and Employee Payroll
 - [ ] PR 2.12 — Expenses
@@ -1251,6 +1251,8 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - Endpoint `GET /students/{id}/statement` (account statement).
 **Acceptance:** Deliberately injecting a discrepancy in a test generates an alert; no discrepancy in a full scenario (subscription → invoice → payment → refund).
 **Depends on:** 2.8
+
+> **✅ As implemented (2026-10-19).** المواصفة قالت 3 كتّاب — القت فعلياً **7** (GroupEnrollmentService، DailySubscriptionService، SubscriptionActivationService، InvoiceController::store، StudentController::bulkCreateInvoices، PaymentService، و RefundService في مسارين) بـ4 دلالات مختلفة لعمود «التوازن بعد السطر»؛ وكلهم اتقفلوا على خدمة StudentLedgerService — الدلالة الموحدة: رصيد تجميعي لكل (طالب، عمولة) مع lockForUpdate على آخر سطر (القديم كان يقرأ آخر سطر من غير فلترة العملة فطالب بجنيه ودولار بيتلخبط). موديل StudentLedgerEntry بقى ممنوع عليه التعديل والحذف (نفس نمط الحركات المالية) — التصحيح بسطر جديد. قراءة الرصيد: balance() بترجع رصيد (طالب، عملة)؛ الكشف عن الحساب: المسار GET /students/{id}/statement يرجع السطور وإجماليات كل عمولة، على نفس بوابة payments بتاع مدفوعات الطالب. الكشف عن فوارق التسوية: نمط command «finance:reconcile» مع جدولة يومية في bootstrap/app.php الساعة 03:30 — لأن Laravel 11 بيدير الجدولة من bootstrap/app.php وملف Kernel.php أصلاً مش مسجل. المقارنات الأربعة: (أ) الفاتورة مقابل توزيعاتها النشطة، (ب) الدفتر داخلياً (رصيد آخر سطر مقابل مجموع مدين − مجموع دائن لكل عمولة) ومصادرياً (فواتير/دفعات مكتملة)، (ج) لكل دفعة مكتملة: صافي حركتها (دخل − خارج، والعكوس بتلغي نفسها) مقابل المبلغ الواصل net_amount، (د) أرباح المعلم المعتمدة/المدفوعة مقابل سطور دفتر المعلم — مفيش مسار بيكتب أرباح حالياً فالمدقق واقف (0 مقابل 0) وهيحصل معناها من PR 2.10. الانحراف يكتب في جدول «تنبيهات التسوية» — كنترولر جديد: عرض بصلاحية finance.payments.view، إغلاق يدوي بصلاحية finance.payments.update، والتسوية نفسها مش بتغلق تنبيه أبداً. منع التكرار: التنبيه المفتوح بنفس (النوع، الكيان) ما بيتكررش. 13 اختبار جديد في tests/Feature/StudentLedgerReconciliationTest.php: انحراف مزروع في كل مقارنة = تنبيه؛ سيناريو كامل (اشتراك → فاتورة → دفعة → استرداد) = صفر تنبيهات؛ منع التكرار مع تشغيل الأمر مرتين؛ و«schedule:list» يحتوي الأمر. Backend: 770 → **783** passed (1 risky سابق + 2 skipped لـ PostgreSQL زي ما كان). Frontend: أنواع FinanceAlert + getStudentStatement + getFinanceAlerts + resolveFinanceAlert؛ 163 اختبار ✓، tsc ✓، build ✓، lint نفس الـ baseline (10) — صفحات واجهة للتنبيهات والكشف مؤجلين لـ PR التقارير؛ اللي دلوقتي API + أنواع.
 
 ### PR 2.10 — Teacher Earnings Pipeline
 **Goal:** A single earning per lesson, and a real approval path.

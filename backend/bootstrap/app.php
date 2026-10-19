@@ -14,6 +14,8 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withCommands([
         \App\Console\Commands\ProcessSubscriptionDay::class,
+        // ⭐⭐ PR 2.9 — التسوية المالية اليومية
+        \App\Console\Commands\FinanceReconcileCommand::class,
     ])
     ->withSchedule(function (Schedule $schedule) {
         // المعالجة اليومية للاشتراكات: تجديد + إشعار قبل الانتهاء +
@@ -28,6 +30,13 @@ return Application::configure(basePath: dirname(__DIR__))
             ->dailyAt('01:15')
             ->withoutOverlapping()
             ->runInBackground();
+
+        // ⭐⭐ PR 2.9 — التسوية المالية (03:30): بعد الاشتراكات.
+        // انحراف واحد مكتشوف = تنبيه مفتوح في `finance_alerts`
+        // للإدارة. التنبيه المفتوح ما بيتكررش كل يوم.
+        $schedule->command('finance:reconcile')
+            ->dailyAt('03:30')
+            ->withoutOverlapping();
     })
     ->withMiddleware(function (Middleware $middleware) {
         // ⭐⭐⭐ **مافيش `login` route — الـAPI بيرجّع 401 مش redirect**

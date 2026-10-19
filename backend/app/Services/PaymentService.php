@@ -230,21 +230,23 @@ class PaymentService
                 }
 
                 // ═══════════════════════════════════════════
-                // 7) دفتر الطالب
+                // 7) دفتر الطالب — ⭐⭐ PR 2.9: كتابة من
+                //    `StudentLedgerService` برصيد **تجميعي**
+                //    (القديم كان يكتب `balance_due` بتاع الفاتورة —
+                //    دفعتين على فاتورات مختلفين كانوا بياخدوا
+                //    رصيدين مش سلسلة واحدة).
                 // ═══════════════════════════════════════════
-                StudentLedgerEntry::create([
+                app(\App\Services\StudentLedgerService::class)->write([
                     'student_id' => $payment->student_id,
                     'invoice_id' => $invoice->id,
                     'payment_id' => $payment->id,
                     'type' => 'payment',
                     'credit' => $amount,
-                    'balance_after' => (float) $freshInvoice->balance_due,
                     'currency' => $payment->currency,
                     'description' => 'دفعة للفاتورة '.$invoice->invoice_number,
                     'reference_type' => 'payment',
                     'reference_id' => $payment->id,
                     'created_by' => $user->id,
-                    'created_at' => now(),
                 ]);
             }
 

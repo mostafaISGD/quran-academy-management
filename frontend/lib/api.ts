@@ -955,6 +955,28 @@ export type Refund = {
   requester?: { id: number; name: string };
 };
 
+/**
+ * ⭐⭐ PR 2.9 — تنبيه تسوية مالية.
+ *
+ * التسوية اليومية بتكتب هنا عند أي انحراف (فقاستورة بتوزيعاتها /
+ * دفتر طالب منكسر / حركة من غير مصدر). نفس التنبيه مش بيتكرر
+ * وهو مفتوح — والإغلاق يدوي بصلاحية تعديل.
+ */
+export type FinanceAlert = {
+  id: number;
+  organization_id: number;
+  severity: "info" | "warning" | "error";
+  kind: string;
+  entity_type: string | null;
+  entity_id: number | null;
+  currency: string | null;
+  message: string;
+  details: Record<string, unknown> | null;
+  resolved_at: string | null;
+  resolved_by: number | null;
+  created_at: string;
+};
+
 export type Lead = {
   id: number;
   full_name: string;
@@ -3859,6 +3881,45 @@ export function approveRefund(refundId: number, financial_account_id?: number) {
 /** ⭐⭐ PR 2.8 — الاستردادات اللي مستنية موافقة */
 export function getPendingApprovalRefunds() {
   return apiFetch<Refund[]>("/refunds/pending-approval");
+}
+
+/** ⭐⭐ PR 2.9 — تنبيهات التسوية المالية (المفتوحة افتراضياً) */
+export function getFinanceAlerts(resolved?: boolean) {
+  const search = resolved === true ? "?resolved=1" : "";
+  return apiFetch<FinanceAlert[]>(`/finance-alerts${search}`);
+}
+
+export function resolveFinanceAlert(alertId: number) {
+  return apiFetch<{ message: string; data: FinanceAlert }>(
+    `/finance-alerts/${alertId}/resolve`,
+    { method: "POST" },
+  );
+}
+
+/** ⭐⭐ PR 2.9 — كشف حساب الطالب (رصيد تجميعي لكل عمولة) */
+export function getStudentStatement(studentId: number) {
+  return apiFetch<{
+    student_id: number;
+    currencies: Record<string, {
+      /** آخر رصيد فعلي بالعملة (سالب = الطالب له وديع) */
+      balance: number;
+      total_debit: number;
+      total_credit: number;
+    }>;
+    entries: Array<{
+      id: number;
+      type: string;
+      debit: string;
+      credit: string;
+      /** ⚠️ نص عشري — ممتاز للعرض، لا تحول اللي أرقام صريحة */
+      balance_after: string;
+      currency: string;
+      description: string | null;
+      created_at: string;
+      invoice_id: number | null;
+      invoice?: { invoice_number: string } | null;
+    }>;
+  }>(`/students/${studentId}/statement`);
 }
 
 export function getLeads(params?: {

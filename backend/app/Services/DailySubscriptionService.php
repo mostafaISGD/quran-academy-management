@@ -267,15 +267,16 @@ class DailySubscriptionService
                 'total' => $amount,
             ]);
 
-            // الرصيد بعد تحميل الفاتورة = الرصيد قبلها + المبلغ
-            $balanceAfter = $this->currentBalance($subscription->student_id) + $amount;
-
-            DB::table('student_ledger_entries')->insert([
+            /**
+             * ⭐⭐ PR 2.9 — الكتابة من `StudentLedgerService`
+             * الوحيدة: رصيد تجميعي **مع فلترة العملة** — القديم
+             * كان يقرا آخر سطر من غير عمولة فيلخبط طالب بعمولتين.
+             */
+            app(\App\Services\StudentLedgerService::class)->write([
                 'student_id' => $subscription->student_id,
                 'invoice_id' => $invoice->id,
                 'type' => 'invoice',
                 'debit' => $amount,
-                'balance_after' => $balanceAfter,
                 'currency' => $invoice->currency,
                 'description' => 'فاتورة تجديد ' . $invoice->invoice_number,
                 'reference_type' => 'invoice',
@@ -285,17 +286,6 @@ class DailySubscriptionService
 
             return $invoice->id;
         });
-    }
-
-    /** رصيد الطالب الحالي من كشف الحساب — عشان السطر الجديد يبقى صحيح */
-    private function currentBalance(int $studentId): float
-    {
-        $last = DB::table('student_ledger_entries')
-            ->where('student_id', $studentId)
-            ->orderByDesc('id')
-            ->first();
-
-        return (float) ($last->balance_after ?? 0);
     }
 
     /**
