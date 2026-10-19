@@ -2127,9 +2127,25 @@ export function updatePayrollLine(
 
 export function payPayrollLine(
   lineId: number,
-  payload?: { payment_method?: string | null; reference?: string | null },
+  // ⭐ PR 2.11 — يدعم اختيار الحساب المالي للصرف
+  payload?: {
+    payment_method?: string | null;
+    reference?: string | null;
+    financial_account_id?: number | null;
+  },
 ) {
-  return apiFetch<PayrollLine>(`/payroll/lines/${lineId}/pay`, {
+  return apiFetch<
+    PayrollLine & {
+      payment?: {
+        recorded: boolean;
+        movement_id: number | null;
+        account_id: number | null;
+        account_name?: string | null;
+        account_pick?: string | null;
+      };
+      warning?: string | null;
+    }
+  >(`/payroll/lines/${lineId}/pay`, {
     method: "POST",
     body: JSON.stringify(payload ?? {}),
   });
@@ -3060,9 +3076,26 @@ export function updateTeacherPayrollLine(
 
 export function payTeacherPayrollLine(
   lineId: number,
-  payload?: { payment_method?: string | null; reference?: string | null },
+  // ⭐ PR 2.11 — يدعم اختيار الحساب المالي للصرف
+  payload?: {
+    payment_method?: string | null;
+    reference?: string | null;
+    financial_account_id?: number | null;
+  },
 ) {
-  return apiFetch<TeacherPayrollLine>(`/teacher-payroll/lines/${lineId}/pay`, {
+  return apiFetch<
+    TeacherPayrollLine & {
+      payment_id: number;
+      ledger?: {
+        recorded: boolean;
+        movement_id: number | null;
+        account_id: number | null;
+        account_name?: string | null;
+        account_pick?: string | null;
+      };
+      warning?: string | null;
+    }
+  >(`/teacher-payroll/lines/${lineId}/pay`, {
     method: "POST",
     body: JSON.stringify(payload ?? {}),
   });
@@ -3092,6 +3125,82 @@ export function bulkApproveTeacherEarnings(earningIds: number[]) {
     method: "POST",
     body: JSON.stringify({ earning_ids: earningIds }),
   });
+}
+
+// ============================================================
+// PR 2.11 — كشف حساب المعلم + التسويات
+// كل تسوية صلاحيتها منفصلة (مكافأة/خصم/سلفة)
+// ============================================================
+
+export type TeacherLedgerEntryDTO = {
+  id: number;
+  teacher_id: number;
+  earning_id: number | null;
+  payment_id: number | null;
+  type:
+    | "lesson_earning"
+    | "monthly_salary"
+    | "bonus"
+    | "deduction"
+    | "advance"
+    | "payment"
+    | "adjustment"
+    | "settlement"
+    | "correction";
+  debit: string;
+  credit: string;
+  balance_after: string;
+  currency: string;
+  description: string | null;
+  reference_type: string | null;
+  reference_id: string | null;
+  created_at: string;
+};
+
+export type TeacherStatement = {
+  teacher_id: number;
+  currencies: Record<
+    string,
+    { balance: number; total_debit: number; total_credit: number }
+  >;
+  entries: TeacherLedgerEntryDTO[];
+};
+
+export function getTeacherStatement(teacherId: number) {
+  return apiFetch<TeacherStatement>(`/teachers/${teacherId}/statement`);
+}
+
+/** المكافأة دائن (تزيد رصيد المعلم) */
+export function createTeacherBonus(
+  teacherId: number,
+  payload: { amount: number; currency?: string; description?: string },
+) {
+  return apiFetch<{ message: string; data: TeacherLedgerEntryDTO }>(
+    `/teachers/${teacherId}/bonus`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+/** الخصم مدين */
+export function createTeacherDeduction(
+  teacherId: number,
+  payload: { amount: number; currency?: string; description?: string },
+) {
+  return apiFetch<{ message: string; data: TeacherLedgerEntryDTO }>(
+    `/teachers/${teacherId}/deduction`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+/** السلفة مدين (فلوس اتسلمت على الحساب) */
+export function createTeacherAdvance(
+  teacherId: number,
+  payload: { amount: number; currency?: string; description?: string },
+) {
+  return apiFetch<{ message: string; data: TeacherLedgerEntryDTO }>(
+    `/teachers/${teacherId}/advance`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
 }
 
 // ============================================================

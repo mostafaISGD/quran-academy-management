@@ -311,6 +311,22 @@ return [
             'group' => 'المرتبات',
             'description' => 'اعتماد مستحقات المعلمين (فردي أو جماعي)',
         ],
+        // ⭐⭐ PR 2.11 — تسويات دفتر المعلم: صلاحية لكل نوع
+        'payroll.bonuses.create' => [
+            'module' => 'payroll',
+            'group' => 'المرتبات',
+            'description' => 'تسجيل مكافأة لمعلم',
+        ],
+        'payroll.deductions.create' => [
+            'module' => 'payroll',
+            'group' => 'المرتبات',
+            'description' => 'تسجيل خصم على معلم',
+        ],
+        'payroll.advances.create' => [
+            'module' => 'payroll',
+            'group' => 'المرتبات',
+            'description' => 'تسجيل سلفة على المرتب',
+        ],
 
         // ═══════════ التقارير ═══════════
         'reports.view' => [

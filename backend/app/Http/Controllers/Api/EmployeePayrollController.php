@@ -515,57 +515,118 @@ class EmployeePayrollController extends Controller
         $data = $request->validate([
             'payment_method' => 'nullable|string|max:50',
             'reference' => 'nullable|string|max:100',
+            // ⭐ PR 2.11 — الحساب اللي دُفع منه (الافتراضي خزينة)
+            'financial_account_id' => 'nullable|integer',
         ]);
 
-        if ($line->status === 'paid') {
+        /**
+         * ⭐⭐ PR 2.11 — صفقة واحدة مع قفل السطر: النداءان
+         * المتزامنان ما بيدفعوش مرتين، والسطر + الحركة المالية
+         * بيتسجلوا مع بعض (نجاح واحد أو فشل واحد).
+         */
+        return DB::transaction(function () use ($request, $line, $data) {
+            // ⭐ قفل السطر — إعادة قراءة جوه الصفقة
+            $locked = EmployeePayrollLine::where('id', $line->id)
+                ->lockForUpdate()->first();
+            if (! $locked) {
+                return response()->json(['message' => 'السطر مش موجود'], 404);
+            }
+
+            if ($locked->status === 'paid') {
+                return response()->json([
+                    'message' => 'السطر ده اتدفع خلاص',
+                ], 422);
+            }
+
+            // ⭐ لازم معتمد — «دفع من غير اعتماد» غلط. وده بيفرض
+            // مرحلة الاعتماد حتى لو الفترة اتفتحت تاني.
+            if ($locked->status !== 'approved') {
+                return response()->json([
+                    'message' => 'السطر ده لسه مسودّة — اعتمده الأول',
+                ], 422);
+            }
+
+            if ((float) $locked->amount <= 0) {
+                return response()->json([
+                    'message' => 'مش ممكن تدفع سطر راتبه صفر — اعمل احتساب الأول',
+                ], 422);
+            }
+
+            $paidBefore = EmployeePayrollLine::where('payroll_period_id', $locked->payroll_period_id)
+                ->where('status', 'paid')
+                ->count();
+
+            $locked->update([
+                'status' => 'paid',
+                'paid_at' => now(),
+                'payment_method' => $data['payment_method'] ?? null,
+                'reference' => $data['reference'] ?? null,
+                'processed_by' => $request->user()->id,
+            ]);
+
+            // ⭐ آخر سطر مدفوع → الفترة نفسها بتتحوّل `paid`.
+            //
+            // ده بيفيد evita يدوي: الأدمن يدفع آخر واحد فتلاقي الفترة
+            // «مدفوعة» لوحدها من غير ما يدوس زرار تاني.
+            $period = PayrollPeriod::find($locked->payroll_period_id);
+            if ($period && $period->status !== 'paid' && $paidBefore + 1 >= $this->payableCount($locked->payroll_period_id)) {
+                $period->update(['status' => 'paid']);
+            }
+
+            app(\App\Services\AuditLogService::class)->logUpdate(
+                'employee_payroll', $locked->id,
+                ['status' => $locked->status],
+                ['status' => 'paid', 'amount' => $locked->amount],
+                $request,
+            );
+
+            /**
+             * ⭐⭐ PR 2.11 — **حركة الحساب**: راتب الموظف فلوس خرجت
+             * من الخزينة. قبل كده مافيش أي سجل مالي — التقرير
+             * مش بيشوفها. فئة `expense` (مصروف تشغيلي) ومميزة عن
+             * `teacher_payment` عشان التقارير تفرّق.
+             */
+            $ledger = app(\App\Services\FinancialLedgerService::class);
+
+            [$account, $pickReason] = $ledger->resolveAccount(
+                $request->user()->organization_id,
+                $data['financial_account_id'] ?? null,
+                $ledger->accountTypeForPaymentMethod((string) ($data['payment_method'] ?? '')),
+            );
+
+            $warning = null;
+            $movement = null;
+
+            if ($account) {
+                $res = $ledger->recordFor(
+                    account: $account,
+                    direction: 'out',
+                    category: 'expense',
+                    amount: (float) $locked->amount,
+                    referenceType: 'employee_payroll_line',
+                    referenceId: $locked->id,
+                    movementDate: now()->toDateString(),
+                    notes: $locked->reference,
+                    user: $request->user(),
+                );
+                $movement = $res['movement'];
+                $warning = $res['warning'];
+            } else {
+                $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';
+            }
+
             return response()->json([
-                'message' => 'السطر ده اتدفع خلاص',
-            ], 422);
-        }
-
-        // ⭐ لازم معتمد — «دفع من غير اعتماد» غلط. وده بيفرض
-        // مرحلة الاعتماد حتى لو الفترة اتفتحت تاني.
-        if ($line->status !== 'approved') {
-            return response()->json([
-                'message' => 'السطر ده لسه مسودّة — اعتمده الأول',
-            ], 422);
-        }
-
-        if ((float) $line->amount <= 0) {
-            return response()->json([
-                'message' => 'مش ممكن تدفع سطر راتبه صفر — اعمل احتساب الأول',
-            ], 422);
-        }
-
-        $paidBefore = EmployeePayrollLine::where('payroll_period_id', $line->payroll_period_id)
-            ->where('status', 'paid')
-            ->count();
-
-        $line->update([
-            'status' => 'paid',
-            'paid_at' => now(),
-            'payment_method' => $data['payment_method'] ?? null,
-            'reference' => $data['reference'] ?? null,
-            'processed_by' => $request->user()->id,
-        ]);
-
-        // ⭐ آخر سطر مدفوع → الفترة نفسها بتتحوّل `paid`.
-        //
-        // ده بيفيد evita يدوي: الأدمن يدفع آخر واحد فتلاقي الفترة
-        // «مدفوعة» لوحدها من غير ما يدوس زرار تاني.
-        $period = PayrollPeriod::find($line->payroll_period_id);
-        if ($period && $period->status !== 'paid' && $paidBefore + 1 >= $this->payableCount($period->id)) {
-            $period->update(['status' => 'paid']);
-        }
-
-        app(\App\Services\AuditLogService::class)->logUpdate(
-            'employee_payroll', $line->id,
-            ['status' => $line->status],
-            ['status' => 'paid', 'amount' => $line->amount],
-            $request,
-        );
-
-        return response()->json($line->fresh());
+                ...$locked->fresh()->toArray(),
+                'payment' => [
+                    'recorded' => $movement !== null,
+                    'movement_id' => $movement?->id,
+                    'account_id' => $account?->id,
+                    'account_name' => $account?->name,
+                    'account_pick' => $pickReason,
+                ],
+                'warning' => $warning,
+            ]);
+        });
     }
 
     /**

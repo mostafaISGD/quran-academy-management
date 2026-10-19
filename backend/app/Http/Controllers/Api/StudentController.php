@@ -336,8 +336,8 @@ class StudentController extends Controller
                 ];
             }
 
-            // ⭐ مباشرة على نسخة الـmap — (بدون مرجع = كنا digitalWrite
-            // على نسخة مؤقتة وكل الإجماليات صفر)
+            // ⭐ مباشرة على نسخة الـmap — (بدون مرجع مباشر كنا
+            // بناخد نسخة مؤقتة وكل الإجماليات صفر)
             $currencies[$currency]['total_debit'] += (float) $entry->debit;
             $currencies[$currency]['total_credit'] += (float) $entry->credit;
             // آخر سطر بنفس العمولة = رصيدها الحالي

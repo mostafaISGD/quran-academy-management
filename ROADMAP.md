@@ -151,7 +151,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.8 — Refunds, Reversals, and Credit Notes
 - [x] PR 2.9 — Unified Student Ledger + Daily Reconciliation
 - [x] PR 2.10 — Teacher Earnings Pipeline
-- [ ] PR 2.11 — Paying Teacher and Employee Payroll
+- [x] PR 2.11 — Paying Teacher and Employee Payroll
 - [ ] PR 2.12 — Expenses
 - [ ] PR 2.13 — Period Locking
 - [ ] PR 2.14 — Discounts and Promo Codes
@@ -1274,6 +1274,29 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - Fix `ReportController::financial` to read the real `teacher_payments`.
 **Acceptance:** Scenario: 10 lessons × 100 + bonus 50 − advance 200 = the correct remaining balance; two concurrent payment requests do not pay twice (`pgsql`).
 **Depends on:** 2.4 · 2.10 · 2.9
+
+> **✅ As implemented (2026-10-19).** قبل كده: صرف المعلم كان يكتب حركة الحساب فقط.
+> - مافيش سجل دفعة، ولا سطر دفتر، ولا تحويل مستحقات لمدفوعة.
+> - جدول `teacher_payments` موجود ومفيش أي كاتب له.
+> - صرف الموظف: خط فقط — مافيش أي حركة مالية.
+> - المساران بلا صفقة ولا قفل — نداءان متزامنان يدفعان مرتين.
+> - دلوقتي: صفقة واحدة + `lockForUpdate` + إعادة قراءة السطر جوه الصفقة.
+> - صرف المعلم يكتب: `TeacherPayment` مكتملة + سطر دفتر نوع `payment` مدين + حركة حساب خارج (صنف `teacher_payment`) + تحويل المستحقات المعتمدة ضمن نطاق الفترة إلى `paid`.
+> - صرف الموظف: صفقة + قفل + حركة حساب خارج (صنف `expense`) + بارامتر `financial_account_id` اختياري.
+> - الدفع المزدوج يرفض 422 من حارس السطر المقفول.
+> - أنواع الدفتر: أضيفت `settlement` و `correction` — ميجريشن reversible اتأكدت بـ rollback.
+> - فهرس فريد جزئي على `teacher_payments` لكل (معلم، فترة) — إحالة تكرار على مستوى قاعدة البيانات.
+> - كشف حساب المعلم: `GET /teachers/{id}/statement` بصلاحية `payroll.view` + بوابة `view` — نفس شكل كشف الطالب.
+> - تسويات بصلاحيات منفصلة: `payroll.bonuses.create` (دائن) و `payroll.deductions.create` (مدين) و `payroll.advances.create` (مدين).
+> - التسويات قيود دفتر فقط — مافيش حركة حساب؛ الصرف الفعلي من مسار المصروفات.
+> - التقرير: مهمة «يقرأ `teacher_payments`» كانت منفذة من قبل (drift قديم)
+>   - لكن أصلحت خطأ حقيقي: كان يجمع مستحقات أي حالة في «مستحقات لم تُدفع» — والحساب دلوقتي على المعتمد والمدفوع فقط.
+> - اختبار `#[Group('pgsql')]` للنداءين المتزامنين — ميتخطاه (مطلوب هارنس حقيقي)؛ الحارس المتسلسل مغطى.
+> - القبول الحرفي: 10 دروس × 100 + مكافأة 50 − سلفة 200 = رصيد 850 في الكشف.
+> - 6 اختبارات جديدة في `PayrollPaymentEffectsTest.php`.
+> - Backend: 790 → **796** passed (نفس 1 risky + 3 skipped لـ PostgreSQL).
+> - Frontend: توقيع دالتي الصرف اتوسع (`financial_account_id` + مفاتيح الرد) + أنواع كشف المعلم + دالات التسويات الثلاثة؛ 163 ✓؛ tsc ✓؛ build ✓؛ lint نفس الـ baseline (10).
+> - ملاحظة معلنة: كلمة دخيلة (digitalWrite) في تعليق `StudentController` من PR 2.9 اتصلحت.
 
 ### PR 2.12 — Expenses
 **Goal:** A complete expense cycle that feeds into accounts and reports.

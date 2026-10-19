@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\TeacherController;
 use App\Http\Controllers\Api\TeacherScheduleController;
 use App\Http\Controllers\Api\TeacherEarningController;
+use App\Http\Controllers\Api\TeacherLedgerController;
 use App\Http\Controllers\Api\TeacherPaymentController;
 use App\Http\Controllers\Api\StudentCreditController;
 use App\Http\Controllers\Api\StudentConsentController;
@@ -593,6 +594,17 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::post('/teacher-payroll/periods/{period}/reopen', [TeacherPayrollController::class, 'reopen'])->middleware('permission:payroll.periods.manage');
     Route::put('/teacher-payroll/lines/{line}', [TeacherPayrollController::class, 'updateLine'])->middleware('permission:payroll.periods.manage');
     Route::post('/teacher-payroll/lines/{line}/pay', [TeacherPayrollController::class, 'pay'])->middleware('permission:payroll.payments.create');
+
+    // ⭐⭐ PR 2.11 — كشف حساب المعلم والتسويات: كل مسار صلاحية
+    // منفصلة (مكافأة/خصم/سلفة = قرارات مالية مختلفة)
+    Route::get('/teachers/{teacher}/statement', [TeacherLedgerController::class, 'statement'])
+        ->middleware('permission:payroll.view');
+    Route::post('/teachers/{teacher}/bonus', [TeacherLedgerController::class, 'bonus'])
+        ->middleware('permission:payroll.bonuses.create');
+    Route::post('/teachers/{teacher}/deduction', [TeacherLedgerController::class, 'deduction'])
+        ->middleware('permission:payroll.deductions.create');
+    Route::post('/teachers/{teacher}/advance', [TeacherLedgerController::class, 'advance'])
+        ->middleware('permission:payroll.advances.create');
 
     // ⭐⭐ PR 2.10 — اعتماد مستحقات المعلمين (للمعلَق فقط؛
     // الاعتماد بيكتب دفتر المعلم ويرفع المستحق لكشف المرتبات)

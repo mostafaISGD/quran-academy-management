@@ -68,7 +68,13 @@ class ReportController extends Controller
         $byMethod = $payments->groupBy('payment_method')
             ->map(fn ($group) => ['total' => $group->sum('amount'), 'count' => $group->count()]);
         $refunds = Refund::query()->whereRange('processed_at', $start, $end)->get();
-        $teacherEarnings = TeacherEarning::query()->whereRange('earning_date', $start, $end)->get();
+        // ⭐⭐ PR 2.11 — المستحقات المؤكدة فقط (المعتمد والمدفوع):
+        // المعلق ما راجعها حد حتى الآن، والملغي ملغي — جمعهم
+        // كان بيكبّر «مستحقات لم تُدفع» وكلف التشغيل في التقرير.
+        $teacherEarnings = TeacherEarning::query()
+            ->whereIn('status', ['approved', 'paid'])
+            ->whereRange('earning_date', $start, $end)
+            ->get();
         $teacherPaymentsMade = TeacherPayment::query()->whereRange('paid_at', $start, $end)->get();
 
         // ⭐⭐ المفوتَر والمحصَّل منفصلين — من أول يوم

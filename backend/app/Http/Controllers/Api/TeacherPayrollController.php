@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\PayrollPeriod;
 use App\Models\Teacher;
+use App\Models\TeacherEarning;
 use App\Models\TeacherPayrollLine;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -466,100 +467,154 @@ class TeacherPayrollController extends Controller
             'financial_account_id' => 'nullable|integer',
         ]);
 
-        if ($line->status === 'paid') {
-            return response()->json(['message' => 'السطر ده اتدفع خلاص'], 422);
-        }
-
-        if ($line->status !== 'approved') {
-            return response()->json([
-                'message' => 'السطر ده لسه مسودّة — اعتمده الأول',
-            ], 422);
-        }
-
-        if ((float) $line->amount <= 0) {
-            return response()->json([
-                'message' => 'مش ممكن تدفع سطر راتبه صفر',
-            ], 422);
-        }
-
-        $paidBefore = TeacherPayrollLine::where('payroll_period_id', $line->payroll_period_id)
-            ->where('status', 'paid')
-            ->count();
-
-        $line->update([
-            'status' => 'paid',
-            'paid_at' => now(),
-            'payment_method' => $data['payment_method'] ?? null,
-            'reference' => $data['reference'] ?? null,
-            'processed_by' => $request->user()->id,
-        ]);
-
-        // آخر سطر مستحق → الفترة نفسها `paid`
-        $period = PayrollPeriod::find($line->payroll_period_id);
-        if ($period && $period->status !== 'paid' && $paidBefore + 1 >= $this->payableCount($period->id)) {
-            $period->update(['status' => 'paid']);
-        }
-
-        app(\App\Services\AuditLogService::class)->logUpdate(
-            'teacher_payroll', $line->id,
-            ['status' => $line->status],
-            ['status' => 'paid', 'amount' => $line->amount],
-            $request,
-        );
-
         /**
-         * ⭐⭐ دفعة المعلم = فلوس **خرجت** من خزينة الأكاديمية.
-         *
-         * ⚠️ دي كانت **ثغرة** فعلاً قبل الـ ledger: دفعة المعلم
-         * كانت بتتسجل في `teacher_payments` بس، ومفيش أي مكان
-         * بيقول إن الفلوس خرجت من الخزينة. يعني «صافي التشغيل»
-         * اللي التقرير بيحسبه كان **غلط** —Teacher اتدفع والمصروفات
-         * ما ظهرتش.
-         *
-         * ⭐ الفئة `teacher_payment` مش `expense` — عشان التقرير
-         * يفرّق بين المصروفات التشغيلية ومستحقات المعلمين.
+         * ⭐⭐ PR 2.11 — الصرف كل آثاره في **صفقة واحدة** مع قفل
+         * السطر. قبل كده: قراءة الحالة من غير قفل — نداءان
+         * متزامنان بيدفعان مرتين (TOCTOU).
          */
-        $ledger = app(\App\Services\FinancialLedgerService::class);
+        return DB::transaction(function () use ($request, $line, $data) {
+            // ⭐ قفل السطر — إعادة قراءة جوه الصفقة
+            $locked = TeacherPayrollLine::where('id', $line->id)
+                ->lockForUpdate()->first();
+            if (! $locked) {
+                return response()->json(['message' => 'السطر مش موجود'], 404);
+            }
 
-        [$account, $pickReason] = $ledger->resolveAccount(
-            $request->user()->organization_id,
-            $data['financial_account_id'] ?? null,
-            // ⭐ المرتب غالباً تحويل بنكي
-            $ledger->accountTypeForPaymentMethod((string) ($data['payment_method'] ?? '')),
-        );
+            if ($locked->status === 'paid') {
+                return response()->json(['message' => 'السطر ده اتدفع خلاص'], 422);
+            }
 
-        $warning = null;
-        $movement = null;
+            if ($locked->status !== 'approved') {
+                return response()->json([
+                    'message' => 'السطر ده لسه مسودّة — اعتمده الأول',
+                ], 422);
+            }
 
-        if ($account) {
-            $res = $ledger->recordFor(
-                account: $account,
-                direction: 'out',
-                category: 'teacher_payment',
-                amount: (float) $line->amount,
-                referenceType: 'teacher_payroll_line',
-                referenceId: $line->id,
-                movementDate: now()->toDateString(),
-                notes: $line->reference,
-                user: $request->user(),
+            if ((float) $locked->amount <= 0) {
+                return response()->json([
+                    'message' => 'مش ممكن تدفع سطر راتبه صفر',
+                ], 422);
+            }
+
+            $paidBefore = TeacherPayrollLine::where('payroll_period_id', $locked->payroll_period_id)
+                ->where('status', 'paid')
+                ->count();
+
+            $locked->update([
+                'status' => 'paid',
+                'paid_at' => now(),
+                'payment_method' => $data['payment_method'] ?? null,
+                'reference' => $data['reference'] ?? null,
+                'processed_by' => $request->user()->id,
+            ]);
+
+            // آخر سطر مستحق → الفترة نفسها `paid`
+            $period = PayrollPeriod::find($locked->payroll_period_id);
+            if ($period && $period->status !== 'paid' && $paidBefore + 1 >= $this->payableCount($locked->payroll_period_id)) {
+                $period->update(['status' => 'paid']);
+            }
+
+            app(\App\Services\AuditLogService::class)->logUpdate(
+                'teacher_payroll', $locked->id,
+                ['status' => $locked->status],
+                ['status' => 'paid', 'amount' => $locked->amount],
+                $request,
             );
-            $movement = $res['movement'];
-            $warning = $res['warning'];
-        } else {
-            $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';
-        }
 
-        return response()->json([
-            ...$this->present($line->fresh()),
-            'ledger' => [
-                'recorded' => $movement !== null,
-                'movement_id' => $movement?->id,
-                'account_id' => $account?->id,
-                'account_name' => $account?->name,
-                'account_pick' => $pickReason,
-            ],
-            'warning' => $warning,
-        ]);
+            /**
+             * ⭐⭐ PR 2.11 — **سجل الدفعة نفسها** (`teacher_payments`):
+             * الجدول موجود من PR مرتبات قديم و**مافيش كاتب واحد
+             * ليه** — التقرير المالي بيقريه فكان دايماً فاضي.
+             */
+            $payment = \App\Models\TeacherPayment::create([
+                'teacher_id' => $locked->teacher_id,
+                'payroll_period_id' => $locked->payroll_period_id,
+                'amount' => $locked->amount,
+                'currency' => $locked->currency,
+                'payment_method' => $data['payment_method'] ?? null,
+                'reference' => $data['reference'] ?? null,
+                'paid_at' => now(),
+                'status' => 'completed',
+                'processed_by' => $request->user()->id,
+            ]);
+
+            /**
+             * ⭐⭐ PR 2.11 — سطر **دفتر المعلم**: الصرف مدين
+             * (الفلوس خرجت للمعلم) — الرصيد بيقف بعد الصرف.
+             */
+            app(\App\Services\TeacherLedgerService::class)->write([
+                'teacher_id' => $locked->teacher_id,
+                'payment_id' => $payment->id,
+                'type' => 'payment',
+                'debit' => (float) $locked->amount,
+                'currency' => $locked->currency,
+                'description' => 'صرف مرتب فترة #'.($locked->payroll_period_id ?? '-'),
+                'reference_type' => 'teacher_payment',
+                'reference_id' => (string) $payment->id,
+                'created_by' => $request->user()->id,
+            ]);
+
+            /**
+             * ⭐⭐ PR 2.11 — المستحقات المعتمدة للفترة تبقى `paid`
+             * (التحصيل اللي حصل في الدفتر والحركة لازم يوصل
+             * للمصدر — وإلا الدفتر هيلتقط دفعة من غير مستحق دفع).
+             */
+            if ($period) {
+                TeacherEarning::where('teacher_id', $locked->teacher_id)
+                    ->where('status', 'approved')
+                    ->whereRange('earning_date', $period->start_date, $period->end_date)
+                    ->update(['status' => 'paid']);
+            }
+
+            /**
+             * ⭐⭐ دفعة المعلم = فلوس **خرجت** من خزينة الأكاديمية.
+             *
+             * ⭐ الفئة `teacher_payment` مش `expense` — عشان التقرير
+             * يفرّق بين المصروفات التشغيلية ومستحقات المعلمين.
+             */
+            $ledger = app(\App\Services\FinancialLedgerService::class);
+
+            [$account, $pickReason] = $ledger->resolveAccount(
+                $request->user()->organization_id,
+                $data['financial_account_id'] ?? null,
+                // ⭐ المرتب غالباً تحويل بنكي
+                $ledger->accountTypeForPaymentMethod((string) ($data['payment_method'] ?? '')),
+            );
+
+            $warning = null;
+            $movement = null;
+
+            if ($account) {
+                $res = $ledger->recordFor(
+                    account: $account,
+                    direction: 'out',
+                    category: 'teacher_payment',
+                    amount: (float) $locked->amount,
+                    referenceType: 'teacher_payroll_line',
+                    referenceId: $locked->id,
+                    movementDate: now()->toDateString(),
+                    notes: $locked->reference,
+                    user: $request->user(),
+                );
+                $movement = $res['movement'];
+                $warning = $res['warning'];
+            } else {
+                $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';
+            }
+
+            return response()->json([
+                ...$this->present($locked->fresh()),
+                'payment_id' => $payment->id,
+                'ledger' => [
+                    'recorded' => $movement !== null,
+                    'movement_id' => $movement?->id,
+                    'account_id' => $account?->id,
+                    'account_name' => $account?->name,
+                    'account_pick' => $pickReason,
+                ],
+                'warning' => $warning,
+            ]);
+        });
     }
 
     // ============================================================
