@@ -462,6 +462,15 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::put('/invoices/{invoice}', [InvoiceController::class, 'update'])->middleware('permission:finance.payments.update');
     Route::delete('/invoices/{invoice}', [InvoiceController::class, 'destroy'])->middleware('permission:finance.payments.update');
 
+    // ⭐ PR 2.6 — الحالة بقت **أفعال صريحة** مش تعديل حقل.
+    //
+    // ⚠️ الاعتماد/الإلغاء **قرار له أثر** (الفاتورة بقت مطالبة على
+    // الطالب)، فالـUI يعمله consciously والـaudit بيسجّله.
+    // `PUT /invoices/{id}` بـ`status` بقى **422** (كان بيعتمد
+    // فاتورة مدفوعة من غير ولا جنيه).
+    Route::post('/invoices/{invoice}/issue', [InvoiceController::class, 'issue'])->middleware('permission:finance.payments.update');
+    Route::post('/invoices/{invoice}/void', [InvoiceController::class, 'void'])->middleware('permission:finance.payments.update');
+
     // Payments
     Route::get('/payments', [PaymentController::class, 'index'])->middleware('permission:finance.payments.view');
     Route::post('/payments', [PaymentController::class, 'store'])->middleware('permission:finance.payments.create');

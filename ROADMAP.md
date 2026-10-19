@@ -146,7 +146,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.3 — Financial API Contract (Frontend)
 - [x] PR 2.4 — Financial Accounts and Their Movements
 - [x] PR 2.5 — Exchange Rates and Transfers Between Accounts
-- [ ] PR 2.6 — Invoice Numbering and the Single Invoice Service
+- [x] PR 2.6 — Invoice Numbering and the Single Invoice Service
 - [ ] PR 2.7 — Payments: Allocation, Idempotency, and the Account
 - [ ] PR 2.8 — Refunds, Reversals, and Credit Notes
 - [ ] PR 2.9 — Unified Student Ledger + Daily Reconciliation
@@ -1136,6 +1136,41 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - "Overdue" is an accessor derived from `due_date` + a `scopeOverdue` scope; remove any write of the `overdue` status.
 **Acceptance:** Sequential numbers under 20 concurrent requests (`pgsql`); an attempt to PUT a `paid` status on an unpaid invoice = 422.
 **Depends on:** 2.2
+
+> **✅ As implemented (2026-10-19).** 16 new tests in `tests/Feature/InvoiceServiceTest.php`. Backend 723 → **739 passed**. Frontend 163 ✓ + `build` ✓.
+>
+> ⭐⭐⭐ **ثغرة حقيقية اتقفلت**: `PUT /invoices/{id}` كان بيقبل
+> `'status' => 'in:draft,issued,partially_paid,paid,overdue,void'`
+> — يعني `{"status":"paid"}` **بيعتمد فاتورة مدفوعة من غير ولا
+> جنيه**، و`balance_due` بيفضل 1000.
+>
+> ⭐ ومحدش كان بيلاحظ لأن التقارير بتجمع `balance_due`: الفاتورة
+> تقول «مدفوعة» والحساب يقول «لسه». الاختبار بيثبت إن الـPUT
+> بيرجع 422 **والحالة ماتغيّرتش**.
+>
+> ⭐ **`number_sequences`** (ميجريشن `2026_10_19_000003`) — عدّاد
+> مشترك في القاعدة مش في الذاكرة. `lockForUpdate` جوه
+> transaction، والمفتاح `invoice:2026` فالعدّاد يبدأ من 1 كل سنة.
+> استبدل `'INV-'.strtoupper(uniqid())` في **4 مواقع**.
+>
+> ⭐ **`InvoiceService`** — `writeState()` هو المكان الوحيد اللي
+> `paid_amount`/`balance_due`/`status` بتتحسب فيه:
+>
+> ```
+> balance = max(0, total - paid)
+> status  = paid >= total ? 'paid' : 'partially_paid'
+> ```
+>
+> ⭐ **الحساب بالجمع مش بالفرق** (`paid = paid + جديد`) — لأن
+> الدفعات ممكن تتكرر، والفرق بيعتمد إن `paid_amount` مظبوط من
+> قبل. لو اتظبط مرتين بقى غلط. بالجمع مستحيل يتظبط.
+>
+> ⭐⭐ **`overdue` بقى محسوب** (قاعدة 10): `isOverdue()` +
+> `scopeOverdue()`. قبل كده الحالة كانت مخزّنة، ففاتورة جديدة
+> بسبب `due_date` في الماضي بتنسى `overdue` وتفضل `issued`.
+>
+> ⭐ **`DELETE` لـ`draft` بس** — المعتمدة بتتقفل بـ`void` (مش
+> حذف: الرقم ما يتعادش استخدام، والتقرير يقدر يفسر الفجوة).
 
 ### PR 2.7 — Payments: Allocation, Idempotency, and the Account
 **Goal:** A correct payment, safe against retries and concurrency.

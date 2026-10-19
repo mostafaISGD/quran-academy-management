@@ -3724,6 +3724,27 @@ export function deleteInvoice(id: number) {
   return apiFetch<{ message: string }>(`/invoices/${id}`, { method: "DELETE" });
 }
 
+/**
+ * ⭐⭐ اعتماد الفاتورة (`draft` → `issued`) — **فعل صريح**.
+ *
+ * ⚠️ `PUT /invoices/{id}` بـ`status` بقى **422** — الحالة مش
+ * بتتغيّر من التحديث (قاعدة 9: `InvoiceService` هي اللي بتكتبها).
+ *
+ * ⭐ والاعتماد **قرار**: الفاتورة بقت مطالبة على الطالب. فـ
+ * الـUI يعمله consciously، والـaudit بيسجّله.
+ */
+export function issueInvoice(id: number, issueDate?: string) {
+  return apiFetch<Invoice>(`/invoices/${id}/issue`, {
+    method: "POST",
+    body: JSON.stringify(issueDate ? { issue_date: issueDate } : {}),
+  });
+}
+
+/** ⭐⭐ إلغاء الفاتورة — **مش حذف** (الرقم ما يتعادش استخدام) */
+export function voidInvoice(id: number) {
+  return apiFetch<Invoice>(`/invoices/${id}/void`, { method: "POST" });
+}
+
 export function getPayments(params?: {
   student_id?: number;
   status?: string;

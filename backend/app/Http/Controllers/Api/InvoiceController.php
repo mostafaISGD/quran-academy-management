@@ -160,7 +160,41 @@ class InvoiceController extends Controller
         if ($invoice->status === 'paid') {
             return response()->json(['message' => 'لا يمكن تعديل فاتورة مدفوعة'], 422);
         }
-        $data = $request->validate(['due_date' => 'nullable|date', 'status' => 'sometimes|in:draft,issued,partially_paid,paid,overdue,void', 'notes' => 'nullable|string']);
+
+        /**
+         * ⭐⭐⭐ **`status` مش قابلة للتعديل من الـAPI** (PR 2.6).
+         *
+         * ═══════════════════════════════════════════════════
+         * ⭐ قبل كده الـvalidation كان بيقبل:
+         *
+         *     'in:draft,issued,partially_paid,paid,overdue,void'
+         *
+         * يعني `PUT /invoices/5 {"status":"paid"}` كان **بيعتمد
+         * فاتورة مدفوعة من غير ولا جنيه**. و`balance_due` بيفضل
+         * زي ما هو = فاتورة «مدفوعة» وعليها فلوس.
+         *
+         * ⭐ **محدش كان بيلاحظ** لأن التقارير بتجمع `balance_due`:
+         * الفاتورة said مدفوعة والحساب قال «لسه مدفوعةاش».
+         *
+         * ⭐ **`status` بتتقفل四处** — ما فيش غيرها (قاعدة 9):
+         *   ① `InvoiceService::writeState()` — بعد دفعة
+         *   ② `IssueController`/الـactions الصريحة
+         *   ③ `overdue` **مش حالة أصلاً** — محسوب (قاعدة 10)
+         *
+         * ⭐ والتغيير بقى **أفعال صريحة**:
+         * `POST /invoices/{id}/issue` و `/void`.
+         */
+        if ($request->has('status')) {
+            return response()->json([
+                'message' => 'حالة الفاتورة مش بتتغيّر من هنا. '
+                    .'استخدم: POST /invoices/'.$invoice->id.'/issue أو /void',
+            ], 422);
+        }
+
+        $data = $request->validate([
+            'due_date' => 'nullable|date',
+            'notes' => 'nullable|string',
+        ]);
 
         $old = $invoice->only(array_keys($data));
 
@@ -183,6 +217,28 @@ class InvoiceController extends Controller
             return response()->json(['message' => 'لا يمكن حذف فاتورة مدفوعة'], 422);
         }
 
+        /**
+         * ⭐⭐ الحذف **لـ`draft` بس** (PR 2.6).
+         *
+         * فاتورة `issued` (أو فيها دفعات) معناهاligationAncient
+         * قديم — مسحها بيخلي الرقم ثابت على «فاتورة مفقودة».
+         *
+         * ⭐ والطريقة الصح: `void` — بتبقي محفوظة + بتظهر في
+         * التقارير كـ`void`، بدل ما تختفي خالص.
+         */
+        if ($invoice->status !== 'draft') {
+            return response()->json([
+                'message' => 'الحذف مسموح للفاتورة المسودة بس. '
+                    .'الفاتورة دي معتمدة — استخدم POST /invoices/'.$invoice->id.'/void',
+            ], 422);
+        }
+
+        if ($invoice->allocations()->exists()) {
+            return response()->json([
+                'message' => 'الفاتورة عليها توزيعات — ما ينفعش تتحذف. استخدم void.',
+            ], 422);
+        }
+
         $old = $invoice->only(['invoice_number', 'student_id', 'total', 'status']);
 
         $invoice->delete();
@@ -190,5 +246,74 @@ class InvoiceController extends Controller
         app(\App\Services\AuditLogService::class)->logDelete('invoice', $invoice->id, $old, $request);
 
         return response()->json(['message' => 'تم حذف الفاتورة']);
+    }
+
+    /**
+     * ⭐⭐ اعتماد الفاتورة (`draft` → `issued`) — **فعل صريح**.
+     *
+     * ⭐ ليه فعل مش تعديل حقل؟ لأن الاعتماد **قرار** له أثر:
+     * الفاتورة بقت مطالبة على الطالب. فالـUI لازم يعملها
+     * consciously، والـaudit لازم يسجّلها.
+     */
+    public function issue(Request $request, Invoice $invoice)
+    {
+        if ($invoice->status !== 'draft') {
+            return response()->json([
+                'message' => "الاعتماد للفاتورة المسودة بس (الحالية: {$invoice->status})",
+            ], 422);
+        }
+
+        $invoice->update([
+            'status' => 'issued',
+            'issue_date' => $request->date('issue_date') ?? now()->toDateString(),
+        ]);
+
+        app(\App\Services\AuditLogService::class)->log(
+            'invoice_issued',
+            'invoice',
+            $invoice->id,
+            ['status' => 'draft'],
+            ['status' => 'issued'],
+            $request,
+        );
+
+        return response()->json($invoice->fresh());
+    }
+
+    /**
+     * ⭐⭐ إلغاء الفاتورة — **مش حذف**.
+     *
+     * ⭐ الفاتورة الملغاة بتفضل محفوظة عشان:
+     *   ① الرقم ما يتعادش-used (لو رجع لـdraft وتصدر تاني، الرقم
+     *      يبقى مرتبط بمعاملتين).
+     *   ② التقرير يقدر يقول «فيه فاتورة اتلغت في مارس» — رقم
+     *      فيه فجوة من غير تفسير = شك.
+     */
+    public function void(Request $request, Invoice $invoice)
+    {
+        if ($invoice->status === 'void') {
+            return response()->json(['message' => 'الفاتورة ملغاة بالفعل'], 422);
+        }
+
+        if ($invoice->status === 'paid') {
+            return response()->json([
+                'message' => 'ما ينفعش تلغي فاتورة مدفوعة — اعكس الدفعة الأول',
+            ], 422);
+        }
+
+        $previous = $invoice->status;
+
+        $invoice->update(['status' => 'void']);
+
+        app(\App\Services\AuditLogService::class)->log(
+            'invoice_voided',
+            'invoice',
+            $invoice->id,
+            ['status' => $previous],
+            ['status' => 'void'],
+            $request,
+        );
+
+        return response()->json($invoice->fresh());
     }
 }

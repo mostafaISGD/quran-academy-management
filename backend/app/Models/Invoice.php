@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Casts\MoneyCast;
 use App\Support\Money;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
@@ -109,5 +110,69 @@ class Invoice extends Model
     public function creditApplications()
     {
         return $this->hasMany(CreditNoteApplication::class);
+    }
+
+    // ============================================================
+    // ⭐⭐ `overdue` **محسوب** — مش مكتوب (PR 2.6)
+    // ============================================================
+
+    /**
+     * ⭐⭐⭐ «متأخرة» = **محسوبة** من `due_date`، مش تخزينها في `status`.
+     *
+     * ═══════════════════════════════════════════════════════════
+     * ⭐ ليه؟ (قاعدة 10 من `AGENTS.md`)
+     *
+     * «متأخرة» **حقيقة مش بتتغير** — بتتغير مع الوقت. ولو خزّنّاها
+     * في `status`، يبقى لازم حد يعدّل كل فاتورة كل يوم الصبح
+     * (cron بيلمس كل الصفوف)، وأي فاتورة فاتCron تعدّي.
+     *
+     * ⭐ والأخطر: **فاتورة جديدة بسبب `due_date` في الماضي** —
+     * لازم تدخل متأخرة من أول يوم. مع `status` المخزّن، تنسى
+     * تعملها `overdue` وتفضل `issued`.
+     *
+     * ⭐ **`status` المخزّن بيقول حاجة تانية**: هل الفاتورة اتدفعت
+     * أو اتلغت. `overdue` سؤال مختلف خالص.
+     *
+     * @see InvoiceService::writeState() الحالة المخزّنة
+     */
+    public function isOverdue(): bool
+    {
+        // ⭐ الفاتورة المدفوعة أو الملغاة **مش** متأخرة — مهما كان
+        // التاريخ. اتأخرت، اتقفلت، خلاص.
+        if (in_array($this->status, ['paid', 'void'], true)) {
+            return false;
+        }
+
+        if ($this->balance_due <= 0) {
+            return false;
+        }
+
+        // ⭐ مافيش تاريخ استحقاق = مافيش تأخير
+        if ($this->due_date === null) {
+            return false;
+        }
+
+        return $this->due_date->isPast();
+    }
+
+    /**
+     * ⭐ الفواتير المتأخرة — **محسوبة في SQL**.
+     *
+     * ⚠️ مش `where('status', 'overdue')` — دي حالة **مخزّنة** أو
+     * مفيش كده. المتأخر محسوب.
+     */
+    public function scopeOverdue(Builder $query): Builder
+    {
+        return $query
+            ->whereNotNull('due_date')
+            ->whereDate('due_date', '<', now()->toDateString())
+            ->whereIn('status', ['issued', 'partially_paid', 'draft'])
+            ->where(function (Builder $q) {
+                // ⭐ `CAST` — العمود `bigint` بالقرش، ومقارنة
+                // `> 0` على نص في SQLite بتفتّش **نصياً** فـ`"0.00"`
+                // بتعدّي. الـCAST بيرجّعها رقم.
+                $q->whereNull('balance_due')
+                    ->orWhereRaw('CAST(balance_due AS INTEGER) > 0');
+            });
     }
 }
