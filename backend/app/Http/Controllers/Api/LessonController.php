@@ -9,7 +9,6 @@ use App\Models\LessonAttendance;
 use App\Models\LessonReschedule;
 use App\Models\MemorizationRecord;
 use App\Models\ProgressRecord;
-use App\Models\TeacherEarning;
 use App\Services\LessonScheduler;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -192,24 +191,21 @@ class LessonController extends Controller
     {
         Gate::authorize('update', $lesson);
 
-        $lesson->update(['status' => 'completed']);
-
-        $teacher = $lesson->teacher;
-        if ($teacher && $teacher->activeContract?->contract_type === 'per_lesson') {
-            $rate = $teacher->currentRate;
-            if ($rate) {
-                TeacherEarning::create([
-                    'teacher_id' => $teacher->id,
-                    'lesson_id' => $lesson->id,
-                    'contract_id' => $teacher->activeContract->id,
-                    'rate_id' => $rate->id,
-                    'amount' => $rate->amount,
-                    'currency' => $rate->currency,
-                    'earning_date' => now()->toDateString(),
-                    'status' => 'pending',
-                ]);
-            }
+        /**
+         * ⭐⭐ PR 2.10 — حارس الحالة: الإكمال قرار مرة واحدة.
+         * النداء التاني كان بيكتب **مستحق تاني** لنفس الحصة.
+         */
+        if ($lesson->status === 'completed') {
+            return response()->json([
+                'message' => 'الحصة دي متسجلة مكتملة من قبل',
+            ], 422);
         }
+
+        // ⭐⭐ PR 2.10 — إنشاء المستحق من `TeacherEarningService`
+        // (لقطة السعر + الاعتماد التلقائي الإعدادات + القفل)
+        app(\App\Services\TeacherEarningService::class)->ensureForLesson($lesson, $request->user());
+
+        $lesson->update(['status' => 'completed']);
 
         return response()->json($lesson->fresh());
     }

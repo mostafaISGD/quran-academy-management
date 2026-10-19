@@ -591,6 +591,40 @@ trait BuildsFixtures
     }
 
     /**
+     * عقد نشط — افتراضياً `per_lesson` (مصدر أرباح المعلم جاي منه).
+     *
+     * `makeContract($teacher)` أو `makeContract($teacher, ['contract_type' => 'monthly'])`.
+     */
+    protected function makeContract(Teacher $teacher, array $attrs = []): \App\Models\TeacherContract
+    {
+        return \App\Models\TeacherContract::create(array_merge([
+            'teacher_id' => $teacher->id,
+            'contract_type' => 'per_lesson',
+            'start_date' => now()->subDays(30)->toDateString(),
+            'monthly_salary' => null,
+            'currency' => 'EGP',
+            'status' => 'active',
+        ], $attrs));
+    }
+
+    /**
+     * سعر نشط — يبدا من 30 يوم مضي (سعر جاري).
+     *
+     * `makeRate($teacher, ['amount' => 50, 'rate_type' => 'monthly'])`.
+     */
+    protected function makeRate(Teacher $teacher, array $attrs = []): \App\Models\TeacherRate
+    {
+        return \App\Models\TeacherRate::create(array_merge([
+            'teacher_id' => $teacher->id,
+            'rate_type' => 'per_lesson',
+            'amount' => 50,
+            'currency' => 'EGP',
+            'effective_from' => now()->subDays(30)->toDateString(),
+            'effective_to' => null,
+        ], $attrs));
+    }
+
+    /**
      * فترة مرتبات — الجدول **مشترك** مع مرتبات المعلمين.
      *
      * `makePeriod('2026-03-01', '2026-03-31')`.

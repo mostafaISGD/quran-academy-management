@@ -150,7 +150,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.7 — Payments: Allocation, Idempotency, and the Account
 - [x] PR 2.8 — Refunds, Reversals, and Credit Notes
 - [x] PR 2.9 — Unified Student Ledger + Daily Reconciliation
-- [ ] PR 2.10 — Teacher Earnings Pipeline
+- [x] PR 2.10 — Teacher Earnings Pipeline
 - [ ] PR 2.11 — Paying Teacher and Employee Payroll
 - [ ] PR 2.12 — Expenses
 - [ ] PR 2.13 — Period Locking
@@ -1262,6 +1262,8 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - `LessonController::complete`: protect it from duplication (status guard + unique) until PR 3.4 delivers its final version.
 **Acceptance:** Calling `complete` twice does not produce a second earning; a teacher's earning for a lesson reaches the payroll statement after approval.
 **Depends on:** 2.2
+
+> **✅ As implemented (2026-10-19).** المواصفة قالت unique على `lesson_id` — القت فعلياً **مفيش فهرس ولا حارس**: نداء الإكمال مرتين كان بيكتب مستحقين للـ نفس الحصة. دلوقتي حارس حالة في `complete` (المكتملة بترفض 422) + فهرس فريد جزئي على `lesson_id` لكل حالة غير `reversed`. أضيفت `rate_snapshot` (JSON: السعر ونوعه والعملة والعقد وقت الحصة) + `approved_by`/`approved_at` + حالة `reversed` — ميجريشن reversible اتأكدت بالـ rollback فعلياً. الاعتماد: مساران `POST /teacher-earnings/{id}/approve` و `/bulk-approve` بصلاحية جديدة `payroll.earnings.approve` — للمعلق فقط، والمنقاد بيرجع في `skipped`. كل اعتماد بيكتب سطر **دفتر معلم** دائن (`lesson_earning`) برصيد تجميعي لكل (معلم، عملة) — هنا الدائن هو اللي يزيد الرصيد (عكس دفتر الطالب) — عشان مقارنة (د) من PR 2.9 تفضل ساكتة في السليم وتصرخ في الانحراف. الاعتماد بيتسجل في `audit_logs`. خدمتان جديدتان هما الكاتب الوحيد: `TeacherEarningService` (إنشاء + اعتماد) و `TeacherLedgerService` (الدفتر). الاعتماد التلقائي: إعداد لكل مؤسسة `payroll.auto_approve_earnings` افتراضي 0 — بتشغيله إنشاء المستحق بيعتمد فوراً مع سطر الدفتر. ملاحظة: كان فيه كنترولر `TeacherEarningController` أصلي بقراءة `index` على `payroll.view` — اتساب زي ما هو والاعتماد اتضاف جنبه (وأثناء الشغل اترفع تصادم استيراد مؤقت). الحلقة قبالة المرتبات: `generate` قبل الاعتماد = صفر سطور، بعده = سطر بمبلغ الحصة. 7 اختبارات جديدة في `TeacherEarningApprovalTest.php` + fixtures جديدة `makeContract`/`makeRate` في `BuildsFixtures` (امتداد مش تغيير سلوك). Backend: 783 → **790** passed (نفس 1 risky + 2 skipped لـ PostgreSQL). Frontend: نوع `TeacherEarning` اتوسع (`reversed` + اللقطة + بيانات الاعتماد) + دالتا اعتماد + صفحة `teacher-earnings` بليبل/لون للـ `reversed`؛ 163 ✓، tsc ✓، build ✓، lint نفس الـ baseline (10). غير مُتحقق من الصرف الفعلي — ده PR 2.11.
 
 ### PR 2.11 — Paying Teacher and Employee Payroll
 **Goal:** Paying payroll writes all of its financial effects.

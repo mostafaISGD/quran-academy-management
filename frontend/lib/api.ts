@@ -1057,9 +1057,23 @@ export type TeacherEarning = {
   amount: string;
   currency: string;
   earning_date: string;
-  status: "pending" | "approved" | "paid" | "cancelled";
+  // ⭐ PR 2.10 — الحالة الجديدة `reversed` (سحب مستحق) أُضيفت
+  status: "pending" | "approved" | "paid" | "reversed" | "cancelled";
   notes: string | null;
   teacher?: { id: number; full_name: string } | null;
+  // ⭐ PR 2.10 — لقطة السعر والعقد لحظة الحصة + بيانات الاعتماد
+  rate_snapshot: {
+    rate_id: number;
+    rate_type: "per_lesson" | "monthly";
+    amount: number;
+    currency: string;
+    contract_id: number;
+    contract_type: "per_lesson" | "monthly";
+    captured_at: string;
+  } | null;
+  approved_by: number | null;
+  approved_at: string | null;
+  created_at: string;
 };
 
 export type TeacherPayment = {
@@ -3051,6 +3065,32 @@ export function payTeacherPayrollLine(
   return apiFetch<TeacherPayrollLine>(`/teacher-payroll/lines/${lineId}/pay`, {
     method: "POST",
     body: JSON.stringify(payload ?? {}),
+  });
+}
+
+// ============================================================
+// PR 2.10 — اعتماد مستحقات المعلمين
+// الاعتماد بيكتب سطر دفتر المعلم، فيظهر المستحق في `harvest()`
+// ============================================================
+
+/** اعتماد مستحق معلق — للمعلق فقط (الباقي 422) */
+export function approveTeacherEarning(earningId: number) {
+  return apiFetch<{ message: string; data: TeacherEarning }>(
+    `/teacher-earnings/${earningId}/approve`,
+    { method: "POST" },
+  );
+}
+
+/** ⭐ اعتماد جماعي — المعلَق بس، والباقي بيترجع `skipped` */
+export function bulkApproveTeacherEarnings(earningIds: number[]) {
+  return apiFetch<{
+    message: string;
+    approved: number[];
+    skipped: number[];
+    approved_count: number;
+  }>("/teacher-earnings/bulk-approve", {
+    method: "POST",
+    body: JSON.stringify({ earning_ids: earningIds }),
   });
 }
 

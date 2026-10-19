@@ -12,6 +12,8 @@ const STATUS_LABEL: Record<TeacherEarning["status"], string> = {
   pending: "معلق",
   approved: "معتمد",
   paid: "مدفوع",
+  // ⭐ PR 2.10 — مستحق مسحوب (انعكس) — حالته قادمة مع إعادة فتح الحصص
+  reversed: "مسحوب",
   cancelled: "ملغي",
 };
 
@@ -19,6 +21,7 @@ const STATUS_TONE: Record<TeacherEarning["status"], string> = {
   pending: "bg-amber-100 text-amber-700",
   approved: "bg-blue-100 text-blue-700",
   paid: "bg-green-100 text-green-700",
+  reversed: "bg-orange-100 text-orange-700",
   cancelled: "bg-slate-100 text-slate-500",
 };
 

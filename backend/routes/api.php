@@ -594,6 +594,13 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::put('/teacher-payroll/lines/{line}', [TeacherPayrollController::class, 'updateLine'])->middleware('permission:payroll.periods.manage');
     Route::post('/teacher-payroll/lines/{line}/pay', [TeacherPayrollController::class, 'pay'])->middleware('permission:payroll.payments.create');
 
+    // ⭐⭐ PR 2.10 — اعتماد مستحقات المعلمين (للمعلَق فقط؛
+    // الاعتماد بيكتب دفتر المعلم ويرفع المستحق لكشف المرتبات)
+    Route::post('/teacher-earnings/bulk-approve', [TeacherEarningController::class, 'bulkApprove'])
+        ->middleware('permission:payroll.earnings.approve');
+    Route::post('/teacher-earnings/{earning}/approve', [TeacherEarningController::class, 'approve'])
+        ->middleware('permission:payroll.earnings.approve');
+
     // ⭐ الخزائن والحسابات + دفتر الحركات
     //
     // ⚠️ ترتيب مهم: `/accounts/movements` و `/accounts/transfer`
