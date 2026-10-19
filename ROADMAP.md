@@ -145,7 +145,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.2 — Migrate Money Columns to `bigint` (Backend)
 - [x] PR 2.3 — Financial API Contract (Frontend)
 - [x] PR 2.4 — Financial Accounts and Their Movements
-- [ ] PR 2.5 — Exchange Rates and Transfers Between Accounts
+- [x] PR 2.5 — Exchange Rates and Transfers Between Accounts
 - [ ] PR 2.6 — Invoice Numbering and the Single Invoice Service
 - [ ] PR 2.7 — Payments: Allocation, Idempotency, and the Account
 - [ ] PR 2.8 — Refunds, Reversals, and Credit Notes
@@ -1096,6 +1096,36 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - `TransferController` + permission `finance.transfers.create`.
 **Acceptance:** Transferring 10,000 EGP from a bank to a cash box produces two balanced movements and does not appear in revenue; a cross-currency transfer stores the rate.
 **Depends on:** 2.4
+
+> **✅ As implemented (2026-10-19).** 8 new tests in `tests/Feature/ExchangeRatePrecisionTest.php`. Backend 715 → **723 passed**.
+>
+> ⭐ **`transfer()` كان شغّال من زمان** — و`FinancialLedgerService`
+> فيه 23 اختبار بيغطيه (تحويل، قفل فترة، سعر صرف، عكس).
+> فالـPR ده كان **ناقصه دقة** مش ناقصه 기능.
+>
+> ⭐⭐ **`ExchangeRateCast`** — السعر كان `decimal:6` بـ`?float`.
+> ⭐ `48.5 * 100` = `4850.000000000001` في float، والضرب
+> المتكرر بيجمع الخطأ. بقى **int × 10⁶** + cast بيعرض
+> `"48.500000"` بنفس الشكل بالظبط (الـcontract ماتغيّرش).
+>
+> ⭐⭐ **`ExchangeRateService`** — الش-signature كان
+> `float $amount → float`. بقى **`Money → Money`**، والتس��يق
+ * داخلي كـ`int pair` (`numerator`/`denominator`) عشان
+> `Money::multiply()` يعمل half-up على integers.
+ *
+ * ⭐ ليه `int pair` مش `1 / $inverse`؟ لأن `1 / 3` مالهاش
+> نهاية. القلب بينجز في الأعداد الصحيحة:
+ *
+ * ```
+ * 0.020000 → {20000, 10⁶}
+ * 1 / 0.02  → {50 * 10⁶, 10⁶}   ⭐ مش {10⁶, 20000}
+ * ```
+ *
+ * ⭐ **صفر السعر مرفوض** — `1 / 0` مش معنى. ونقص السعر
+ * **يرمي** مش بيرجّع صفر: الصفر الصامت بيوصل لفواتير.
+>
+> ⭐ **مفيش أثر رجعي**: تقرير مارس بياخد سعر مارس حتى لو سعر
+ * النهارده مختلف (اختبار بيثبت الحالتين جنب بعض).
 
 ### PR 2.6 — Invoice Numbering and the Single Invoice Service
 **Goal:** Sequential numbers with no gaps, and a single writer for invoice state.

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Casts\ExchangeRateCast;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -25,8 +26,31 @@ class ExchangeRate extends Model
     protected function casts(): array
     {
         return [
-            'rate' => 'decimal:6',
+            'rate' => ExchangeRateCast::class,
             'valid_date' => 'date',
+        ];
+    }
+
+    /**
+     * ⭐ السعر **مقيس** (`int × 10^6`) — مش float.
+     *
+     * ⭐ وليه؟ لأن `48.5 * 100` = `4850.000000000001` في float،
+     * والضرب المتكرر بيجمع الخطأ. والقسمة على 10^6 وقت
+     * التحويل بتدي رقم نضيف.
+     *
+     * @return array{numerator: int, denominator: int}|null
+     */
+    public function scaledRate(): ?array
+    {
+        $raw = $this->getRawOriginal('rate');
+
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+
+        return [
+            'numerator' => (int) $raw,
+            'denominator' => ExchangeRateCast::SCALE,
         ];
     }
 
