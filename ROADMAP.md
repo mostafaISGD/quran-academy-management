@@ -154,7 +154,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.11 — Paying Teacher and Employee Payroll
 - [x] PR 2.12 — Expenses
 - [x] PR 2.13 — Period Locking
-- [ ] PR 2.14 — Discounts and Promo Codes
+- [x] PR 2.14 — Discounts and Promo Codes
 - [ ] PR 2.15 — SQL Financial Reports
 - [ ] PR 2.16 — Debt Aging, Account Balances, and Excel Export
 - [ ] PR 2.17 — Arabic PDF Receipts and Invoices
@@ -1350,6 +1350,19 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - A "what we lost to discounts" report.
 **Acceptance:** Code WELCOME10 discounts 10% and appears with the same original amount on the invoice; a usage exceeding the limit is rejected under concurrency.
 **Depends on:** 2.6
+
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-20):**
+> - وضع البداية: `promo_codes` + `promo_code_usages` (وهي الـ`promo_redemptions` في المواصفة — انحراف تسمية) موجودة والموديلات كاملة، والعمود `used_count` موجود سابقاً؛ لكن الصرف كان ساكتاً: كود ملغي/منتهي/مستنفد يُتجاهل بصمت (201 بلا خصم!) وسقف الطالب `max_uses_per_student` لم يُستدعَ قط.
+> - `PromoCodeService::assertUsableLocked()` — فحص واحد مقفول (`lockForUpdate` **داخل** transaction الكاتب): التفعيل + النافذة + السقف الإجمالي + سقف الطالب + النطاق (`program`/`category`) + «طلاب جدد فقط» — يرمي 422 برسالة عربية على مفتاح `promo_code`. **رفض صريح بدل التجاهل — تغيير سلوك معلن**.
+> - `InvoiceController::store` صار صفقة واحدة (فاتورة + أصناف + `incrementUsage` + سطر استخدام + دفتر الطالب + audit) — قبله كانت قراءة/كتابة مكشوفة تسمح بتجاوز السقف بالنداءات المتزامنة. موثق على الفاتورة: `list_amount` (بالقرش زي باقي أعمدة 2.1)، `discount_reason` (يدوي أو «كود ترويجي: CODE» تلقائياً)، `promo_code_id` FK. **انحراف اسم**: المواصفة تقول `discount_amount` — نفس دلالة العمود القائم `discount` (لم يُعَد التسمية لتفادي رنين واسع)، وأساس حساب الخصم صار بلا ضرايب.
+> - إصلاح 500 قديم: فاتورة بكود ترويجي **بلا** `subscription_id` كانت تنهار (`Undefined array key`) — الآن `subscriptionScope()` آمنة، والـ`exists:promo_codes,code` أُزيل من الفاليديشن (كان يمر لكود موجود في منظمة **أخرى**).
+> - `PromoCodeUsage` بلا مانعة timestamps — `created_at/updated_at` غير موجودين في جدوله (فقط `applied_at`)؛ الإدراج عبر الموديل كان فشلًا صامتًا لم يُختبر قط.
+> - المسار الجماعي `bulkCreateInvoices`: فحص مقفول **لكل طالب** داخل صفقته، والمستنفد يُسكَّت في `skipped` بسبب واضح (بنفس نمط «مفيش اشتراك نشط») — الباجي يكمل.
+> - التقرير: `GET /reports/discounts` بصلاحية `reports.view` — «كام ضاع في الخصومات»: إجماليات (ترويجي/يدوي/الكل + عدد الفواتير المخصومة) وتفصيل لكل كود، كلها aggregates SQL مع `leftJoinSub`، **كل المبالغ تمر عبر `MoneyCast::fromAggregate`** (قاعدة 6 — الـsums خام بالقرش). ودمجه ضمن التقرير المالي الكلي يتكفّل به 2.15.
+> - الواجهة: نموذج الفاتورة يُدخل خصم/سبب/كود (الكود خاطئ يظهر 422 برسالة واضحة)، صف الخصم يظهر تحت الإجمالي بسببه، وتاب جديد «الخصومات» في التقارير.
+> - 6 اختبارات في `PromoCodeIssuanceTest.php`: WELCOME10 (خصم 10% + توثيق الأصل 500/68/432 + العداد)، رفض المنتهي **بلا إنشاء فاتورة**، السقف الإجمالي، سقف الطالب، التخطي الجماعي، توافيق التقرير. Backend: 811 → **817** passed؛ Frontend: 163 ✓، tsc ✓، build ✓، lint = خط الأساس.
+> - الهجرة reversible على SQLite بإعادة بناء يدوي (درس 2.12: DROP COLUMN لعمود FK ممنوع) — مُختبَر up→down→up على قاعدة التطوير.
 
 ### PR 2.15 — SQL Financial Reports
 **Goal:** Correct and fast numbers, without loading all records into memory.
