@@ -153,7 +153,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.10 — Teacher Earnings Pipeline
 - [x] PR 2.11 — Paying Teacher and Employee Payroll
 - [x] PR 2.12 — Expenses
-- [ ] PR 2.13 — Period Locking
+- [x] PR 2.13 — Period Locking
 - [ ] PR 2.14 — Discounts and Promo Codes
 - [ ] PR 2.15 — SQL Financial Reports
 - [ ] PR 2.16 — Debt Aging, Account Balances, and Excel Export
@@ -1331,6 +1331,16 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - A correction within a locked period is made with an entry in the first open period that references the original.
 **Acceptance:** Recording a payment dated within a locked period is rejected (422); reopening without the permission = 403.
 **Depends on:** 2.7 · 2.12
+
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-20):**
+> - الجدول والموديل ومسار unlock كانت موجودة من PR 2.4 بنطاقي `all`/`account` — شغل الـPR الحقيقي هو **النطاقات الوظيفية**: أُضيف `invoices` + `payments` لميجريشن reversible (الـ`down()` يحوّل الصفوف الجديدة لـ`all` ثم يرجع التعريف — مختبر بصف فعلي).
+> - `PeriodLock::assertOpen($date, $scope, $account)` — بوابة ثابتة واحدة (بترمي ValidationException → 422)؛ `FinancialLedgerService::assertNotLocked` تُحوك عليها، و`record()` يرسم نطاق الحركة من `reference_type`/`category`.
+> - الرفض الصريح بدل تحذير 2.11/2.12: المدفوعات (على `paid_at`)، الاستردادات (مسار `refund()` + `approve()`)، صرف المصروفات، صرف المرتبات معلم/موظف — **تغيير سلوك معلن** (اختبارات السلوك القديم أُعيدت صياغتها).
+> - الفواتير: فحص عند مواضع الإنشاء الخمسة (InvoiceController + DailySubscription + GroupEnrollment + StudentController + AssessmentController) بنطاق `invoices`.
+> - إعادة الفتح: تبقى على الصلاحية `finance.periods.unlock` (لم تُضف صلاحية `finance.periods.reopen` — نفس الفعل، catalog بلا تغيير) + `current_password` إجباري بمطابقة Hash + السبب والسجل (audit) الموجودان.
+> - تصحيح فترة مقفولة: `reverse()` يفحص **تاريخ اليوم** (الإدخال العكسي في أول فترة مفتوحة بإشارة `reverses_movement_id`) بدل تاريخ الأصل — فلا يستحيل تصحيح الشهور المقفولة.
+> - 8 اختبارات في `PeriodLockScopesTest.php` (منها عكس الأصل المقفول + استقلال النطاقات)؛ Backend: 803 → **811** passed؛ Frontend: خيارات نطاق جديدة + حقل كلمة سر الفتح — 163 ✓، tsc ✓، build ✓، lint على خط الأساس.
 
 ### PR 2.14 — Discounts and Promo Codes
 **Goal:** Track the cost of discounts without touching the plan price.
