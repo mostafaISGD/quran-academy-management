@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\PricingController;
 use App\Http\Controllers\Api\GroupController;
 use App\Http\Controllers\Api\WaitlistController;
 use App\Http\Controllers\Api\ExpenseController;
+use App\Http\Controllers\Api\ExpenseCategoryController;
 use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\LessonController;
@@ -62,6 +63,16 @@ Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])
     // مدرسين ولا أرباح — يعني مفيش حاجة تتسرب.
     Route::get('/pricing', [PricingController::class, 'index']);
     Route::get('/pricing/export', [PricingController::class, 'export']);
+
+    // ⭐⭐ PR 2.12 — تنزيل مرفق مصروف برابط موقّع مؤقت.
+    //
+    // مفيش `auth:sanctum` ولا permission — الحماية هنا هي التوقيع
+    // نفسه (`signed`): الرابط بيتولد عند الرفع، صالح 30 دقيقة،
+    // وأي تعديل على أي باراميتر بيأدّي لرفض 403. الرفع نفسه محمي
+    // فوق بـ `finance.expenses.create`.
+    Route::get('/expense-attachments/{attachment}/download', [ExpenseController::class, 'downloadAttachment'])
+        ->middleware('signed')
+        ->name('expense-attachments.download');
 
     // ⭐ التعديل **مش** عام — بيحتاج تسجيل دخول + صلاحية.
     // العرض عام، والتعديل قرار تجاري للإدارة بس.
@@ -649,6 +660,34 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/expenses', [ExpenseController::class, 'index'])
         ->middleware('permission:finance.expenses.view');
     Route::post('/expenses', [ExpenseController::class, 'store'])
+        ->middleware('permission:finance.expenses.create');
+
+    // ⭐⭐ PR 2.12 — دورة المصروف: اعتماد / رفض / صرف.
+    // الاعتماد والصرف صلاحيتان منفصلتان — ومنشئ المصروف ما يقدرش
+    // يعتمده بنفسه (الحارس جوّه `ExpenseService`).
+    Route::post('/expenses/{expense}/approve', [ExpenseController::class, 'approve'])
+        ->middleware('permission:finance.expenses.approve');
+    Route::post('/expenses/{expense}/reject', [ExpenseController::class, 'reject'])
+        ->middleware('permission:finance.expenses.approve');
+    Route::post('/expenses/{expense}/pay', [ExpenseController::class, 'pay'])
+        ->middleware('permission:finance.expenses.pay');
+
+    // المرفقات — رفع محدود النوع والحجم، والتنزيل برابط موقّع
+    // مؤقت (التوقيع هو الإذن — المسار ده تحت في القسم العام).
+    Route::post('/expenses/{expense}/attachments', [ExpenseController::class, 'uploadAttachment'])
+        ->middleware('permission:finance.expenses.create');
+
+    // ===== فئات المصروفات =====
+    // ⭐ القراءة محتاجة معرفة بالفئات (زي choose الفئة وقت الإنشاء)
+    // — والإدارة الأربعة محرجة من الإدخال: فئة مربوطة بمصروفات
+    // ما بتتحذفش (409).
+    Route::get('/expense-categories', [ExpenseCategoryController::class, 'index'])
+        ->middleware('permission:finance.expenses.view');
+    Route::post('/expense-categories', [ExpenseCategoryController::class, 'store'])
+        ->middleware('permission:finance.expenses.create');
+    Route::put('/expense-categories/{category}', [ExpenseCategoryController::class, 'update'])
+        ->middleware('permission:finance.expenses.create');
+    Route::delete('/expense-categories/{category}', [ExpenseCategoryController::class, 'destroy'])
         ->middleware('permission:finance.expenses.create');
 
     // Teacher Earnings & Payments

@@ -41,8 +41,8 @@ class AccountsApiTest extends TestCase
             // ⭐ المصروفات — راوتس كانت **مفتوحة** قبل PR 0.1
             // (auth:sanctum من غير permission)، فالاختبارات دي كانت
             // بتعدّي من غير ما تطلب صلاحية. دلوقتي محمية، فلازم
-            // المستخدم ياخد الصلاحيات صراحة.
-            'finance.expenses.view', 'finance.expenses.create',
+            // المستخدم ياخد الصلاحيات صراحة. ⭐ PR 2.12: +pay.
+            'finance.expenses.view', 'finance.expenses.create', 'finance.expenses.pay',
         ]);
     }
 
@@ -410,13 +410,21 @@ class AccountsApiTest extends TestCase
     {
         $account = $this->makeAccount(['opening_balance' => 2000]);
         $category = $this->makeExpenseCategory(['name' => 'إيجار']);
+        $chief = $this->makeUserWithRole('expense-chief', ['finance.expenses.approve']);
 
+        // ⭐ PR 2.12: الحركة وقت الصرف — فالمسار: إنشاء → اعتماد → صرف
         $this->postJsonAs('/api/expenses', [
             'amount' => 800,
             'expense_date' => now()->toDateString(),
             'description' => 'إيجار الشهر',
             'category_id' => $category->id,
         ], $this->accountant())->assertCreated();
+
+        $expense = \App\Models\Expense::firstOrFail();
+        $this->postJsonAs("/api/expenses/{$expense->id}/approve", [], $chief)->assertOk();
+        $this->postJsonAs("/api/expenses/{$expense->id}/pay", [
+            'financial_account_id' => $account->id,
+        ], $this->accountant())->assertOk();
 
         $r = $this->getJsonAs('/api/accounts/movements', $this->accountant());
 

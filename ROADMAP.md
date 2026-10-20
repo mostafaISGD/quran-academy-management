@@ -152,7 +152,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.9 — Unified Student Ledger + Daily Reconciliation
 - [x] PR 2.10 — Teacher Earnings Pipeline
 - [x] PR 2.11 — Paying Teacher and Employee Payroll
-- [ ] PR 2.12 — Expenses
+- [x] PR 2.12 — Expenses
 - [ ] PR 2.13 — Period Locking
 - [ ] PR 2.14 — Discounts and Promo Codes
 - [ ] PR 2.15 — SQL Financial Reports
@@ -1306,6 +1306,22 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - Permissions `expenses.view`, `expenses.create`, `expenses.approve`, and `expenses.pay`, and the creator cannot approve.
 **Acceptance:** An approved and paid expense reduces the account balance and appears in the report; the creator cannot approve their own expense.
 **Depends on:** 2.4 · 1.7
+
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-20):**
+> - الدورة: `submitted` بديل `pending` (الميجريشن حوّل الصفوف القديمة تلقائياً) — الإنشاء يفتتح مباشرة `submitted`، و`draft` مدعوم متعطل.
+> - الحركة المالية عند **الصرف فقط** (القديم: حركة `pending` عند الإنشاء بلا endpoint اعتماد أبداً) — حركة `out/expense/posted` عبر `resolveAccount`.
+> - `ExpenseService` يحرس المراحل داخل `DB::transaction` + `lockForUpdate`: الصرف المزدوج → 422؛ صرف غير معتمد → 422؛ **المنشئ ما يعتمدش مصروفه بنفسه → 403** حتى لو معه الصلاحيتان.
+> - صلاحيات `finance.expenses.approve` + `finance.expenses.pay` مع أسماء قصيرة في الـaliases (وتحديث `PermissionCatalogTest` بأسباب الأسماء الجديدة).
+> - مسارات جديدة: `approve`/`reject`/`pay` + رفع المرفقات (png/jpg/webp/pdf حتى 5MB على القرص الخاص) وتنزيل برابط موقّع مؤقت 30 دقيقة (route: `expense-attachments.download` بلا auth — التوقيع هو الإذن).
+> - إدارة الفئات: `/expense-categories` CRUD كامل — قراءة `finance.expenses.view` والباقي `finance.expenses.create`؛ الحذف 409 لو الفئة مربوطة بمصروف.
+> - `category_id` إجباري — أزيل خطة `ExpenseCategory::first()`؛ و`exists` محصور بفئات منشأة المستخدم.
+> - ثغرة قديمة: عمود `notes` كان في `$fillable` مش موجود في الجدول (أي إدخال به 500 صامت) — أضيف عموداً بالميجريشن.
+> - التقرير المالي يحسب المصروفات على `approved+paid`، وتنبيه `pending_expenses` يقيس `submitted`.
+> - ميجريشن reversible: `->change()` على SQLite يعيد بناء الجدول فيضيع أي عمود أُضيف قبله (الترتيب حاسم) — و`down()` يسلك إعادة بناء يدوية لعمود FK (SQLite يرفض DROP) — تم التحقق up→down→up.
+> - 7 اختبارات في `ExpenseWorkflowTest.php`؛ أعيدت صياغة 3 اختبارات الدمج القديمة على الدورة الجديدة؛ توسيع صلاحيات المستخدمين في `LedgerIntegrationTest`/`AccountsApiTest` (موثق).
+> - Backend: 796 → **803** passed (نفس 1 risky + 3 skipped pgsql).
+> - Frontend: أزرار اعتماد/رفض/صرف + مرفقات + إدارة فئات (`ExpenseCategoryManager` جديد) + حالة `submitted`؛ 163 ✓؛ tsc نظيف؛ build ✓؛ lint بالخط الأساسي (10 أخطاء قديمة).
 
 ### PR 2.13 — Period Locking
 **Goal:** No change in a locked period.

@@ -1021,12 +1021,135 @@ export type Expense = {
   description: string;
   payment_method: string | null;
   reference: string | null;
+  notes?: string | null;
   created_by: number;
-  status: "pending" | "approved" | "rejected";
+  status: "draft" | "submitted" | "approved" | "rejected" | "paid";
   created_at: string;
   updated_at: string;
-  category?: { id: number; name: string; slug: string } | null;
+  category?: ExpenseCategory | null;
+  // ⭐ PR 2.12 — دورة المصروف
+  payee: string | null;
+  account_id: number | null;
+  approved_by: number | null;
+  approved_at: string | null;
+  paid_by: number | null;
+  paid_at: string | null;
+  attachments?: ExpenseAttachment[];
 };
+
+export type ExpenseStatus = Expense["status"];
+
+export type ExpenseAttachment = {
+  id: number;
+  expense_id: number;
+  path: string;
+  original_name: string;
+  mime: string;
+  size: number;
+  uploaded_by: number;
+  created_at: string;
+  updated_at: string;
+  /** ⭐ رابط مؤقت (30 دقيقة) — بيتولّد من الـbackend وقت الرد */
+  download_url?: string;
+};
+
+export type ExpenseCategory = {
+  id: number;
+  organization_id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  status: "active" | "inactive";
+  expenses_count?: number;
+};
+
+export function getExpenseCategories() {
+  return apiFetch<ExpenseCategory[]>("/expense-categories");
+}
+
+export function createExpenseCategory(payload: { name: string; description?: string }) {
+  return apiFetch<ExpenseCategory>("/expense-categories", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateExpenseCategory(
+  id: number,
+  payload: { name: string; description?: string; status?: "active" | "inactive" },
+) {
+  return apiFetch<ExpenseCategory>(`/expense-categories/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteExpenseCategory(id: number) {
+  return apiFetch<{ deleted?: boolean }>(`/expense-categories/${id}`, {
+    method: "DELETE",
+  });
+}
+
+/** ⭐⭐ رفع ملفات: نفس عقد الـCSRF بتاع `apiFetch`، بس من غير
+ * هيدر Content-Type يدوي (المتصفح بيحط boundary الملف بنفسه). */
+export async function apiUpload<T>(path: string, file: File): Promise<T> {
+  const form = new FormData();
+  form.append("file", file);
+
+  await ensureCsrfCookie();
+  const xsrf = readXsrfToken();
+
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    method: "POST",
+    body: form,
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      ...(xsrf ? { "X-XSRF-TOKEN": xsrf } : {}),
+    },
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body);
+  }
+
+  return (await res.json()) as T;
+}
+
+export function uploadExpenseAttachment(expenseId: number, file: File) {
+  return apiUpload<ExpenseAttachment & { download_url: string }>(
+    `/expenses/${expenseId}/attachments`,
+    file,
+  );
+}
+
+export function approveExpense(expenseId: number) {
+  return apiFetch<Expense>(`/expenses/${expenseId}/approve`, { method: "POST" });
+}
+
+export function rejectExpense(expenseId: number, reason?: string) {
+  return apiFetch<Expense>(`/expenses/${expenseId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason: reason ?? undefined }),
+  });
+}
+
+/** ⭐ الصرف — بدون حساب بيفرضه الـbackend من المصروف أو الافتراضي */
+export function payExpense(
+  expenseId: number,
+  payload?: { financial_account_id?: number },
+) {
+  return apiFetch<
+    Expense & {
+      ledger?: { recorded: boolean; movement_id: number | null };
+      warning?: string | null;
+    }
+  >(`/expenses/${expenseId}/pay`, {
+    method: "POST",
+    body: JSON.stringify(payload ?? {}),
+  });
+}
 
 export function getExpenses(params?: {
   status?: string;
@@ -1194,9 +1317,12 @@ export function createExpense(payload: {
   expense_date: string;
   description: string;
   payment_method?: string;
-  category_id?: number;
+  /** ⭐ PR 2.12 — الفئة إجبارية (مفيش خلفية أوتوماتيكية خفية) */
+  category_id: number;
   reference?: string;
   notes?: string;
+  payee?: string;
+  financial_account_id?: number;
 }) {
   return apiFetch<Expense>("/expenses", {
     method: "POST",

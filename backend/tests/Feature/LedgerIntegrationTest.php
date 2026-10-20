@@ -40,7 +40,8 @@ class LedgerIntegrationTest extends TestCase
             // ⭐ المصروفات — راوتس كانت **مفتوحة** قبل PR 0.1
             // (auth:sanctum من غير permission)، فاختبارات المصروفات
             // هنا كانت بتعدّي من غير ما تطلب صلاحية. دلوقتي محمية.
-            'finance.expenses.view', 'finance.expenses.create',
+            // ⭐ PR 2.12: الصرف صلاحية لوحدها.
+            'finance.expenses.view', 'finance.expenses.create', 'finance.expenses.pay',
         ]);
     }
 
@@ -267,14 +268,13 @@ class LedgerIntegrationTest extends TestCase
     }
 
     // ============================================================
-    // ④ المصروف — pending لحد الاعتماد
+    // ④ المصروف — بلا حركة لحد الاعتماد ثم الصرف
     // ============================================================
 
     public function test_an_expense_is_recorded_but_does_not_move_the_balance(): void
     {
-        // ⭐ المصروف بيتخزن `pending` دايماً (مفيش endpoint اعتماد)،
-        // فلو سجّلناه `posted` كان هيبقى منتهى وانتهى — ومينفعش
-        // نرجّعه.
+        // ⭐ PR 2.12: الإنشاء **مش بيسجّل أي حركة** — القرار الإداري
+        // للأول، والفلوس ما خرجتش. الحركة وقت الـ`pay` بس.
         $account = $this->makeAccount(['opening_balance' => 2000]);
         $category = $this->makeExpenseCategory(['name' => 'إيجار']);
 
@@ -286,25 +286,23 @@ class LedgerIntegrationTest extends TestCase
         ], $this->accountant());
 
         $r->assertCreated();
-        $r->assertJsonPath('ledger.recorded', true);
-        $r->assertJsonPath('ledger.posted', false);
+        $r->assertJsonPath('status', 'submitted');
 
-        // ⭐ الحركة موجودة — بس **مش معتمدة**
-        $movement = AccountMovement::where('reference_type', 'expense')->first();
-        $this->assertNotNull($movement);
-        $this->assertSame('pending', $movement->status);
+        // ⭐ مفيش أي حركة متسجّلة — ولا pending ولا posted
+        $this->assertSame(0, AccountMovement::where('reference_type', 'expense')->count());
 
         // ⭐ والرصيد **ما اتغيرش**
         $this->assertSame(2000.0, $account->fresh()->balance());
     }
 
-    public function test_approving_an_expense_posts_its_movement(): void
+    public function test_paying_an_approved_expense_posts_its_movement(): void
     {
-        // ⭐ دي اللحظة اللي فيها المصروف بيطلع من الخزينة. وقتها
-        // الـ `status` بيتحول `posted` — وبعدين التصحيح = **عكس**
-        // مش تعديل.
+        // ⭐ دي اللحظة اللي فيها المصروف بيطلع من الخزينة: صرف
+        // مصروف معتمد بيسجّل حركة `posted` — وبعدين التصحيح =
+        // **عكس** مش تعديل.
         $account = $this->makeAccount(['opening_balance' => 2000]);
         $category = $this->makeExpenseCategory(['name' => 'إيجار']);
+        $chief = $this->makeUserWithRole('chief', ['finance.expenses.approve']);
 
         $this->postJsonAs('/api/expenses', [
             'amount' => 800,
@@ -313,21 +311,28 @@ class LedgerIntegrationTest extends TestCase
             'category_id' => $category->id,
         ], $this->accountant())->assertCreated();
 
-        $movement = AccountMovement::where('reference_type', 'expense')->first();
+        $expense = \App\Models\Expense::firstOrFail();
+
+        // الاعتماد لوحده **مش** بيتأثر عليه الرصيد
+        $this->postJsonAs("/api/expenses/{$expense->id}/approve", [], $chief)->assertOk();
         $this->assertSame(2000.0, $account->fresh()->balance());
 
-        app(\App\Services\FinancialLedgerService::class)->pendingToPosted($movement);
+        // الصرف هو اللي بيخصم — حركة posted
+        $this->postJsonAs("/api/expenses/{$expense->id}/pay", [], $this->accountant())->assertOk();
 
-        $this->assertSame('posted', $movement->fresh()->status);
+        $movement = AccountMovement::where('reference_type', 'expense')->first();
+        $this->assertSame('posted', $movement->status);
+        $this->assertSame('out', $movement->direction);
         $this->assertSame(1200.0, $account->fresh()->balance());
     }
 
-    public function test_approving_twice_does_not_double_charge(): void
+    public function test_paying_an_expense_twice_does_not_double_charge(): void
     {
-        // ⭐ دبل-كليك على زرار «اعتماد» مايرميش 500 ومايخصمش
-        // مرتين. نفس المنطق اللي في `GroupMember::admit`.
+        // ⭐ دبل-كليك على زرار «صرف» مايخصمش مرتين — الحارس
+        // بيقرأ الحالة بعد القفل فبترفض التانية.
         $account = $this->makeAccount(['opening_balance' => 2000]);
         $category = $this->makeExpenseCategory(['name' => 'إيجار']);
+        $chief = $this->makeUserWithRole('chief', ['finance.expenses.approve']);
 
         $this->postJsonAs('/api/expenses', [
             'amount' => 800,
@@ -336,14 +341,17 @@ class LedgerIntegrationTest extends TestCase
             'category_id' => $category->id,
         ], $this->accountant())->assertCreated();
 
-        $movement = AccountMovement::where('reference_type', 'expense')->first();
-        $ledger = app(\App\Services\FinancialLedgerService::class);
+        $expense = \App\Models\Expense::firstOrFail();
+        $this->postJsonAs("/api/expenses/{$expense->id}/approve", [], $chief)->assertOk();
 
-        $ledger->pendingToPosted($movement);
-        $ledger->pendingToPosted($movement->fresh());
+        $this->postJsonAs("/api/expenses/{$expense->id}/pay", [], $this->accountant())->assertOk();
+        $this->postJsonAs("/api/expenses/{$expense->id}/pay", [], $this->accountant())->assertStatus(422);
 
+        $this->assertSame(1, AccountMovement::where('reference_type', 'expense')->count());
         $this->assertSame(1200.0, $account->fresh()->balance());
     }
+
+    // ⭐ `finance.expenses.pay` — صرف مصروف معتمد (PR 2.12)
 
     // ============================================================
     // ⑤ اختيار الحساب حسب طريقة الدفع

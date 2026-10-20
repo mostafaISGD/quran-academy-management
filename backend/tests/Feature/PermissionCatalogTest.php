@@ -489,6 +489,10 @@ class PermissionCatalogTest extends TestCase
             'refunds.approve' => 'PR 2.8: موافقة الاسترداد صارت مصدر مستقل finance.refunds.approve — انتقال لصلاحية واحدة مش تفكيك مجموعة',
             'expenses.view' => 'انتقال إلى وحدة finance',
             'expenses.create' => 'انتقال إلى وحدة finance',
+            // ⭐ PR 2.12: اعتماد/صرف المصروف صلاحيتان مستقلتان — الأسماء
+            // القصيرة بقيادات على `finance.*` زي البقية (للمراجعين).
+            'expenses.approve' => 'انتقال إلى وحدة finance',
+            'expenses.pay' => 'انتقال إلى وحدة finance',
             'phones.manage' => 'انتقال إلى وحدة students',
         ];
 

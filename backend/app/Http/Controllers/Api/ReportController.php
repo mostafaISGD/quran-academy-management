@@ -86,7 +86,10 @@ class ReportController extends Controller
         // ⭐ المصروفات
         $expenses = \App\Models\Expense::query()
             ->whereRange('expense_date', $start, $end)
-            ->where('status', 'approved')
+            // ⭐ PR 2.12: المدفوع والمعتمد كلفة تشغيل فعلاً
+            // (القديم كان Approved بس — فالمدفوع كان يختفي من الربح
+            // وكل مزيف للربح).
+            ->whereIn('status', ['approved', 'paid'])
             ->get();
 
         // ⭐ صافي التشغيل = المحصّل - المصروفات - مستحقات المعلمين
@@ -107,7 +110,9 @@ class ReportController extends Controller
                 ->count(),
             'unpaid_teacher_dues' => max(0, $unpaidTeacherDues),
             'pending_expenses' => \App\Models\Expense::query()
-                ->where('status', 'pending')
+                // ⭐ PR 2.12: الاسم القديم `pending` بقى `submitted`
+                // — والمسودات `draft` مش مؤهلة تسأل عنهم بعد
+                ->where('status', 'submitted')
                 ->count(),
         ];
 

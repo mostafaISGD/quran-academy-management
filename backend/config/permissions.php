@@ -288,6 +288,18 @@ return [
             'group' => 'المالية',
             'description' => 'تسجيل مصروف',
         ],
+        // ⭐ PR 2.12 — اعتماد وصرف المصروف مرحلتين منفصلتين —
+        // ومنشئ المصروف محروم من الاعتماد (حتى لو معاه الصلاحيتين)
+        'finance.expenses.approve' => [
+            'module' => 'finance',
+            'group' => 'المالية',
+            'description' => 'اعتماد مصروف مُرسَل',
+        ],
+        'finance.expenses.pay' => [
+            'module' => 'finance',
+            'group' => 'المالية',
+            'description' => 'صرف مصروف معتمد — بتسجل حركة مالية خارج',
+        ],
 
         // ═══════════ المرتبات ═══════════
         'payroll.view' => [
@@ -470,6 +482,9 @@ return [
         // ⭐ المصروفات مالية كمان — نفس السبب
         'expenses.view' => ['finance.expenses.view'],
         'expenses.create' => ['finance.expenses.create'],
+        // ⭐ PR 2.12 — الاعتماد والصرف أسمائهم الأصلية finance.*
+        'expenses.approve' => ['finance.expenses.approve'],
+        'expenses.pay' => ['finance.expenses.pay'],
 
         // ═══════════ مرتبات ═══════════
         //

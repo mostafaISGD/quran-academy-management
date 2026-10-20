@@ -4,13 +4,19 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Expense;
+use App\Models\ExpenseAttachment;
+use App\Services\ExpenseService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\Rule;
 
 class ExpenseController extends Controller
 {
+    public function __construct(private ExpenseService $service) {}
+
     public function index(Request $request)
     {
-        $query = Expense::query()->with('category')
+        $query = Expense::query()->with(['category', 'attachments'])
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
             ->when($request->filled('category_id'), fn ($q) => $q->where('category_id', $request->string('category_id')))
             ->when($request->filled('branch_id'), fn ($q) => $q->where('branch_id', $request->string('branch_id')))
@@ -41,90 +47,148 @@ class ExpenseController extends Controller
             'expense_date' => 'required|date',
             'description' => 'required|string',
             'payment_method' => 'nullable|string|max:50',
-            'category_id' => 'nullable|exists:expense_categories,id',
+            // ⭐ PR 2.12: الفئة إجبارية — مفيش خلفية أوتوماتيكية خفية،
+            // والتفتيش محصور بفئات المنشأة نفسها.
+            'category_id' => [
+                'required',
+                Rule::exists('expense_categories', 'id')
+                    ->where('organization_id', $request->user()->organization_id),
+            ],
             'reference' => 'nullable|string',
             'notes' => 'nullable|string',
-            // ⭐ الحساب اللي المصروف طلع منه — اختياري
-            'financial_account_id' => 'nullable|integer',
+            'payee' => 'nullable|string|max:255',
+            'currency' => 'nullable|string|size:3',
+            'branch_id' => [
+                'nullable',
+                Rule::exists('branches', 'id')
+                    ->where('organization_id', $request->user()->organization_id),
+            ],
+            // ⭐ الحساب المصروف منه وقت الصرف — اختياري، ولو متبعتش
+            // بيترجع للافتراضي وقت الصرف
+            'financial_account_id' => [
+                'nullable',
+                Rule::exists('financial_accounts', 'id')
+                    ->where('organization_id', $request->user()->organization_id),
+            ],
         ]);
 
-        // category_id إجباري في الجدول — لو مش مبعوت، خود أول فئة
-        if (empty($data['category_id'])) {
-            $firstCategory = \App\Models\ExpenseCategory::query()->first();
-            if (!$firstCategory) {
-                return response()->json(['error' => 'مفيش فئات مصروفات — أضف فئة الأول'], 422);
-            }
-            $data['category_id'] = $firstCategory->id;
-        }
+        $expense = Expense::create([
+            'organization_id' => $request->user()->organization_id,
+            'branch_id' => $data['branch_id'] ?? null,
+            'category_id' => $data['category_id'],
+            'amount' => $data['amount'],
+            'currency' => $data['currency'] ?? 'EGP',
+            'expense_date' => $data['expense_date'],
+            'description' => $data['description'],
+            'payment_method' => $data['payment_method'] ?? null,
+            'reference' => $data['reference'] ?? null,
+            'notes' => $data['notes'] ?? null,
+            'payee' => $data['payee'] ?? null,
+            'account_id' => $data['financial_account_id'] ?? null,
+            'created_by' => $request->user()->id,
+            // ⭐ الإنشاء بيفتتح الدورة مباشرة في «مُرسَل» — الحالة
+            // `draft` محفوظة لصناديق مسودّات مستقبلية، وبالتالي أي
+            // قيمة قادمة من العميل بتتجاهَل
+            'status' => 'submitted',
+        ]);
 
-        $data['organization_id'] = $request->user()->organization_id;
-        $data['branch_id'] = $request->input('branch_id');
-        $data['currency'] = $request->input('currency', 'EGP');
-        $data['created_by'] = $request->user()->id;
-        $data['status'] = $request->input('status', 'pending');
-        if ($data['status'] !== 'pending') {
-            $data['status'] = 'pending'; // اعتماد المصروف بيحصل من صفحة المصروفات
-        }
+        return response()->json($expense->load('category')->toArray(), 201);
+    }
 
-        $expense = Expense::create($data);
+    public function approve(Expense $expense)
+    {
+        $this->assertSameOrganization($expense);
 
-        /**
-         * ⭐⭐ المصروف = فلوس **هتخرج** — بس مش دلوقتي.
-         *
-         * ⚠️ الـ `status` بيتقفل على `pending` دايماً
-         * (اعتماد المصروف من صفحة المصروفات)، ومفيش endpoint
-         * اعتماد لسه. فلو سجّلنا الحركة `posted` كان هيبقى
-         * **مصروف متقفل وانتهى** — ومينفعش نرجّعه.
-         *
-         * ⭐ فبنسجّلها `pending`: **موجودة وواضحة** في الدفتر،
-         * بس **مش بتأثر على الرصيد**. ولما يتبنى endpoint الاعتماد،
-         * السطر ده هو اللي هيتحوّل `posted`.
-         *
-         * @see \App\Services\FinancialLedgerService::pendingToPosted
-         */
-        $ledger = app(\App\Services\FinancialLedgerService::class);
+        $fresh = $this->service->approve($expense, request()->user());
 
-        [$account, $pickReason] = $ledger->resolveAccount(
-            $request->user()->organization_id,
+        return response()->json($fresh->load('category')->toArray());
+    }
+
+    public function reject(Request $request, Expense $expense)
+    {
+        $this->assertSameOrganization($expense);
+
+        $data = $request->validate(['reason' => 'nullable|string|max:500']);
+
+        $fresh = $this->service->reject($expense, $request->user(), $data['reason'] ?? null);
+
+        return response()->json($fresh->load('category')->toArray());
+    }
+
+    public function pay(Request $request, Expense $expense)
+    {
+        $this->assertSameOrganization($expense);
+
+        $data = $request->validate([
+            'financial_account_id' => [
+                'nullable',
+                Rule::exists('financial_accounts', 'id')
+                    ->where('organization_id', $request->user()->organization_id),
+            ],
+        ]);
+
+        $result = $this->service->pay(
+            $expense,
+            $request->user(),
             $data['financial_account_id'] ?? null,
-            $ledger->accountTypeForPaymentMethod((string) ($data['payment_method'] ?? '')),
         );
 
-        $movement = null;
-        $warning = null;
-
-        if ($account) {
-            $res = $ledger->recordFor(
-                account: $account,
-                direction: 'out',
-                category: 'expense',
-                amount: (float) $expense->amount,
-                referenceType: 'expense',
-                referenceId: $expense->id,
-                movementDate: (string) $expense->expense_date,
-                notes: $expense->description,
-                user: $request->user(),
-                // ⭐ مش معتمدة لسه — ما بتدخلش الرصيد
-                status: 'pending',
-            );
-            $movement = $res['movement'];
-            $warning = $res['warning'];
-        } else {
-            $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';
-        }
-
         return response()->json([
-            ...$expense->load('category')->toArray(),
+            // المصروف بعد الصرف
+            ...$result['expense']->load('category')->toArray(),
             'ledger' => [
-                'recorded' => $movement !== null,
-                'movement_id' => $movement?->id,
-                // ⭐ الأدمن يشوف «مسجّلة بس لسه معتمدة؟» من هنا
-                'posted' => $movement !== null && $movement->status === 'posted',
-                'account_id' => $account?->id,
-                'account_name' => $account?->name,
-                'account_pick' => $pickReason,
+                'recorded' => $result['movement'] !== null,
+                'movement_id' => $result['movement']?->id,
+                'account_id' => $result['account']?->id,
+                'account_name' => $result['account']?->name,
+                'account_pick' => $result['account_pick'],
             ],
-            'warning' => $warning,
-        ], 201);
+            'warning' => $result['warning'],
+        ]);
+    }
+
+    // ═════════════════════════════════════════════════════════
+    // المرفقات — تخزين خاص، تنزيل برابط موقّع مؤقت
+    // ═════════════════════════════════════════════════════════
+
+    public function uploadAttachment(Request $request, Expense $expense)
+    {
+        $this->assertSameOrganization($expense);
+
+        $request->validate([
+            'file' => 'required|file|mimes:png,jpg,jpeg,webp,pdf|max:5120',
+        ]);
+
+        $file = $request->file('file');
+
+        $path = $file->store('expense-attachments', 'local');
+
+        $attachment = ExpenseAttachment::create([
+            'expense_id' => $expense->id,
+            'path' => $path,
+            'original_name' => $file->getClientOriginalName(),
+            'mime' => (string) $file->getMimeType(),
+            'size' => (int) $file->getSize(),
+            'uploaded_by' => $request->user()->id,
+        ]);
+
+        return response()->json($attachment, 201);
+    }
+
+    /**
+     * تنزيل مرفق — برابط موقّع بدون `auth:sanctum` (التوقيع المؤقت هو الحماية،
+     * فمش محتاجين هيدر توكن من متصفح خارج الـ SPA).
+     */
+    public function downloadAttachment(ExpenseAttachment $attachment)
+    {
+        return Storage::disk('local')->download($attachment->path, $attachment->original_name);
+    }
+
+    /** المصروف مش من منشأة المستخدم → 404 (مش 403 — محاولة الاستكشاف). */
+    private function assertSameOrganization(Expense $expense): void
+    {
+        if ($expense->organization_id !== request()->user()->organization_id) {
+            abort(404);
+        }
     }
 }
