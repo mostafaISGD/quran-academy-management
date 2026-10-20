@@ -10,6 +10,7 @@ use App\Services\AuditLogService;
 use App\Services\FinancialLedgerService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 /**
  * ⭐⭐ الخزائن والحسابات + دفتر الحركات.
@@ -432,7 +433,7 @@ class FinancialAccountController extends Controller
     public function lockPeriod(Request $request)
     {
         $data = $request->validate([
-            'scope' => 'nullable|in:all,account,payroll,expenses',
+            'scope' => 'nullable|in:'.implode(',', PeriodLock::SCOPES),
             'account_id' => 'nullable|integer|exists:financial_accounts,id',
             'start' => 'required|date',
             'end' => 'nullable|date',
@@ -490,8 +491,13 @@ class FinancialAccountController extends Controller
     {
         $data = $request->validate([
             'reason' => 'required|string|max:255',
+            // ⭐⭐ PR 2.13 — فتح فترة مقفولة عمل خطير (بيسمح بإعادة
+            //    كتابة الأرقام المؤكدة) — محتاج تأكيد كلمة السر
+            //    الحالية (نفس أسلوب إعادة التحقق في مرحلة 1.9).
+            'current_password' => 'required|string',
         ], [
             'reason.required' => 'سبب الفتح إجباري',
+            'current_password.required' => 'تأكيد كلمة السر الحالية مطلوب قبل فتح الفترة',
         ]);
 
         abort_if($lock->organization_id !== $request->user()->organization_id, 404);
@@ -499,6 +505,13 @@ class FinancialAccountController extends Controller
         if (! $lock->isActive()) {
             return response()->json([
                 'message' => 'الفترة دي مفتوحة أصلاً',
+            ], 422);
+        }
+
+        // ⭐⭐ التأكيد نفسه — اللي بيفتح الفترة لازم يكون صاحب الحساب
+        if (! Hash::check($data['current_password'], $request->user()->password)) {
+            return response()->json([
+                'message' => 'كلمة السر الحالية مش صح',
             ], 422);
         }
 

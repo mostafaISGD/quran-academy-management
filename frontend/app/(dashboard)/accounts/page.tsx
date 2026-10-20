@@ -63,6 +63,8 @@ const TYPE_OPTIONS: { value: FinancialAccount["type"]; label: string }[] = [
 const SCOPE_OPTIONS: { value: PeriodLock["scope"]; label: string }[] = [
   { value: "all", label: "كل الحسابات" },
   { value: "account", label: "حساب واحد" },
+  { value: "payments", label: "المدفوعات بس" },
+  { value: "invoices", label: "الفواتير بس" },
   { value: "expenses", label: "المصروفات بس" },
   { value: "payroll", label: "المرتبات بس" },
 ];
@@ -952,8 +954,9 @@ function LockModal({
   return (
     <ModalFrame title="قفل فترة" onClose={onClose}>
       <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-        ⭐ القفل بيمنع <b>الكتابة</b> في الفترة دي — مش استلام
-        الفلوس. فلو حد دفع وهو معلق، الدفعة بتتحفظ وبيرجع تحذير.
+        ⭐ القفل بيرفض أي كتابة مالية في الفترة دي <b>برفض صريح</b> (422) —
+        حسب النطاق: المدفوعات، الفواتير، المصروفات، المرتبات، أو الكل.
+        التصحيح المالي بيتسجل كإدخال عكسي في أول فترة مفتوحة بإشارة للأصل.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -1051,6 +1054,7 @@ function LockModal({
 
 function LockRow({ lock, onUnlock }: { lock: PeriodLock; onUnlock: (msg: string) => Promise<void> }) {
   const [reason, setReason] = useState("");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -1058,8 +1062,9 @@ function LockRow({ lock, onUnlock }: { lock: PeriodLock; onUnlock: (msg: string)
     setBusy(true);
     setErr(null);
     try {
-      const res = await unlockPeriod(lock.id, reason);
+      const res = await unlockPeriod(lock.id, reason, password);
       setReason("");
+      setPassword("");
       await onUnlock(res.message);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "الفتح فشل");
@@ -1085,9 +1090,16 @@ function LockRow({ lock, onUnlock }: { lock: PeriodLock; onUnlock: (msg: string)
             placeholder="سبب الفتح — إجباري"
             className="rounded border border-amber-300 px-2 py-1 text-[11px] focus:outline-none"
           />
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="كلمة السر الحالية — تأكيد"
+            className="rounded border border-amber-300 px-2 py-1 text-[11px] focus:outline-none"
+          />
           <button
             className="rounded bg-amber-600 px-2 py-1 text-[11px] text-white disabled:opacity-50"
-            disabled={busy || reason.trim() === ""}
+            disabled={busy || reason.trim() === "" || password.trim() === ""}
             onClick={submit}
           >
             {busy ? "…" : "افتح"}

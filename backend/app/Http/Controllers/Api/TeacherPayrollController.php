@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\PayrollPeriod;
+use App\Models\PeriodLock;
 use App\Models\Teacher;
 use App\Models\TeacherEarning;
 use App\Models\TeacherPayrollLine;
@@ -479,6 +480,15 @@ class TeacherPayrollController extends Controller
             if (! $locked) {
                 return response()->json(['message' => 'السطر مش موجود'], 404);
             }
+
+            /**
+             * ⭐⭐ PR 2.13 — الصرف في فترة مقفولة = مرفوض 422.
+             *
+             * سلوك 2.11 كان «يصرف ومايتسجلش + تحذير» — دي
+             * ثغرة تسوية (مرتب مدفوع فعلاً ومش شايفه الدفتر).
+             * قفل `payroll` (أو `all`) بيمنع الصرف أصلاً.
+             */
+            PeriodLock::assertOpen(now()->toDateString(), 'payroll');
 
             if ($locked->status === 'paid') {
                 return response()->json(['message' => 'السطر ده اتدفع خلاص'], 422);

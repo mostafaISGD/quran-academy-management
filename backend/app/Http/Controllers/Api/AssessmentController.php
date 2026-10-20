@@ -10,6 +10,7 @@ use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\PeriodLock;
 use App\Models\Payment;
 use Illuminate\Http\Request;
 
@@ -94,6 +95,9 @@ class AssessmentController extends Controller
             'lessons_included' => $plan->lessons_count,
             'status' => 'active',
         ]);
+
+        // ⭐⭐ PR 2.13 — فاتورة الاشتراك في فترة مقفولة = مرفوض
+        PeriodLock::assertOpen(now()->toDateString(), 'invoices');
 
         $invoice = Invoice::create([
             'organization_id' => $request->user()->organization_id,

@@ -161,10 +161,16 @@ class LedgerIntegrationTest extends TestCase
         $this->assertDatabaseHas('payments', ['student_id' => $student->id]);
     }
 
-    public function test_a_payment_in_a_locked_period_is_saved_with_a_warning(): void
+    public function test_a_payment_in_a_locked_period_is_rejected(): void
     {
-        // ⭐ نفس المنطق: قفل الشهر **مش** يمنع التحصيل.
-        // يمنع **التسجيل**، والدفعة بتتحفظ مع تحذير.
+        // ⭐⭐ تغيّر السلوك في 2.13: قفل الشهر بيمنع التحصيل
+        // **أصلاً** برفض صريح 422.
+        //
+        // قبل كده كان قفل الشهر «مش بيمنع التحصيل — بيمنع
+        // التسجيل»: الدفعة بتتحفظ والحركة بتضيع مع تحذير. دي
+        // ثغرة تسوية — فلوس اتضربت فعلاً والدفتر مش شايفها،
+        // ومِلهاش ممكن اللي يقفله بس يكون شايف فلوس دخلت
+        // من غير تسجيل. فالرفض بقى واضح ومتحكم فيه.
         $account = $this->makeAccount();
         [$student] = $this->studentWithSubscription();
         $this->makeLock();
@@ -177,11 +183,11 @@ class LedgerIntegrationTest extends TestCase
             'paid_at' => now()->toDateString(),
         ], $this->accountant());
 
-        $r->assertCreated();
-        $r->assertJsonPath('ledger.recorded', false);
-        $this->assertStringContainsString('مقفولة', (string) $r->json('warning'));
+        $r->assertStatus(422);
 
-        $this->assertDatabaseHas('payments', ['student_id' => $student->id]);
+        // ⭐ مافيش أي أثر — لا دفعة ولا حركة
+        $this->assertDatabaseMissing('payments', ['student_id' => $student->id]);
+        $this->assertDatabaseCount('account_movements', 0);
     }
 
     // ============================================================

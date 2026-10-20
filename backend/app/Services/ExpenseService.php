@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AccountMovement;
 use App\Models\Expense;
+use App\Models\PeriodLock;
 use App\Models\User;
 use Illuminate\Validation\ValidationException;
 
@@ -124,10 +125,15 @@ class ExpenseService
             $movement = null;
             $warning = null;
 
+            // ⭐⭐ PR 2.13 — الصرف في فترة مقفولة = مرفوض 422.
+            //
+            // قبل كده (سلوك 2.11/2.12): الصرف كان بيكمّل والحركة
+            // بتفشل بصمت مع تحذير — «صرف مكتمل من غير حركة مالية»
+            // ثغرة تسوية. دلوقتي: قفل `expenses`/`all` بيمنع الصرف
+            // أصلاً، وقفل `account` على الحساب المختار بيمنعه برضه.
+            PeriodLock::assertOpen(now()->toDateString(), 'expenses', $account);
+
             if ($account) {
-                // ⭐ لو الفترة مقفولة: الحركة الثانية مش بتتكتب —
-                // والتحذير بيرجع (الصرف المكتمل من غير حركة مالية =
-                // ثغرة تسوية معروفة، زي دي في 2.11).
                 $res = $this->ledger->recordFor(
                     account: $account,
                     direction: 'out',

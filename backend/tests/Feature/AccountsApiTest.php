@@ -622,6 +622,7 @@ class AccountsApiTest extends TestCase
 
         $r = $this->postJsonAs("/api/period-locks/{$lock->id}/unlock", [
             'reason' => 'صححنا الغلط',
+            'current_password' => 'password',
         ], $manager);
 
         $r->assertOk();
@@ -643,10 +644,12 @@ class AccountsApiTest extends TestCase
 
         $this->postJsonAs("/api/period-locks/{$lock->id}/unlock", [
             'reason' => 'أول مرة',
+            'current_password' => 'password',
         ], $manager)->assertOk();
 
         $r = $this->postJsonAs("/api/period-locks/{$lock->id}/unlock", [
             'reason' => 'تاني مرة',
+            'current_password' => 'password',
         ], $manager);
 
         $r->assertStatus(422);

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\GroupClass;
 use App\Models\Invoice;
+use App\Models\PeriodLock;
 use App\Models\Student;
 use App\Models\Subscription;
 use App\Models\SubscriptionPlan;
@@ -187,6 +188,9 @@ class GroupEnrollmentService
         $issueDate = now();
         $description = 'اشتراك شهري'
             . ($plan?->name ? ' — ' . $plan->name : '');
+
+        // ⭐⭐ PR 2.13 — تسجيل في فترة «فواتير» مقفولة = مرفوض
+        PeriodLock::assertOpen($issueDate->toDateString(), 'invoices');
 
         $invoice = Invoice::create([
             'organization_id' => $subscription->organization_id,

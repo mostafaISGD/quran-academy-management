@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\EmployeePayrollLine;
 use App\Models\PayrollPeriod;
+use App\Models\PeriodLock;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -531,6 +532,12 @@ class EmployeePayrollController extends Controller
             if (! $locked) {
                 return response()->json(['message' => 'السطر مش موجود'], 404);
             }
+
+            /**
+             * ⭐⭐ PR 2.13 — الصرف في فترة مقفولة = مرفوض 422
+             * (زي مسار المعلمين — نهاية ثغرة «اتصرف ومش متسجل»).
+             */
+            PeriodLock::assertOpen(now()->toDateString(), 'payroll');
 
             if ($locked->status === 'paid') {
                 return response()->json([

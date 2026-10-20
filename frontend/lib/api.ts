@@ -1416,7 +1416,7 @@ export type MovementsResponse = {
 
 export type PeriodLock = {
   id: number;
-  scope: "all" | "account" | "payroll" | "expenses";
+  scope: "all" | "account" | "invoices" | "payments" | "expenses" | "payroll";
   account: { id: number; name: string } | null;
   period_start: string;
   period_end: string;
@@ -1574,11 +1574,14 @@ export function lockPeriod(payload: {
   });
 }
 
-/** ⭐⭐ فتح فترة — **المدير بس**. السبب إجباري. */
-export function unlockPeriod(lockId: number, reason: string) {
+/**
+ * ⭐⭐ فتح فترة — **المدير بس**. السبب إجباري + تأكيد كلمة السر
+ * الحالية (PR 2.13 — فتح فترة مقفولة عمل خطير فمحتاج درع).
+ */
+export function unlockPeriod(lockId: number, reason: string, currentPassword: string) {
   return apiFetch<{ message: string }>(`/period-locks/${lockId}/unlock`, {
     method: "POST",
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({ reason, current_password: currentPassword }),
   });
 }
 

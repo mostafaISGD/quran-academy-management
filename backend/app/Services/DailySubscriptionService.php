@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\Lesson;
 use App\Models\Notification;
 use App\Models\ParentModel;
+use App\Models\PeriodLock;
 use App\Models\Subscription;
 use App\Models\Teacher;
 use App\Models\User;
@@ -241,6 +242,9 @@ class DailySubscriptionService
         return DB::transaction(function () use ($subscription, $periodDays) {
             $issueDate = Carbon::today();
             $amount = (float) $subscription->price;
+
+            // ⭐⭐ PR 2.13 — تجديد بفتورة في فترة «فواتير» مقفولة = مرفوض
+            PeriodLock::assertOpen($issueDate->toDateString(), 'invoices');
 
             $invoice = Invoice::create([
                 'organization_id' => $subscription->organization_id,

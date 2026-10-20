@@ -56,8 +56,10 @@ class FinancialLedgerService
     ): AccountMovement {
         $date = $movementDate ?? now()->toDateString();
 
-        // ⭐⭐ القفل — قبل أي كتابة
-        $this->assertNotLocked($account, $date);
+        // ⭐⭐ القفل — قبل أي كتابة. PR 2.13: الفحص مش على الحساب
+        // بس — الحركة بنطاق وظيفي (دفعة/مصروف/مرتب) بتتشك في
+        // نطاقها المقفول برضه.
+        $this->assertNotLocked($account, $date, $this->scopeForMovement($referenceType, $category));
 
         /**
          * ⭐⭐⭐ **فحص العملة — قبل أي كتابة** (PR 2.4).
@@ -464,8 +466,17 @@ class FinancialLedgerService
 
         $account = $movement->account;
 
-        // ⭐ القفل بتاريخ **الحركة الأصلية** — هي اللي بترجع
-        $this->assertNotLocked($account, $movement->movement_date->toDateString());
+        /**
+         * ⭐⭐ PR 2.13 — التصحيح داخل فترة مقفولة بيتسجل في
+         * **أول فترة مفتوحة** (تاريخ اليوم) بإشارة للأصل
+         * (`reverses_movement_id` — بتكتبه `reversalOf()`).
+         *
+         * قبل كده كنا بنمنع العكس لو الفترة الأصلية مقفولة —
+         * وده كان بيستحكل تصحيح أخطاء الشهور المقفولة.
+         * الفحص دلوقتي على **تاريخ الإدخال العكسي نفسه**:
+         * لو النهارده مقفول، مفيش مكان مفتوح نحط فيه الإدخال.
+         */
+        $this->assertNotLocked($account, now()->toDateString(), $this->scopeForMovement($movement->reference_type, $movement->category));
 
         return $movement->reversalOf($reason, $user?->id);
     }
@@ -479,20 +490,9 @@ class FinancialLedgerService
      *
      * @throws \RuntimeException
      */
-    public function assertNotLocked(FinancialAccount $account, $date): void
+    public function assertNotLocked(FinancialAccount $account, $date, ?string $scope = null): void
     {
-        $locked = PeriodLock::query()
-            ->whereNull('unlocked_at')
-            ->where(function ($q) use ($account) {
-                $q->where('scope', 'all')
-                    ->orWhere(function ($q2) use ($account) {
-                        $q2->where('scope', 'account')
-                            ->where('financial_account_id', $account->id);
-                    });
-            })
-            ->whereDate('period_start', '<=', $date)
-            ->whereDate('period_end', '>=', $date)
-            ->first();
+        $locked = PeriodLock::findBlocking((string) $date, $scope, $account);
 
         if ($locked) {
             throw new \RuntimeException(
@@ -514,6 +514,31 @@ class FinancialLedgerService
         } catch (\RuntimeException) {
             return true;
         }
+    }
+
+    /**
+     * ⭐ PR 2.13 — النطاق الوظيفي للحركة المالية.
+     *
+     * العبرة بالـ`reference_type` الأول (دي أصدق إشارة لأصل
+     * الحركة)، وفنقصه بالـ`category`. بيرجع null = الحركة
+     * من غير نطاق وظيفي (تحويل بين حسابات، تسوية...) —
+     * بتفحص أقفال `all`/`account` بس.
+     */
+    private function scopeForMovement(?string $referenceType, string $category): ?string
+    {
+        $scoped = match ($referenceType) {
+            'payment', 'refund', 'credit_note' => 'payments',
+            'expense' => 'expenses',
+            'teacher_payroll_line', 'employee_payroll_line' => 'payroll',
+            default => null,
+        };
+
+        return $scoped ?? match ($category) {
+            'income', 'payment', 'refund' => 'payments',
+            'expense' => 'expenses',
+            'teacher_payment' => 'payroll',
+            default => null,
+        };
     }
 
     // ============================================================

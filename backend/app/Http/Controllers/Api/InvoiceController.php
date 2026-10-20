@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\PeriodLock;
 use App\Models\StudentLedgerEntry;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -51,6 +52,9 @@ class InvoiceController extends Controller
             // ⭐ كود ترويجي اختياري
             'promo_code' => 'nullable|string|max:50|exists:promo_codes,code',
         ]);
+
+        // ⭐⭐ PR 2.13 — فاتورة بتتسجل في فترة مقفولة = مرفوض 422
+        PeriodLock::assertOpen($data['issue_date'], 'invoices');
 
         $data['organization_id'] = $request->user()->organization_id;
         $data['invoice_number'] = 'INV-' . strtoupper(uniqid());

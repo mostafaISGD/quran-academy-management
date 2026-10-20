@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Casts\MoneyCast;
 use App\Models\FinancialAccount;
 use App\Models\Invoice;
+use App\Models\PeriodLock;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
 use App\Models\StudentCredit;
@@ -63,6 +64,21 @@ class PaymentService
                 return [$existing, null, null, null, null, null, true];
             }
         }
+
+        // ═══════════════════════════════════════════════════
+        // ⭐ القفل الوظيفي (PR 2.13) — الدفعة في فترة مقفولة
+        //    = مرفوضة 422، مش بتتحفظ وحركة بتضيع مع تحذير.
+        //
+        // قبل كده: الدفعة بتتكتب والحركة المالية بتمنع جوه
+        // `assertNotLocked` وترجع تحذير — التقرير المالي
+        // مكانش بيشوف فلوس اتضربت فعلاً.
+        // جاي بعد الـidempotency عشان مفتاح مشترك ما يتمنعش
+        // من إعادة النداء.
+        // ═══════════════════════════════════════════════════
+        PeriodLock::assertOpen(
+            (string) ($data['paid_at'] ?? now()->toDateString()),
+            'payments',
+        );
 
         // ═══════════════════════════════════════════════════
         // 2) الحالة — failed/voided مش إدخال عميل.

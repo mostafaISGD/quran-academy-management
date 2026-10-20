@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Lesson;
 use App\Models\Notification;
+use App\Models\PeriodLock;
 use App\Models\Student;
 use App\Models\StudentLedgerEntry;
 use App\Models\Subscription;
@@ -461,6 +462,9 @@ class StudentController extends Controller
 
                 $total = $amount - $promoDiscount;
                 $finalDiscount = $discount + $promoDiscount;
+
+                // ⭐⭐ PR 2.13 — فاتورة في فترة مقفولة = مرفوض
+                PeriodLock::assertOpen((string) $issueDate, 'invoices');
 
                 $invoice = Invoice::create([
                     'organization_id' => $user->organization_id,

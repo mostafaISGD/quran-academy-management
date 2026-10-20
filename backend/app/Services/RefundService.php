@@ -8,6 +8,7 @@ use App\Models\FinancialAccount;
 use App\Models\Invoice;
 use App\Models\Payment;
 use App\Models\PaymentAllocation;
+use App\Models\PeriodLock;
 use App\Models\Refund;
 use App\Models\Setting;
 use App\Models\StudentCredit;
@@ -60,6 +61,10 @@ class RefundService
         }
 
         return DB::transaction(function () use ($payment, $amount, $mode, $reason, $method, $financialAccountId, $user) {
+            // ⭐⭐ PR 2.13 — الاسترداد في فترة مقفولة = مرفوض 422.
+            //    فلوس طالعة من الخزينة — ضمن نطاق `payments`.
+            PeriodLock::assertOpen(now()->toDateString(), 'payments');
+
             // قفل صف الدفعة — طلبان متزامنان يحسبان السقف صح
             $locked = Payment::whereKey($payment->id)->lockForUpdate()->first();
 
@@ -130,6 +135,9 @@ class RefundService
     public function approve(Refund $refund, $approver, ?int $financialAccountId): array
     {
         return DB::transaction(function () use ($refund, $approver, $financialAccountId) {
+            // ⭐⭐ PR 2.13 — الاعتماد هو لحظة خروج الفلوس فعلاً.
+            PeriodLock::assertOpen(now()->toDateString(), 'payments');
+
             // قفل — طلبين بنفس اللحظة = تنفيذ مرة واحدة
             $lockedRefund = Refund::whereKey($refund->id)->lockForUpdate()->first();
 
