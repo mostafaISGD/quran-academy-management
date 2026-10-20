@@ -99,19 +99,29 @@ class ReportController extends Controller
 
     public function dashboardSummary(Request $request)
     {
+        // ⭐ PR 2.15 — كل العدّادات محكومة بالمنظمة. قبل كده كنت
+        // ببص على الجداول كلها — إيراد أكاديمية تانية كان بيدخل
+        // لوحة أكاديميتنا (FinancialReportTest duck بيثبته).
+        $orgId = $request->user()->organization_id;
         $today = Carbon::today();
-        $todayLessons = Lesson::query()->whereDate('scheduled_start_at', $today);
+        $todayLessons = Lesson::query()->where('organization_id', $orgId)
+            ->whereDate('scheduled_start_at', $today);
         $monthStart = $today->copy()->startOfMonth();
         // ⭐ `sum()` على الـ query بيرجّع **قرش** — الـ cast ما بيشتغلش
         // على aggregates. لازم `fromDatabase` قبل أي مقارنة أو جمع.
         $monthlyRevenue = \App\Casts\MoneyCast::fromAggregate(
-            Payment::query()->where('status', 'completed')->whereRange('paid_at', $monthStart, $today)->sum('amount')
+            Payment::query()->where('organization_id', $orgId)
+                ->where('status', 'completed')->whereRange('paid_at', $monthStart, $today)->sum('amount')
         );
-        $expiringSoon = Subscription::query()->where('status', 'active')->whereRange('end_date', $today, $today->copy()->addDays(3))->count();
+        $expiringSoon = Subscription::query()->where('organization_id', $orgId)
+            ->where('status', 'active')->whereRange('end_date', $today, $today->copy()->addDays(3))->count();
         $pendingTeacherPayments = \App\Casts\MoneyCast::fromAggregate(
-            TeacherPayment::query()->whereIn('status', ['pending'])->sum('amount')
+            TeacherPayment::query()->join('teachers as tp_t', 'tp_t.id', '=', 'teacher_payments.teacher_id')
+                ->where('tp_t.organization_id', $orgId)
+                ->whereIn('teacher_payments.status', ['pending'])->sum('teacher_payments.amount')
         );
-        $unscheduledLeads = Lead::query()->whereIn('status', ['new', 'contacted'])->count();
+        $unscheduledLeads = Lead::query()->where('organization_id', $orgId)
+            ->whereIn('status', ['new', 'contacted'])->count();
 
         return response()->json([
             'today' => [
@@ -120,8 +130,8 @@ class ReportController extends Controller
                 'lessons_upcoming' => (clone $todayLessons)->whereIn('status', ['scheduled', 'confirmed'])->count(),
             ],
             'totals' => [
-                'active_students' => Student::where('status', 'active')->count(),
-                'active_teachers' => Teacher::where('status', 'active')->count(),
+                'active_students' => Student::where('organization_id', $orgId)->where('status', 'active')->count(),
+                'active_teachers' => Teacher::where('organization_id', $orgId)->where('status', 'active')->count(),
                 // ⭐ رقم خام — مش `number_format`
                 'monthly_revenue' => $monthlyRevenue,
             ],
@@ -133,94 +143,33 @@ class ReportController extends Controller
         ]);
     }
 
+    /**
+     * PR 2.15 — التقرير المالي كله aggregates في SQL عبر
+     * `FinancialReportService` — للمنظمة، لكل عملة، والتحويل
+     * بسعر الصرف المسجّل وقت العملية. مافيش تحميل موديلات.
+     */
     public function financial(Request $request)
     {
         $start = $request->filled('from') ? Carbon::parse($request->string('from')) : Carbon::now()->startOfMonth();
         $end = $request->filled('to') ? Carbon::parse($request->string('to')) : Carbon::now()->endOfMonth();
 
-        $payments = Payment::query()->where('status', 'completed')->whereRange('paid_at', $start, $end)->get();
-        $byCurrency = $payments->groupBy('currency')
-            ->map(fn ($group) => ['total' => $group->sum('amount'), 'count' => $group->count()]);
-        $byMethod = $payments->groupBy('payment_method')
-            ->map(fn ($group) => ['total' => $group->sum('amount'), 'count' => $group->count()]);
-        $refunds = Refund::query()->whereRange('processed_at', $start, $end)->get();
-        // ⭐⭐ PR 2.11 — المستحقات المؤكدة فقط (المعتمد والمدفوع):
-        // المعلق ما راجعها حد حتى الآن، والملغي ملغي — جمعهم
-        // كان بيكبّر «مستحقات لم تُدفع» وكلف التشغيل في التقرير.
-        $teacherEarnings = TeacherEarning::query()
-            ->whereIn('status', ['approved', 'paid'])
-            ->whereRange('earning_date', $start, $end)
-            ->get();
-        $teacherPaymentsMade = TeacherPayment::query()->whereRange('paid_at', $start, $end)->get();
+        $user = $request->user();
+        $org = \App\Models\Organization::query()
+            ->where('id', $user->organization_id)
+            ->first(['id', 'default_currency']);
 
-        // ⭐⭐ المفوتَر والمحصَّل منفصلين — من أول يوم
-        $invoices = Invoice::query()->whereRange('issue_date', $start, $end)->get();
-        $invoiced = $invoices->sum('total');
-        $collected = $payments->sum('amount');
-        $outstanding = $invoices->sum('balance_due');
+        abort_unless($org !== null, 403);
 
-        // ⭐ المصروفات
-        $expenses = \App\Models\Expense::query()
-            ->whereRange('expense_date', $start, $end)
-            // ⭐ PR 2.12: المدفوع والمعتمد كلفة تشغيل فعلاً
-            // (القديم كان Approved بس — فالمدفوع كان يختفي من الربح
-            // وكل مزيف للربح).
-            ->whereIn('status', ['approved', 'paid'])
-            ->get();
+        $service = new \App\Services\FinancialReportService(
+            $org->id,
+            $org->default_currency ?? config('currencies.default'),
+        );
 
-        // ⭐ صافي التشغيل = المحصّل - المصروفات - مستحقات المعلمين
-        $netOperating = $collected - $expenses->sum('amount') - $teacherEarnings->sum('amount');
-
-        // ⭐ مستحقات المعلمين اللي لم تُدفع
-        $unpaidTeacherDues = $teacherEarnings->sum('amount') - $teacherPaymentsMade->sum('amount');
-
-        // ⭐ التنبيهات
-        $alerts = [
-            'overdue_invoices' => Invoice::query()
-                ->where('status', '!=', 'paid')
-                ->where('due_date', '<', now()->toDateString())
-                ->count(),
-            'expiring_subscriptions' => Subscription::query()
-                ->where('status', 'active')
-                ->where('end_date', '<=', now()->addDays(7)->toDateString())
-                ->count(),
-            'unpaid_teacher_dues' => max(0, $unpaidTeacherDues),
-            'pending_expenses' => \App\Models\Expense::query()
-                // ⭐ PR 2.12: الاسم القديم `pending` بقى `submitted`
-                // — والمسودات `draft` مش مؤهلة تسأل عنهم بعد
-                ->where('status', 'submitted')
-                ->count(),
-        ];
-
-        return response()->json([
-            'period' => ['from' => $start->toDateString(), 'to' => $end->toDateString()],
-            'revenue' => [
-                'by_currency' => $byCurrency,
-                'by_method' => $byMethod,
-                'total_refunded' => $refunds->sum('amount'),
-            ],
-            'teacher_costs' => [
-                'gross_earnings' => $teacherEarnings->sum('amount'),
-                'payments_made' => $teacherPaymentsMade->sum('amount'),
-            ],
-            // ⭐⭐ المفوتَر والمحصَّل منفصلين
-            'invoiced_vs_collected' => [
-                'invoiced' => $invoiced,
-                'collected' => $collected,
-                'outstanding' => $outstanding,
-            ],
-            // ⭐ المصروفات
-            'expenses' => [
-                'total' => $expenses->sum('amount'),
-                'count' => $expenses->count(),
-            ],
-            // ⭐ صافي التشغيل
-            'net_operating' => $netOperating,
-            // ⭐ مستحقات المعلمين اللي لم تُدفع
-            'unpaid_teacher_dues' => max(0, $unpaidTeacherDues),
-            // ⭐ التنبيهات
-            'alerts' => $alerts,
-        ]);
+        return response()->json($service->financial($start, $end, [
+            'branch_id' => $request->integer('branch_id') ?: null,
+            'program_id' => $request->integer('program_id') ?: null,
+            'teacher_id' => $request->integer('teacher_id') ?: null,
+        ]));
     }
 
     public function academic(Request $request)

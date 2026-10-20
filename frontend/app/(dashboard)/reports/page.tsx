@@ -115,6 +115,12 @@ export default function ReportsPage() {
 
       {!loading && !error && tab === "financial" && financial && (
         <div className="space-y-6">
+          {/* ⭐ PR 2.15 — الحقيبة المحوّلة بسعر الصرف وقت العملية */}
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+            <StatCard label={`مفوتَر (${currencyLabel(financial.converted.currency)})`} value={money(financial.converted.totals.invoiced, financial.converted.currency)} />
+            <StatCard label={`محصّل (${currencyLabel(financial.converted.currency)})`} value={money(financial.converted.totals.collected, financial.converted.currency)} />
+            <StatCard label="المفوتَر المتبقي" value={money(financial.invoiced_vs_collected.outstanding, financial.converted.currency)} alert />
+          </div>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
             {Object.entries(financial.revenue.by_currency).map(([currency, data]) => (
               // ⭐ `money` + `currencyLabel` — الكود `EGP` كان بيظهر
@@ -130,6 +136,24 @@ export default function ReportsPage() {
             <StatCard label="أرباح المعلمين" value={egp(financial.teacher_costs.gross_earnings)} />
             <StatCard label="دفعات المعلمين" value={egp(financial.teacher_costs.payments_made)} />
           </div>
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+            {/* ⭐ الخصومات وصافي التشغيل — دخلوا التقرير في 2.15 */}
+            <StatCard label="خصومات ترويجية" value={money(financial.discounts.promo, financial.converted.currency)} />
+            <StatCard label="خصومات يدوية" value={money(financial.discounts.manual, financial.converted.currency)} />
+            <StatCard label="إجمالي الخصومات" value={money(financial.discounts.total, financial.converted.currency)} alert />
+            <StatCard label={`مصروفات (${currencyLabel(financial.converted.currency)})`} value={money(financial.expenses.total, financial.converted.currency)} />
+            <StatCard label="مستحقات معلمين غير مدفوعة" value={money(financial.unpaid_teacher_dues, financial.converted.currency)} alert />
+            <StatCard
+              label={`صافي التشغيل (${currencyLabel(financial.converted.currency)})`}
+              value={money(financial.net_operating, financial.converted.currency)}
+            />
+          </div>
+          {/* ⭐ عملات مالهاش سعر صرف مسجّل في نافذة التقرير — بتسقط من المحوّل */}
+          {financial.converted.missing_rates.length > 0 && (
+            <p className="text-sm text-amber-600">
+              عملات بدون سعر صرف مسجّل (استُبعدت من الحقيبة المحوّلة): {financial.converted.missing_rates.map(currencyLabel).join("، ")}
+            </p>
+          )}
         </div>
       )}
 

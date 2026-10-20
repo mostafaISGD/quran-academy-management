@@ -4310,19 +4310,78 @@ export function getDashboardSummary() {
   }>("/dashboard/summary");
 }
 
-export function getFinancialReport(params?: { from?: string; to?: string }) {
+export function getFinancialReport(params?: {
+  from?: string;
+  to?: string;
+  /** ⭐ PR 2.15 — فلاتر: الفرع / البرنامج / المعلم (كل سلسلة بيتأثر بحسب علاقتها). */
+  branch_id?: number;
+  program_id?: number;
+  teacher_id?: number;
+}) {
   const search = new URLSearchParams();
   if (params?.from) search.set("from", params.from);
   if (params?.to) search.set("to", params.to);
+  if (params?.branch_id) search.set("branch_id", String(params.branch_id));
+  if (params?.program_id) search.set("program_id", String(params.program_id));
+  if (params?.teacher_id) search.set("teacher_id", String(params.teacher_id));
   return apiFetch<{
     period: { from: string; to: string };
     // ⭐ أرقام خام — شوف `getDashboardSummary()`
+    /**
+     * ⭐ PR 2.15 — المفوتَر/المحصّل/المسترد/الخصم/المصروفات/المرتبات/صافي التشغيل
+     * **لكل عملة لوحدها** — مافيش جمع جنيهات مع دولارات.
+     */
+    currencies: Record<
+      string,
+      {
+        invoiced: number;
+        collected: number;
+        refunded: number;
+        discounts: number;
+        expenses: number;
+        payroll: number;
+        net_operating: number;
+        outstanding: number;
+        invoices_count: number;
+        payments_count: number;
+        expenses_count: number;
+      }
+    >;
+    /**
+     * ⭐ الحقيبة المحوّلة على عملة المنظمة الافتراضية — بسعر الصرف
+     * **المسجّل وقت العملية** (آخر `valid_date <= تاريخ العملية`)،
+     * مش سعر اليوم. صف مالوش سعر مسجّل بيظهر في `missing_rates`.
+     */
+    converted: {
+      currency: string;
+      totals: {
+        invoiced: number;
+        collected: number;
+        refunded: number;
+        discounts: number;
+        expenses: number;
+        payroll: number;
+        net_operating: number;
+      };
+      missing_rates: string[];
+    };
+    discounts: { promo: number; manual: number; total: number };
     revenue: {
       by_currency: Record<string, { total: number; count: number }>;
       by_method: Record<string, { total: number; count: number }>;
       total_refunded: number;
     };
     teacher_costs: { gross_earnings: number; payments_made: number };
+    expenses: { total: number; count: number };
+    invoiced_vs_collected: { invoiced: number; collected: number; outstanding: number };
+    net_operating: number;
+    unpaid_teacher_dues: number;
+    alerts: {
+      overdue_invoices: number;
+      expiring_subscriptions: number;
+      unpaid_teacher_dues: number;
+      pending_expenses: number;
+    };
   }>(`/reports/financial?${search.toString()}`);
 }
 
