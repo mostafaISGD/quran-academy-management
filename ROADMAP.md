@@ -156,7 +156,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.13 — Period Locking
 - [x] PR 2.14 — Discounts and Promo Codes
 - [x] PR 2.15 — SQL Financial Reports
-- [ ] PR 2.16 — Debt Aging, Account Balances, and Excel Export
+- [x] PR 2.16 — Debt Aging, Account Balances, and Excel Export
 - [ ] PR 2.17 — Arabic PDF Receipts and Invoices
 
 **Phase 3 — Lesson Lifecycle and Academic Operations**
@@ -1395,6 +1395,18 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - A scheduled command `invoices:mark-overdue` not to store the status but to trigger overdue alerts (links to PR 4.2).
 **Acceptance:** The file opens with correct columns and intact Arabic (UTF-8 BOM for CSV if present); report totals = file totals.
 **Depends on:** 2.15
+
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-20):**
+> - التقارير الأربعة في `FollowupReportService` — aggregates SQL كاملة، محكومة بالمنظمة، لكل عملة لوحدها، بدون تحميل موديلات: أعمار الديون (الشرائح بحدود **يوم الاستحقاق** بـCASE وفلاتر تواريخ نصية متوافقة SQLite/PG)، أرصدة الخزائن (الانفرج + الحركات المنشورة فقط — المعلق المستبعد)، التزامات المعلمين (المعتمد المقر − الدفعات المكتملة)، مصادر الإيراد (إسناد عبر `subscription_id → program_id/teacher_id`؛ الفواتير اليدوية بلا اشتراك مستبعدة وموثقة).
+> - التصدير: **CSV مع UTF-8 BOM** بدل XLSX — `openspout`/`maatwebsite/excel` كلاهما يتطلب `ext-zip` غير المثبت في بيئة التشغيل (PHP 8.5) وجهار التنصيب الفعلي رُفض في كل الإصدارات؛ `format=xlsx` يعيد 422 برسالة عربية، والمسار جاهز للتركيب حين يتوفر ext-zip (غالباً مع CI في 7.1). `SpreadsheetExportService` يبني الملف في الذاكرة (تقارير مقيدة بمنظمة واحدة) وبنفس عقد columns/rows يتحول لاحقاً إلى StreamedResponse.
+> - مسار `GET /reports/export` بصلاحية **مزدوجة** `reports.view` + `reports.export` (من يتابع الأرقام على الشاشة ليس بالضرورة من يأخذ ملفاً كاملاً)؛ `reports.export` أضيفت للكتالوج ودور المحاسب؛ التسجيل: سطر `reports.export` في اللوق + صف في `audit_logs` بمن صدّر ماذا وكم صف.
+> - تصدير الفواتير/المدفوعات/المصروفات بفلاتر `from/to` اختيارية على تاريخ الإصدار/التحصيل/الصرف.
+> - الأمر الموجود فعلاً `invoices:notify-overdue` (تنبيهات 3/7/14 يوم **بدون تغيير أي status**) كان: **غير مسجّل في الجدولة** رغم تعليقه، وعلاقته `student.parent` **غير موجودة** على `Student` (ارمي RelationNotFoundException مع أول فاتورة لها طالب — ثغرة صامتة لأن الأمر بلا اختبار)، ويستخدم `event_type` و`student_id` غير موجودين في جدول `notifications` أصلاً. انحراف الاسم عن `invoices:mark-overdue` الموصفة **موثق** (الموجود تنبيهات فقط). المسجّل الآن يومياً 09:00 مع `withoutOverlapping`؛ العلاقة أصبحت `parents()` بالربط المؤكد؛ ميجريشن جديد يوسّع enum `event_type` ويضيف `student_id` (nullable، reversible مع مسح صفوف الحدث في down).
+> - دلالة الأمر: تنبيه واحد لكل فترة في يومها بالضبط (فاتورة متأخرة 14 يوم في هذا التشغيل = تنبيه فترة 14 فقط؛ الأيام المتبقية كانت سترسل في تشغيلات يومية سابقة).
+> - Backend: 820 → **829** passed (نفس 1 risky + 3 skipped pgsql) — 9 اختبارات جديدة (`FollowupReportsTest` 6 + `OverdueAlertsCommandTest` 3) بقعت حمراء قبل التنفيذ (404 ثم RelationNotFoundException ثم resource 500) ومفسراها الكتلة السابقة.
+> - Frontend: تاب «المتابعة» في `/reports` بجداول الأربعة + مجاميع لكل عملة + أزرار تنزيل CSV (blob + anchor) عبر `apiFetchBlob` الجديدة؛ 163 ✓؛ tsc ✓؛ build ✓؛ lint نفس الـbaseline (10 أخطاء + 1 تحذير قديمة).
+> - ما لم يُتحقق: فتح الملف يدوياً في Excel بواجهة رسومية (فُحص الـBOM والصفوف والترميز برمجياً)؛ سلوك التصدير على ملفات ضخمة جداً (في الذاكرة).
 
 ### PR 2.17 — Arabic PDF Receipts and Invoices
 **Goal:** Official, printable documents.

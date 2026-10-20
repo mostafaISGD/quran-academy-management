@@ -116,6 +116,11 @@ class SeedRolesPermissions extends Seeder
             'finance.exchange_rates.manage',
             'finance.periods.lock',
 
+            // ⭐ PR 2.16 — المحاسب إله شغل متابعة وتقارير: يشوف
+            // التقارير ويصدّرها (تصدير صلاحية منفصلة من تشغيلي)
+            'reports.view',
+            'reports.export',
+
             // ============ عشان يشوف الطلاب واشتراكاتهم
             'students.view',
             'teachers.view',

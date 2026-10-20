@@ -44,7 +44,10 @@ class NotifyOverdueInvoices extends Command
             $invoices = Invoice::query()
                 ->whereIn('status', ['issued', 'partially_paid'])
                 ->whereDate('due_date', $targetDate)
-                ->with(['student.user', 'student.parent.user'])
+                // ⭐ PR 2.16 — `student.parent` علاقة مش موجودة على
+                // `Student` (الصحيح `parents()` جمع) — كان ArrayException
+                // قبل أول فاتورة. والأولياء بيتجيبوا في الرّسالة نفسها.
+                ->with(['student.user', 'student.parents.user'])
                 ->get();
 
             $this->line("  📋 {$days} يوم متأخر: {$invoices->count()} فاتورة");
@@ -80,10 +83,24 @@ class NotifyOverdueInvoices extends Command
 
         $recipients = [];
 
-        // 1. ولي الأمر (لو في user)
-        if ($invoice->student?->parent?->user) {
+        // 1. أولياء الأمر المرتبطين بالطالب (ربط مؤكد فقط) — لو منهم user
+        //
+        // ⭐⭐ PR 2.16 — الكود القديم كان يستعمل علاقة `parent`
+        // **غير الموجودة** على `Student`، والصحيح صيغة الجمع
+        // `parents()` عبر جدول `student_parents` — فالأمر كان يرمي
+        // RelationNotFoundException مع أول فاتورة لها طالب، والخلل
+        // ده كان مستخبي لأن الأمر من غير اختبار.
+        $parentUsers = $invoice->student
+            ? $invoice->student->parents()
+                ->wherePivot('status', 'verified')
+                ->with('user')
+                ->get()
+                ->pluck('user')
+                ->filter()
+            : collect();
+        foreach ($parentUsers as $parentUser) {
             $recipients[] = [
-                'user_id' => $invoice->student->parent->user->id,
+                'user_id' => $parentUser->id,
                 'type' => 'parent',
             ];
         }
@@ -95,7 +112,6 @@ class NotifyOverdueInvoices extends Command
                 'type' => 'student',
             ];
         }
-
         // 3. الإدارة (كل admins)
         $admins = User::role('admin')->get(['id']);
         foreach ($admins as $admin) {

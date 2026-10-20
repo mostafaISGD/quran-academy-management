@@ -37,6 +37,17 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('finance:reconcile')
             ->dailyAt('03:30')
             ->withoutOverlapping();
+
+        // ⭐⭐ PR 2.16 — تنبيهات الفواتير المتأخرة (09:00 صباحاً).
+        //
+        // الأمر `invoices:notify-overdue` موجود من PR أقدم بس
+        // **ما كانش مسجّل في الجدولة** — الكومنت كان بيقول «يشتغل
+        // يومياً» من غير تسجيل. والمواصفة هنا بتطلب أمر للتنبيهات
+        // (بدون تخزين حالة الفاتورة — التنبيه فقط). ومهمته:
+        // 3/7/14 يوم بعد الاستحقاق، وكل فترة مرة واحدة للفاتورة.
+        $schedule->command('invoices:notify-overdue')
+            ->dailyAt('09:00')
+            ->withoutOverlapping();
     })
     ->withMiddleware(function (Middleware $middleware) {
         // ⭐⭐⭐ **مافيش `login` route — الـAPI بيرجّع 401 مش redirect**

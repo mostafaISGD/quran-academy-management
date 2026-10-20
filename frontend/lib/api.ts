@@ -174,6 +174,25 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   return res.json() as Promise<T>;
 }
 
+/**
+ * ⭐⭐ PR 2.16 — تنزيل ملف (CSV مع BOM للعربي). GET فقط —
+ * الكوكي الجلسة بيهوي روحها (`credentials: include` زي apiFetch
+ * بالظبط)، والحالة الغلط بتترفع كـ`ApiError` زي البرنامج العادي.
+ */
+export async function apiFetchBlob(path: string): Promise<Blob> {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    credentials: "include",
+    headers: { Accept: "text/csv" },
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new ApiError(res.status, body);
+  }
+
+  return res.blob();
+}
+
 /* ============================================================
    المصادقة
    ========================================================== */
@@ -4445,6 +4464,87 @@ export function getDiscountsReport(params?: { from?: string; to?: string }) {
       promo_discounts: number;
     }[];
   }>(`/reports/discounts?${search.toString()}`);
+}
+
+/**
+ * ⭐⭐ PR 2.16 — تقارير المتابعة اليومية + التصدير.
+ *
+ * الأربع بيقروا فكرة واحدة: كل عملة لوحدها (مافيش جمع جنيه مع
+ * دولار) وكل الأرقام أرصدة/مبالغ بالجنيه من السيرفر.
+ */
+
+/** أعمار الديون — صف لكل (طالب، عملة)؛ الشرائح بالأيام من الاستحقاق. */
+export function getAgingReport() {
+  return apiFetch<{
+    students: {
+      student_id: number;
+      student_name: string;
+      currency: string;
+      invoices_count: number;
+      not_due: number;
+      d0_30: number;
+      d31_60: number;
+      d61_90: number;
+      d90_plus: number;
+      total: number;
+    }[];
+    totals: Record<string, { not_due: number; d0_30: number; d31_60: number; d61_90: number; d90_plus: number; total: number }>;
+    generated_at: string;
+  }>("/reports/aging");
+}
+
+/** أرصدة الخزائن — الانفرج + الحركات المنشورة (المعلق مش احتساب). */
+export function getAccountBalancesReport() {
+  return apiFetch<{
+    accounts: {
+      id: number;
+      name: string;
+      type: string;
+      currency: string;
+      opening_balance: number;
+      movements_sum: number;
+      movements_count: number;
+      balance: number;
+    }[];
+    totals: Record<string, { balance: number; accounts: number }>;
+  }>("/reports/account-balances");
+}
+
+/** مستحقات المعلمين — المعتمد − المدفوع (المعلق مش التزام). */
+export function getTeacherLiabilitiesReport() {
+  return apiFetch<{
+    teachers: {
+      teacher_id: number;
+      name: string;
+      currency: string;
+      gross_earnings: number;
+      payments_made: number;
+      liability: number;
+    }[];
+    totals: Record<string, { gross_earnings: number; payments_made: number; liability: number }>;
+  }>("/reports/teacher-liabilities");
+}
+
+/** مصادر الإيراد — الفواتير منسوبة على برنامج/معلم الاشتراك. */
+export function getRevenueSourcesReport() {
+  return apiFetch<{
+    by_program: { program_id: number; name: string; currency: string; invoiced: number; invoices_count: number }[];
+    by_teacher: { teacher_id: number; name: string; currency: string; invoiced: number; invoices_count: number }[];
+  }>("/reports/revenue-sources");
+}
+
+/**
+ * تنزيل CSV (BOM) — للتقارير الأربعة فوق + الفواتير/المدفوعات/
+ * المصروفات. صلاحية `reports.export` — الرد مش 200 بيترسل تاني
+ * كـ`ApiError` من `apiFetchBlob`.
+ */
+export function exportReport(params: { report: string; format?: "csv" | "xlsx"; from?: string; to?: string }): Promise<Blob> {
+  const search = new URLSearchParams();
+  search.set("report", params.report);
+  if (params.format) search.set("format", params.format);
+  if (params.from) search.set("from", params.from);
+  if (params.to) search.set("to", params.to);
+  return apiFetchBlob(`/reports/export?${search.toString()}`);
 }
 
 export function getAttendanceReport(params?: { from?: string; to?: string; student_id?: number; teacher_id?: number; program_id?: number }) {

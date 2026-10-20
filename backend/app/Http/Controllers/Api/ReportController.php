@@ -172,6 +172,165 @@ class ReportController extends Controller
         ]));
     }
 
+    /**
+     * ⭐⭐ PR 2.16 — تقارير المتابعة اليومية عبر
+     * `FollowupReportService`: أعمار الديون (0–30/31–60/61–90/+90
+     * — صف لكل طالب×عملة)، أرصدة الخزائن، التزامات المعلمين،
+     * مصادر الإيراد (برنامج/معلم). كل الـaggregates في الخدمة.
+     */
+    public function aging(Request $request)
+    {
+        $service = new \App\Services\FollowupReportService((int) $request->user()->organization_id);
+
+        return response()->json($service->aging(Carbon::now()));
+    }
+
+    public function accountBalances(Request $request)
+    {
+        $service = new \App\Services\FollowupReportService((int) $request->user()->organization_id);
+
+        return response()->json($service->accountBalances());
+    }
+
+    public function teacherLiabilities(Request $request)
+    {
+        $service = new \App\Services\FollowupReportService((int) $request->user()->organization_id);
+
+        return response()->json($service->teacherLiabilities());
+    }
+
+    public function revenueSources(Request $request)
+    {
+        $service = new \App\Services\FollowupReportService((int) $request->user()->organization_id);
+
+        return response()->json($service->revenueSources());
+    }
+
+    /**
+     * ⭐⭐ PR 2.16 — التصدير: CSV مع BOM (الإكسل بيفتح العربي سليم)
+     * لكل تقرير + للفواتير والمدفوعات والمصروفات.
+     *
+     * صلاحية **منفصلة** `reports.export` (`reports.view` كمان،
+     * بالراوت) — اللي بيتابع الأرقام على الشاشة مش بالضرورة ياخد
+     * ملف كامل ببيانات. التسجيل هنا مش تكميل: تصدير نسخة بيانات
+     * خارجية — لوق + audit بمين وصدّر إيه وكم صف.
+     */
+    public function export(Request $request)
+    {
+        $validated = $request->validate([
+            // التقارير الأربعة + السجلات الثالثة
+            'report' => ['required', 'in:aging,account-balances,teacher-liabilities,revenue-sources,invoices,payments,expenses'],
+            // XLSX لما ext-zip يبقى متوفر — دلوقتي CSV بس
+            'format' => ['nullable', 'in:csv,xlsx'],
+            'from' => ['nullable', 'date'],
+            'to' => ['nullable', 'date'],
+        ]);
+
+        $format = $validated['format'] ?? 'csv';
+        if ($format === 'xlsx') {
+            return response()->json([
+                'message' => 'تصدير XLSX مش متاح في البيئة الحالية (مكتبة openspout محتاجة ext-zip وغير متاحة) — استخدم format=csv، والإكسل بيفتحه سليم',
+            ], 422);
+        }
+
+        $user = $request->user();
+        $today = Carbon::now();
+        $service = new \App\Services\FollowupReportService((int) $user->organization_id);
+        $exporter = new \App\Services\SpreadsheetExportService();
+
+        // فلتر الفترة اختياري — على تاريخ الإصدار/التحصيل/الصرف
+        $from = $request->filled('from') ? $request->string('from')->toString() : null;
+        $to = $request->filled('to') ? $request->string('to')->toString() : null;
+
+        switch ($validated['report']) {
+            case 'aging':
+                $payload = $service->agingExport($today);
+                $filename = 'debt_aging_'.$today->toDateString().'.csv';
+                break;
+            case 'account-balances':
+                $balances = $service->accountBalances();
+                $payload = [
+                    'columns' => ['الخزينة', 'النوع', 'العملة', 'الافتتاحي', 'الحركات المنشورة', 'الرصيد'],
+                    'rows' => array_map(fn ($a) => [
+                        $a['name'], $a['type'], $a['currency'],
+                        number_format($a['opening_balance'], 2, '.', ''),
+                        number_format($a['movements_sum'], 2, '.', ''),
+                        number_format($a['balance'], 2, '.', ''),
+                    ], $balances['accounts']),
+                    'total_rows' => array_map(fn ($balance, $currency) => [
+                        'الإجمالي', '', $currency, '', '',
+                        number_format($balance, 2, '.', ''),
+                    ], array_column($balances['totals'], 'balance'), array_keys($balances['totals'])),
+                ];
+                $filename = 'account_balances_'.$today->toDateString().'.csv';
+                break;
+            case 'teacher-liabilities':
+                $liabilities = $service->teacherLiabilities();
+                $payload = [
+                    'columns' => ['المعلم', 'العملة', 'المستحقات', 'المدفوع', 'التزام'],
+                    'rows' => array_map(fn ($t) => [
+                        $t['name'], $t['currency'],
+                        number_format($t['gross_earnings'], 2, '.', ''),
+                        number_format($t['payments_made'], 2, '.', ''),
+                        number_format($t['liability'], 2, '.', ''),
+                    ], $liabilities['teachers']),
+                    'total_rows' => array_map(fn ($total, $currency) => [
+                        'الإجمالي', $currency,
+                        number_format($total['gross_earnings'], 2, '.', ''),
+                        number_format($total['payments_made'], 2, '.', ''),
+                        number_format($total['liability'], 2, '.', ''),
+                    ], array_column($liabilities['totals'], 'liability'), array_keys($liabilities['totals'])),
+                ];
+                $filename = 'teacher_liabilities_'.$today->toDateString().'.csv';
+                break;
+            case 'revenue-sources':
+                $sources = $service->revenueSources();
+                $payload = [
+                    'columns' => ['النوع', 'الاسم', 'العملة', 'المفوتَر', 'العدد'],
+                    'rows' => array_merge(
+                        array_map(fn ($p) => ['برنامج', $p['name'], $p['currency'], number_format($p['invoiced'], 2, '.', ''), $p['invoices_count']], $sources['by_program']),
+                        array_map(fn ($t) => ['معلم', $t['name'], $t['currency'], number_format($t['invoiced'], 2, '.', ''), $t['invoices_count']], $sources['by_teacher']),
+                    ),
+                ];
+                $filename = 'revenue_sources_'.$today->toDateString().'.csv';
+                break;
+            case 'invoices':
+                $payload = $service->invoiceExportRows($from, $to);
+                $filename = 'invoices_'.$today->toDateString().'.csv';
+                break;
+            case 'payments':
+                $payload = $service->paymentExportRows($from, $to);
+                $filename = 'payments_'.$today->toDateString().'.csv';
+                break;
+            case 'expenses':
+                $payload = $service->expenseExportRows($from, $to);
+                $filename = 'expenses_'.$today->toDateString().'.csv';
+                break;
+        }
+
+        $rowCount = count($payload['rows']);
+        $exportedReport = $validated['report'];
+
+        \Log::info('reports.export', [
+            'user_id' => $user->id,
+            'report' => $exportedReport,
+            'format' => $format,
+            'rows' => $rowCount,
+        ]);
+
+        app(\App\Services\AuditLogService::class)->log(
+            action: 'export',
+            entityType: 'report_export',
+            entityId: 0,
+            oldValue: null,
+            newValue: ['report' => $exportedReport, 'format' => $format, 'rows' => $rowCount],
+            request: $request,
+            userId: $user->id,
+        );
+
+        return $exporter->csv($filename, $payload['columns'], $payload['rows'], $payload['total_rows'] ?? []);
+    }
+
     public function academic(Request $request)
     {
         $start = $request->filled('from') ? Carbon::parse($request->string('from')) : Carbon::now()->startOfMonth();

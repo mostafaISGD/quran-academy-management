@@ -559,6 +559,18 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/reports/academic', [ReportController::class, 'academic'])->middleware('permission:reports.view');
     Route::get('/reports/sales', [ReportController::class, 'sales'])->middleware('permission:reports.view');
 
+    // ⭐⭐ PR 2.16 — المتابعة اليومية: أعمار الديون + الأرصدة +
+    // التزامات المعلمين + مصادر الإيراد
+    Route::get('/reports/aging', [ReportController::class, 'aging'])->middleware('permission:reports.view');
+    Route::get('/reports/account-balances', [ReportController::class, 'accountBalances'])->middleware('permission:reports.view');
+    Route::get('/reports/teacher-liabilities', [ReportController::class, 'teacherLiabilities'])->middleware('permission:reports.view');
+    Route::get('/reports/revenue-sources', [ReportController::class, 'revenueSources'])->middleware('permission:reports.view');
+
+    // ⭐ التصدير — فيه قراءة بيانات صريحة فبصلاحية إضافية
+    Route::get('/reports/export', [ReportController::class, 'export'])->middleware([
+        'permission:reports.view', 'permission:reports.export',
+    ]);
+
     // Settings
     Route::get('/settings', [SettingController::class, 'index'])->middleware('permission:settings.view');
     Route::post('/settings', [SettingController::class, 'store'])->middleware('permission:settings.update');
