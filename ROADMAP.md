@@ -155,7 +155,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.12 — Expenses
 - [x] PR 2.13 — Period Locking
 - [x] PR 2.14 — Discounts and Promo Codes
-- [ ] PR 2.15 — SQL Financial Reports
+- [x] PR 2.15 — SQL Financial Reports
 - [ ] PR 2.16 — Debt Aging, Account Balances, and Excel Export
 - [ ] PR 2.17 — Arabic PDF Receipts and Invoices
 
@@ -1372,6 +1372,20 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - Test number constants: a small dataset with manually calculated results.
 **Acceptance:** The numbers match the manual calculation; the report query does not load models (checked with `DB::listen`).
 **Depends on:** 2.12 · 2.14
+
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-20):**
+>
+> - **انحراف اكتُشف مبكرًا:** جدول `exchange_rates` موجود أصلًا من ميجريشن `2026_10_09_...create_financial_accounts_and_movements` (زوج `from_currency`/`to_currency` + `valid_date` + سعر مخزَّن int ×10^6 عبر `ExchangeRateCast`) وموديل `ExchangeRate::rateFor(from, to, date)` — **مافيش ميجريشن جديدة في هذا الـPR**.
+> - المنفّذ: خدمة `FinancialReportService` — كل شيء `SUM`/`GROUP BY`/`COUNT` في SQL (فواتير، دفعات، مستردّات، مصروفات، مستحقات/دفعات معلمين). الحقيبة المحوّلة تتحسب **بسعر الصرف المسجَّل وقت العملية** عبر scalar-subquery لكل صف: آخر `valid_date <= تاريخ العملية` — نفس دلالة `rateFor` حرفيًا (صف مارس يتحول بسعر مارس حتى لو السعر اتغيّر جوّه نفس الشهر).
+> - وككل تفصيل للحقيبة: لكل عملة لوحدها (`currencies.<CUR>` خام بالوحدة الكبرى) + (`converted`) على العملة الافتراضية للمنظمة. صف مالوش سعر مسجَّل بيسقط من الحقيبة المحوّلة ويظهر في `converted.missing_rates`. حقول القرش الداخلية (`_c`) تفضل في الخدمة — للعميل مجهولات العرض فقط.
+> - **مافيش `whereHas`** — بيتكوّن `select *` داخليًا. بدلها `whereIn` بـsubquery `selectRaw('id')`. اختبار `DB::listen` بيمنع أي `select *` على جداول التقرير (طلبات users/teachers من الـlogin نفسه مستثناة — مش من التقرير).
+> - **تسريب multi-tenant اتقفل:** `financial()` و`dashboardSummary()` كانوا يستعلموا **بدون أي `organization_id`** — تقرير/لوحة منظمة كانت تعدّ دفعات وفواتير منظمة تانية (اختبار يثبت: دفعة 5000 من منظمة تانية كانت بتظهر ك«إيراد الشهر»).
+> - **اختلافات سلوك موثّقة (القديم كان مزيف):** ① الفواتير اللغتّة (`void`) خرجت من «المفوتَر» ② المسترد = **المعالَج فقط** (`processed` — القديم كان بجمع المعلق) ③ دفعات المعلمين «المدفوعة» = `completed` فقط ④ خلط الوحدات في `by_method` وبيانات المحصّل انتهى — `by_method` صار بالقيمة المحوّلة، و`by_currency` الخام لكل عملة.
+> - المفاتيح القديمة (`revenue`/`teacher_costs`/`invoiced_vs_collected`/`expenses`/`net_operating`/`unpaid_teacher_dues`/`alerts`) متبقية كسلوك — قيمها صارت من الحقيبة المحوّلة (للبيانات أحادية العملة زي الاختبارات القديمة: نفس الأرقام بالضبط). الفلاتر `branch_id` تطبّق على الفواتير/المصروفات/دفعات الطلاب، `program_id` على الفواتير (عبر اشتراكها)، `teacher_id` على المرتبات — وكل سلسلة ما بتتأثرش بفلتر ما تنطبقش عليها (موثَّق في مخرج الاختبار).
+> - الفرونت: `getFinancialReport` بوسّعت النوع والفلاتر + 6 كروت جديدة في تبويب «مالي» (مفوتَر/متتبقٍ/خصومات/مصروفات/مستحقات غير مدفوعة/صافي التشغيل) وتنبّه بلون كهرماني للعملات بدون سعر صرف.
+> - الاختبار: `FinancialReportTest` — 3 اختبارات (41 assertion) بثوابت محسوبة يدويًا: مفوتَر 5800 = 800 جنيه + 100 دولار×50، محصّل 2700 = 600 + 10د×50 + 20د×80 (سعرين مختلفين جوّه نفس الشهر)، صافي 2230، ملغاة/معلقة/خارج الشهر مستبعدة، فلاتر الفرع/المعلم 300/200/100/60، منظمة تانية ما بتسرّبش.
+> - الحالة: backend 820 passer (817 قديمة + 3 جديدة — `ExpenseWorkflowTest`/`PayrollPaymentEffectsTest` الأخضرين بدون تعديل)، tsc نظيف، 163 vitest passer، `npm run build` ماسك، lint على خط الأساس القديم (10 أخطاء + 1 تحذير، مافيش جديد). مافيش ميجريشن — الـschema ثابت (رؤوس تقارير فقط).
 
 ### PR 2.16 — Debt Aging, Account Balances, and Excel Export
 **Goal:** Daily follow-up reports.
