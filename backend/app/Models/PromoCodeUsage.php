@@ -8,6 +8,9 @@ use Illuminate\Database\Eloquent\Model;
 
 class PromoCodeUsage extends Model
 {
+    // ⭐ الجدول فيه `applied_at` بس — ماعندوش من `created_at/updated_at`
+    public $timestamps = false;
+
     protected $fillable = [
         'organization_id', 'promo_code_id', 'invoice_id', 'student_id',
         'discount_amount', 'original_amount', 'final_amount', 'created_by',

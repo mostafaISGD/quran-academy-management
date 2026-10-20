@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Casts\MoneyCast;
 use App\Models\Assessment;
 use App\Models\Invoice;
 use App\Models\Lead;
@@ -10,6 +11,7 @@ use App\Models\Lesson;
 use App\Models\LessonAttendance;
 use App\Models\MemorizationRecord;
 use App\Models\Payment;
+use App\Models\PromoCodeUsage;
 use App\Models\Refund;
 use App\Models\Student;
 use App\Models\Subscription;
@@ -21,6 +23,80 @@ use Illuminate\Http\Request;
 
 class ReportController extends Controller
 {
+    /**
+     * ⭐⭐ PR 2.14 — تقرير «كام ضاع في الخصومات».
+     *
+     * المجهول اللي كان غايب: الإيراد بيتحسب من المدفوعات،
+     * والخصومات كانت أساساً رقم مخفي جوه الفاتورة. التقرير ده
+     * بيفضّل التكلفة لترويجي (دخله الكود) ويدوي (قرار إداري).
+     *
+     * كل الأرقام aggregates في SQL — مافيش تحميل السجلات في الذاكرة.
+     */
+    public function discounts(Request $request)
+    {
+        $from = $request->query('from');
+        $to = $request->query('to');
+
+        $inWindow = fn ($q) => $q
+            ->when($from, fn ($q2) => $q2->whereDate('issue_date', '>=', $from))
+            ->when($to, fn ($q2) => $q2->whereDate('issue_date', '<=', $to));
+
+        // ⭐ إجماليات الفواتير المخصومة — الجزء الترويجي جوه
+        // الفاتورة بيتقاس من جدول الاستخدامات (مجموع لكل فاتورة)
+        $promoPerInvoice = PromoCodeUsage::query()
+            ->selectRaw('invoice_id, SUM(discount_amount) AS promo_total')
+            ->groupBy('invoice_id');
+
+        $totals = Invoice::query()
+            ->where('organization_id', $request->user()->organization_id)
+            ->where('discount', '>', 0)
+            ->where($inWindow)
+            ->leftJoinSub($promoPerInvoice, 'usages', 'invoices.id', '=', 'usages.invoice_id')
+            ->selectRaw('COUNT(*) AS invoices')
+            ->selectRaw('COALESCE(SUM(discount), 0) AS total_discounts')
+            ->selectRaw('COALESCE(SUM(usages.promo_total), 0) AS promo_discounts')
+            ->selectRaw('COALESCE(SUM(invoices.discount - COALESCE(usages.promo_total, 0)), 0) AS manual_discounts')
+            ->first();
+
+        // ⭐⭐ الـaggregates بتطلع **خام بالقرش** — لازم تمر من
+        // `fromAggregate` قبل أي مقارنة (قاعدة 6 — بداية عقد 2.13).
+        $totalRaw = [
+            'invoices' => (int) ($totals->invoices ?? 0),
+            'promo_discounts' => (float) (MoneyCast::fromAggregate($totals->promo_discounts ?? null) ?? 0),
+            'manual_discounts' => (float) (MoneyCast::fromAggregate($totals->manual_discounts ?? null) ?? 0),
+            'total_discounts' => (float) (MoneyCast::fromAggregate($totals->total_discounts ?? null) ?? 0),
+        ];
+
+        // ⭐ تفصيل لكل كود — التكلفة الفعلية لكل فعالية تسويقية
+        $byCode = PromoCodeUsage::query()
+            ->join('promo_codes', 'promo_codes.id', '=', 'promo_code_usages.promo_code_id')
+            ->join('invoices', 'invoices.id', '=', 'promo_code_usages.invoice_id')
+            ->where('promo_code_usages.organization_id', $request->user()->organization_id)
+            ->where($inWindow)
+            ->selectRaw('promo_codes.id, promo_codes.code, promo_codes.name, promo_codes.type, promo_codes.value')
+            ->selectRaw('COUNT(DISTINCT promo_code_usages.invoice_id) AS invoices_count')
+            ->selectRaw('COALESCE(SUM(promo_code_usages.discount_amount), 0) AS promo_discounts')
+            ->groupBy('promo_codes.id', 'promo_codes.code', 'promo_codes.name', 'promo_codes.type', 'promo_codes.value')
+            ->orderByDesc('promo_discounts')
+            ->get()
+            ->map(fn ($row) => [
+                'id' => $row->id,
+                'code' => $row->code,
+                'name' => $row->name,
+                'type' => $row->type,
+                'value' => (float) $row->value,
+                'invoices_count' => (int) $row->invoices_count,
+                'promo_discounts' => (float) (MoneyCast::fromAggregate($row->promo_discounts) ?? 0),
+            ]);
+
+        return response()->json([
+            'from' => $from,
+            'to' => $to,
+            'totals' => $totalRaw,
+            'by_code' => $byCode,
+        ]);
+    }
+
     public function dashboardSummary(Request $request)
     {
         $today = Carbon::today();

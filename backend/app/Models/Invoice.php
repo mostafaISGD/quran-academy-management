@@ -14,7 +14,8 @@ class Invoice extends Model
 
     protected $fillable = [
         'organization_id', 'branch_id', 'student_id', 'parent_id', 'subscription_id',
-        'invoice_number', 'issue_date', 'due_date', 'subtotal', 'discount', 'tax',
+        'invoice_number', 'issue_date', 'due_date', 'list_amount', 'subtotal', 'discount',
+        'discount_reason', 'promo_code_id', 'tax',
         'total', 'paid_amount', 'balance_due', 'credited_amount', 'currency', 'status', 'notes',
     ];
 
@@ -22,6 +23,7 @@ class Invoice extends Model
     {
         return [
             'subtotal' => MoneyCast::class,
+            'list_amount' => MoneyCast::class,
             'discount' => MoneyCast::class,
             'tax' => MoneyCast::class,
             'total' => MoneyCast::class,
@@ -36,6 +38,9 @@ class Invoice extends Model
     public function student() { return $this->belongsTo(Student::class); }
     public function parent() { return $this->belongsTo(ParentModel::class, 'parent_id'); }
     public function subscription() { return $this->belongsTo(Subscription::class); }
+
+    /** ⭐ الكود الترويجي المطبق على الفاتورة — تتبّع تكلفة الخصومات (PR 2.14). */
+    public function promoCode() { return $this->belongsTo(PromoCode::class); }
     public function items() { return $this->hasMany(InvoiceItem::class); }
     public function payments() { return $this->hasMany(Payment::class); }
 

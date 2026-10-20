@@ -865,8 +865,12 @@ export type Invoice = {
   subscription_id: number | null;
   issue_date: string;
   due_date: string | null;
+  // ⭐ PR 2.14 — السعر الأصلي على القائمة (قبل أي خصم) + تفكيك الخصم
+  list_amount: string;
   subtotal: string;
   discount: string;
+  discount_reason: string | null;
+  promo_code_id: number | null;
   tax: string;
   total: string;
   paid_amount: string;
@@ -4052,7 +4056,9 @@ export function getInvoices(params?: {
 
 export function createInvoice(payload: {
   student_id: number; parent_id?: string; subscription_id?: string; issue_date: string;
-  due_date?: string; items: { description: string; quantity: number; unit_price: number }[]; discount?: number; tax?: number; notes?: string;
+  due_date?: string; items: { description: string; quantity: number; unit_price: number }[];
+  // ⭐ PR 2.14 — الكود الترويجي بيتحقق عند الإصدار (422 صريح لو غير صالح)
+  discount?: number; discount_reason?: string; promo_code?: string; tax?: number; notes?: string;
 }) {
   return apiFetch<Invoice>("/invoices", { method: "POST", body: JSON.stringify(payload) });
 }
@@ -4349,6 +4355,37 @@ export function getSalesReport(params?: { from?: string; to?: string }) {
     leads: { total: number; converted: number; conversion_rate: number };
     trials: { total: number; ready_to_subscribe: number; needs_follow_up: number; not_suitable: number };
   }>(`/reports/sales?${search.toString()}`);
+}
+
+/**
+ * ⭐⭐ PR 2.14 — تقرير «كام ضاع في الخصومات».
+ *
+ * بيفضّل التكلفة: ترويجي (دخله الكود) vs يدوي (قرار إداري)،
+ * مع تفصيل لكل كود ترقيواتي.
+ */
+export function getDiscountsReport(params?: { from?: string; to?: string }) {
+  const search = new URLSearchParams();
+  if (params?.from) search.set("from", params.from);
+  if (params?.to) search.set("to", params.to);
+  return apiFetch<{
+    from: string | null;
+    to: string | null;
+    totals: {
+      invoices: number;
+      promo_discounts: number;
+      manual_discounts: number;
+      total_discounts: number;
+    };
+    by_code: {
+      id: number;
+      code: string;
+      name: string;
+      type: "percent" | "fixed";
+      value: number;
+      invoices_count: number;
+      promo_discounts: number;
+    }[];
+  }>(`/reports/discounts?${search.toString()}`);
 }
 
 export function getAttendanceReport(params?: { from?: string; to?: string; student_id?: number; teacher_id?: number; program_id?: number }) {

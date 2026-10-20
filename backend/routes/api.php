@@ -553,6 +553,9 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     // Dashboard & Reports
     Route::get('/dashboard/summary', [ReportController::class, 'dashboardSummary'])->middleware('permission:reports.view');
     Route::get('/reports/financial', [ReportController::class, 'financial'])->middleware('permission:reports.view');
+
+    // ⭐⭐ PR 2.14 — «كام ضاع في الخصومات» (ترويجي vs يدوي)
+    Route::get('/reports/discounts', [ReportController::class, 'discounts'])->middleware('permission:reports.view');
     Route::get('/reports/academic', [ReportController::class, 'academic'])->middleware('permission:reports.view');
     Route::get('/reports/sales', [ReportController::class, 'sales'])->middleware('permission:reports.view');
 

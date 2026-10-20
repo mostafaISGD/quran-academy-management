@@ -16,6 +16,8 @@ export default function InvoicesPage() {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({
     student_id: "", issue_date: "", due_date: "",
+    // ⭐ PR 2.14 — الخصم اليدوي + سببه + الكود الترويجي (اختياريين)
+    discount: "", discount_reason: "", promo_code: "",
     items: [{ description: "", quantity: 1, unit_price: 0 }] as { description: string; quantity: number; unit_price: number }[],
   });
 
@@ -82,6 +84,10 @@ export default function InvoicesPage() {
         issue_date: form.issue_date,
         due_date: form.due_date || undefined,
         items: form.items,
+        discount: form.discount ? Number(form.discount) : undefined,
+        discount_reason: form.discount_reason.trim() || undefined,
+        // ⭐ الكود غير الصالح بيترفض الآن 422 برسالة واضحة (مش تجاهل صامت)
+        promo_code: form.promo_code.trim() || undefined,
       });
       setShowForm(false);
       toast.success("تم إنشاء الفاتورة");
@@ -143,6 +149,10 @@ export default function InvoicesPage() {
               <input placeholder="معرّف الطالب" value={form.student_id} onChange={(e) => setForm({ ...form, student_id: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" required />
               <input type="date" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" required />
               <input type="date" value={form.due_date} onChange={(e) => setForm({ ...form, due_date: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              {/* ⭐ PR 2.14 — الخصم اليدوي وسببه والكود الترويجي */}
+              <input type="number" min={0} placeholder="خصم يدوي (ج.م)" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input placeholder="سبب الخصم" value={form.discount_reason} onChange={(e) => setForm({ ...form, discount_reason: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+              <input placeholder="كود ترويجي" value={form.promo_code} onChange={(e) => setForm({ ...form, promo_code: e.target.value })} className="rounded-lg border border-slate-300 px-3 py-2 text-sm uppercase" />
             </div>
             {form.items.map((item, i) => (
               <div key={i} className="grid grid-cols-3 gap-2">
@@ -178,7 +188,15 @@ export default function InvoicesPage() {
                   <td className="px-4 py-3 font-medium text-slate-800">{inv.student?.full_name ?? `طالب ${inv.student_id}`}</td>
                   {/* ⭐ `money` — الشكل القديم كان بيطبع `EGP`
                       إنجليزي ورقم من غير فاصلة آلاف */}
-                  <td className="px-4 py-3 font-medium text-slate-800">{money(inv.total, inv.currency)}</td>
+                  {/* ⭐ PR 2.14 — الخصم بيظهر تحت الإجمالي لو فيه */}
+                  <td className="px-4 py-3 font-medium text-slate-800">
+                    {money(inv.total, inv.currency)}
+                    {Number(inv.discount) > 0 && (
+                      <p className="text-xs font-normal text-slate-400">
+                        خصم {money(inv.discount, inv.currency)}{inv.discount_reason ? ` · ${inv.discount_reason}` : ""}
+                      </p>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-green-600">{money(inv.paid_amount, inv.currency)}</td>
                   <td className="px-4 py-3 text-red-600">{money(inv.balance_due, inv.currency)}</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${inv.status === "paid" ? "bg-green-100 text-green-700" : inv.status === "overdue" ? "bg-red-100 text-red-700" : inv.status === "partially_paid" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{STATUS_LABEL[inv.status]}</span></td>

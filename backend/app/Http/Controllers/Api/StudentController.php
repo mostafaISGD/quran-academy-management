@@ -405,8 +405,9 @@ class StudentController extends Controller
             'due_date' => 'nullable|date|after_or_equal:issue_date',
             'amount' => 'nullable|numeric|min:0',
             'description' => 'nullable|string|max:255',
-            // ⭐ كود ترويجي اختياري (ينطبق على كل الفواتير)
-            'promo_code' => 'nullable|string|max:50|exists:promo_codes,code',
+            // ⭐ كود ترويجي اختياري (ينطبق على كل الفواتير) —
+            //    التحقق الحقيقي عند الإصدار في PromoCodeService
+            'promo_code' => 'nullable|string|max:50',
         ]);
 
         $user = $request->user();
@@ -414,7 +415,7 @@ class StudentController extends Controller
         $dueDate = $data['due_date'] ?? now()->addDays(14)->toDateString();
         $ids = array_values(array_unique($data['student_ids']));
 
-        $subs = Subscription::with(['student', 'program'])
+        $subs = Subscription::with(['student', 'program', 'plan'])
             ->whereIn('student_id', $ids)
             ->where('status', 'active')
             ->orderBy('start_date')
@@ -422,14 +423,17 @@ class StudentController extends Controller
             ->groupBy('student_id')
             ->map(fn ($group) => $group->first());
 
-        // ⭐ تحميل الكود الترويجي مرة واحدة لو موجود
-        $promoCode = null;
-        if (! empty($data['promo_code'])) {
-            $promoCode = \App\Models\PromoCode::where('organization_id', $user->organization_id)
-                ->where('code', $data['promo_code'])
-                ->first();
-        }
+        $promoCodeRequest = $data['promo_code'] ?? null;
 
+/**
+ * ⭐⭐ PR 2.14 — التحقق عن الكود **عند الإصدار لكل طالب**.
+ *
+ * قبلها الكود كان بيقرأ مرة واحدة ويعتمد بصمت على كل طالب:
+ * `isValidNow()` يقرأ العداد مرة واحدة، `canStudentUse()` كان
+ * مكتوب في الموديل ومحدش بيقراه — الطالب اللي استنفد حده بياخد
+ * خصم تاني من غير حد. دلوقتي طالب طالب بيدخل الخدمة المقفولة،
+ * واللي ما يقدرش بيتمسك في \`skipped\` بسبب واضح.
+ */
         $created = [];
         $skipped = [];
 
@@ -445,88 +449,99 @@ class StudentController extends Controller
                 ? (float) $data['amount']
                 : (float) $sub->price;
 
-            $invoice = DB::transaction(function () use ($sub, $amount, $issueDate, $dueDate, $user, $data, $promoCode) {
-                $subtotal = $amount;
-                $discount = 0;
-                $promoDiscount = 0;
-                $appliedPromo = null;
+            try {
+                $invoice = DB::transaction(function () use ($sub, $amount, $issueDate, $dueDate, $user, $data, $promoCodeRequest) {
+                    $subtotal = $amount;
+                    $promoDiscount = 0;
+                    $appliedPromo = null;
 
-                // ⭐ تطبيق الكود الترويجي لو موجود وينطبق
-                if ($promoCode && $promoCode->isValidNow()) {
-                    $tempInvoice = new \App\Models\Invoice(['program_id' => $sub->program_id]);
-                    if ($promoCode->appliesTo($tempInvoice)) {
-                        $promoDiscount = $promoCode->calculateDiscount($amount);
-                        $appliedPromo = $promoCode;
+                    // ⭐⭐ الفحص المقفول لكل طالب — الأساس السعر الأصلي كامل
+                    if ($promoCodeRequest) {
+                        $appliedPromo = app(\App\Services\PromoCodeService::class)->assertUsableLocked(
+                            $promoCodeRequest,
+                            $user->organization_id,
+                            $sub->student_id,
+                            $sub->program_id,
+                            $sub->plan?->category,
+                        );
+
+                        $promoDiscount = $appliedPromo->calculateDiscount($amount);
                     }
-                }
 
-                $total = $amount - $promoDiscount;
-                $finalDiscount = $discount + $promoDiscount;
+                    $finalDiscount = $promoDiscount;
+                    $total = $amount - $promoDiscount;
 
-                // ⭐⭐ PR 2.13 — فاتورة في فترة مقفولة = مرفوض
-                PeriodLock::assertOpen((string) $issueDate, 'invoices');
+                    // ⭐⭐ PR 2.13 — فاتورة في فترة مقفولة = مرفوض
+                    PeriodLock::assertOpen((string) $issueDate, 'invoices');
 
-                $invoice = Invoice::create([
-                    'organization_id' => $user->organization_id,
-                    'student_id' => $sub->student_id,
-                    'subscription_id' => $sub->id,
-                    'invoice_number' => 'INV-' . strtoupper(uniqid()),
-                    'currency' => $sub->currency ?? 'EGP',
-                    'issue_date' => $issueDate,
-                    'due_date' => $dueDate,
-                    'subtotal' => $amount,
-                    'discount' => $finalDiscount,
-                    'total' => $total,
-                    'paid_amount' => 0,
-                    'balance_due' => $total,
-                    'status' => 'issued',
-                    'notes' => $data['description'] ?? null,
-                ]);
-
-                // ⭐ تسجيل استخدام الكود
-                if ($appliedPromo) {
-                    $appliedPromo->incrementUsage();
-
-                    \App\Models\PromoCodeUsage::create([
+                    $invoice = Invoice::create([
                         'organization_id' => $user->organization_id,
-                        'promo_code_id' => $appliedPromo->id,
-                        'invoice_id' => $invoice->id,
                         'student_id' => $sub->student_id,
-                        'discount_amount' => $promoDiscount,
-                        'original_amount' => $amount,
-                        'final_amount' => $total,
+                        'subscription_id' => $sub->id,
+                        'invoice_number' => 'INV-' . strtoupper(uniqid()),
+                        'currency' => $sub->currency ?? 'EGP',
+                        'issue_date' => $issueDate,
+                        'due_date' => $dueDate,
+                        'list_amount' => $amount,
+                        'subtotal' => $amount,
+                        'discount' => $finalDiscount,
+                        'discount_reason' => $appliedPromo ? 'كود ترويجي: ' . $appliedPromo->code : null,
+                        'promo_code_id' => $appliedPromo?->id,
+                        'total' => $total,
+                        'paid_amount' => 0,
+                        'balance_due' => $total,
+                        'status' => 'issued',
+                        'notes' => $data['description'] ?? null,
+                    ]);
+
+                    // ⭐ تسجيل الاستخدام — داخل نفس الصفقة
+                    if ($appliedPromo) {
+                        app(\App\Services\PromoCodeService::class)->recordUsage(
+                            $appliedPromo,
+                            $invoice,
+                            $promoDiscount,
+                            $amount,
+                            $user->id,
+                        );
+                    }
+
+                    InvoiceItem::create([
+                        'invoice_id' => $invoice->id,
+                        'description' => $data['description']
+                            ?? 'اشتراك ' . ($sub->plan?->name ?? $sub->program?->name ?? 'البرنامج'),
+                        'quantity' => 1,
+                        'unit_price' => $amount,
+                        'total' => $amount,
+                    ]);
+
+                    /**
+                     * ⭐⭐ PR 2.9 — الكتابة من `StudentLedgerService`
+                     * (رصيد تجميعي) — القديم كان يكتب المبلغ نفسه
+                     * فأي فاتورة تانية للطالب تمسح رصيده.
+                     */
+                    app(\App\Services\StudentLedgerService::class)->write([
+                        'student_id' => $sub->student_id,
+                        'invoice_id' => $invoice->id,
+                        'type' => 'invoice',
+                        'debit' => $amount,
+                        'currency' => $invoice->currency,
+                        'description' => 'فاتورة ' . $invoice->invoice_number,
+                        'reference_type' => 'invoice',
+                        'reference_id' => $invoice->id,
                         'created_by' => $user->id,
                     ]);
-                }
 
-                InvoiceItem::create([
-                    'invoice_id' => $invoice->id,
-                    'description' => $data['description']
-                ?? 'اشتراك ' . ($sub->plan?->name ?? $sub->program?->name ?? 'البرنامج'),
-                    'quantity' => 1,
-                    'unit_price' => $amount,
-                    'total' => $amount,
-                ]);
+                    return $invoice;
+                });
+            } catch (\Illuminate\Validation\ValidationException $e) {
+                // ⭐ الطالب المستنفد/غير المنطبق بيتسكَّت بسبب واضح — والباقي يكمل
+                $reason = ($e->errors()['promo_code'][0] ?? null)
+                    ?? ($e->errors()['period'][0] ?? null)
+                    ?? 'الكود الترويجي غير قابل للتطبيق لهذا الطالب';
 
-                /**
-                 * ⭐⭐ PR 2.9 — الكتابة من `StudentLedgerService`
-                 * (رصيد تجميعي) — القديم كان يكتب المبلغ نفسه
-                 * فأي فاتورة تانية للطالب تمسح رصيده.
-                 */
-                app(\App\Services\StudentLedgerService::class)->write([
-                    'student_id' => $sub->student_id,
-                    'invoice_id' => $invoice->id,
-                    'type' => 'invoice',
-                    'debit' => $amount,
-                    'currency' => $invoice->currency,
-                    'description' => 'فاتورة '.$invoice->invoice_number,
-                    'reference_type' => 'invoice',
-                    'reference_id' => $invoice->id,
-                    'created_by' => $user->id,
-                ]);
-
-                return $invoice;
-            });
+                $skipped[] = ['student_id' => $studentId, 'reason' => $reason];
+                continue;
+            }
 
             $created[] = [
                 'invoice_id' => $invoice->id,

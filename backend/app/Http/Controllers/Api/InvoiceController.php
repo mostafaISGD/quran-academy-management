@@ -7,7 +7,9 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\PeriodLock;
 use App\Models\StudentLedgerEntry;
+use App\Services\PromoCodeService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 
 class InvoiceController extends Controller
@@ -48,112 +50,157 @@ class InvoiceController extends Controller
             'discount' => 'nullable|numeric|min:0',
             'tax' => 'nullable|numeric|min:0',
             'notes' => 'nullable|string',
-
-            // ⭐ كود ترويجي اختياري
-            'promo_code' => 'nullable|string|max:50|exists:promo_codes,code',
+            // ⭐ سبب الخصم — توثيق «ليه فضّينا فلوس»
+            'discount_reason' => 'nullable|string|max:255',
+            // ⭐ كود ترويجي — القرار عند الإصدار بيقرر في الخدمة
+            'promo_code' => 'nullable|string|max:50',
         ]);
 
         // ⭐⭐ PR 2.13 — فاتورة بتتسجل في فترة مقفولة = مرفوض 422
         PeriodLock::assertOpen($data['issue_date'], 'invoices');
 
-        $data['organization_id'] = $request->user()->organization_id;
-        $data['invoice_number'] = 'INV-' . strtoupper(uniqid());
-        $data['currency'] = $data['currency'] ?? 'EGP';
-        $data['status'] = 'draft';
-
-        $subtotal = collect($data['items'])->sum(fn ($item) => $item['quantity'] * $item['unit_price']);
-        $discount = $data['discount'] ?? 0;
-        $tax = $data['tax'] ?? 0;
-        $total = $subtotal - $discount + $tax;
-
-        // ⭐ تطبيق الكود الترويجي لو موجود
-        $promoDiscount = 0;
-        $promoCode = null;
-
-        if (! empty($data['promo_code'])) {
-            $promo = \App\Models\PromoCode::where('organization_id', $request->user()->organization_id)
-                ->where('code', $data['promo_code'])
-                ->first();
-
-            if ($promo && $promo->isValidNow()) {
-                // ننشئ فاتورة مؤقتة للتحقق من appliesTo
-                $tempInvoice = new Invoice(['program_id' => $data['subscription_id'] ? \App\Models\Subscription::find($data['subscription_id'])?->program_id : null]);
-                if ($promo->appliesTo($tempInvoice)) {
-                    $promoDiscount = $promo->calculateDiscount($total - $discount);
-                    $promoCode = $promo;
-                }
-            }
-        }
-
-        $data['discount'] = $discount + $promoDiscount;
-        $total = $subtotal - $data['discount'] + $tax;
-
-        $data['subtotal'] = $subtotal;
-        $data['total'] = $total;
-        $data['balance_due'] = $total;
-
-        $invoice = Invoice::create($data);
-
-        // ⭐ تسجيل استخدام الكود
-        if ($promoCode) {
-            $promoCode->incrementUsage();
-
-            \App\Models\PromoCodeUsage::create([
-                'organization_id' => $request->user()->organization_id,
-                'promo_code_id' => $promoCode->id,
-                'invoice_id' => $invoice->id,
-                'student_id' => $invoice->student_id,
-                'discount_amount' => $promoDiscount,
-                'original_amount' => $total + $promoDiscount,
-                'final_amount' => $total,
-                'created_by' => $request->user()->id,
-            ]);
-        }
-
-        foreach ($data['items'] as $item) {
-            InvoiceItem::create([
-                'invoice_id' => $invoice->id,
-                'description' => $item['description'],
-                'quantity' => $item['quantity'],
-                'unit_price' => $item['unit_price'],
-                'total' => $item['quantity'] * $item['unit_price'],
-            ]);
-        }
+        $organizationId = $request->user()->organization_id;
 
         /**
-         * ⭐⭐ PR 2.9 — الكتابة من `StudentLedgerService`:
-         * رصيد تجميعي لكل عمولة (`balance_after` مش المبلغ
-         * نفسه — الفاتورة التانية للطالب تكمل من رصيده).
+         * ⭐⭐ PR 2.14 — كل خطوات الفاتورة في **صفقة واحدة**.
+         *
+         * قبلها: الإنشاء + العداد + سطر الاستخدام + الأصناف + دفتر
+         * الطالب كلهم من غير transaction — أي فشل نص مش يترك
+         * فاتورة من غير أصناف أو كود استُخدم من غير فاتورة.
          */
-        app(\App\Services\StudentLedgerService::class)->write([
-            'student_id' => $invoice->student_id,
-            'invoice_id' => $invoice->id,
-            'type' => 'invoice',
-            'debit' => $total,
-            'currency' => $invoice->currency,
-            'description' => 'فاتورة '.$invoice->invoice_number,
-            'reference_type' => 'invoice',
-            'reference_id' => $invoice->id,
-            'created_by' => $request->user()->id,
-        ]);
+        return DB::transaction(function () use ($data, $request, $organizationId) {
+            $subtotal = collect($data['items'])->sum(fn ($item) => $item['quantity'] * $item['unit_price']);
+            $manualDiscount = (float) ($data['discount'] ?? 0);
+            $tax = $data['tax'] ?? 0;
 
-        app(\App\Services\AuditLogService::class)->logCreate(
-            'invoice',
-            $invoice->id,
-            [
-                'invoice_number' => $invoice->invoice_number,
+            // ⭐ السعر الأصلي على القائمة — قبل أي خصم (توتّق 2.14)
+            $listAmount = $subtotal;
+
+            $promoDiscount = 0;
+            $promo = null;
+
+            if (! empty($data['promo_code'])) {
+                /**
+                 * ⭐ الكود يتحقق حالاً مع قفل السطر (نداءان متزامنان
+                 * ما يدخلانش السقف) وبيرفض برضه 422 — لا تجاهل بصمت.
+                 * الأساس للخصم = السعر الأصلي ناقص الخصم اليدوي.
+                 */
+                [$programId, $planCategory] = $this->subscriptionScope($data['subscription_id'] ?? null);
+
+                $promo = app(PromoCodeService::class)->assertUsableLocked(
+                    $data['promo_code'],
+                    $organizationId,
+                    $data['student_id'],
+                    $programId,
+                    $planCategory,
+                );
+
+                $promoDiscount = $promo->calculateDiscount($listAmount - $manualDiscount);
+            }
+
+            $discount = $manualDiscount + $promoDiscount;
+            $total = $subtotal - $discount + $tax;
+
+            $invoice = Invoice::create([
+                'organization_id' => $organizationId,
+                'student_id' => $data['student_id'],
+                'parent_id' => $data['parent_id'] ?? null,
+                'subscription_id' => $data['subscription_id'] ?? null,
+                'invoice_number' => 'INV-' . strtoupper(uniqid()),
+                'issue_date' => $data['issue_date'],
+                'due_date' => $data['due_date'] ?? null,
+                'list_amount' => $listAmount,
+                'subtotal' => $subtotal,
+                'discount' => $discount,
+                'discount_reason' => $data['discount_reason']
+                    ?? ($promo ? 'كود ترويجي: ' . $promo->code : null),
+                'promo_code_id' => $promo?->id,
+                'tax' => $tax,
+                'total' => $total,
+                'balance_due' => $total,
+                'currency' => $data['currency'] ?? 'EGP',
+                'status' => 'draft',
+                'notes' => $data['notes'] ?? null,
+            ]);
+
+            // ⭐ صدّي العداد + سطر الاستخدام — جوه الصفقة نفسها
+            if ($promo) {
+                app(PromoCodeService::class)->recordUsage(
+                    $promo,
+                    $invoice,
+                    $promoDiscount,
+                    $listAmount - $manualDiscount,
+                    $request->user()->id,
+                );
+            }
+
+            foreach ($data['items'] as $item) {
+                InvoiceItem::create([
+                    'invoice_id' => $invoice->id,
+                    'description' => $item['description'],
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $item['unit_price'],
+                    'total' => $item['quantity'] * $item['unit_price'],
+                ]);
+            }
+
+            /**
+             * ⭐⭐ PR 2.9 — الكتابة من `StudentLedgerService`:
+             * رصيد تجميعي لكل عمولة (`balance_after` مش المبلغ
+             * نفسه — الفاتورة التانية للطالب تكمل من رصيده).
+             */
+            app(\App\Services\StudentLedgerService::class)->write([
                 'student_id' => $invoice->student_id,
-                'total' => $invoice->total,
-                'promo_code' => $promoCode?->code,
-                'promo_discount' => $promoDiscount,
-            ],
-            $request,
-        );
+                'invoice_id' => $invoice->id,
+                'type' => 'invoice',
+                'debit' => $total,
+                'currency' => $invoice->currency,
+                'description' => 'فاتورة ' . $invoice->invoice_number,
+                'reference_type' => 'invoice',
+                'reference_id' => $invoice->id,
+                'created_by' => $request->user()->id,
+            ]);
 
-        return response()->json($invoice->load('items'), 201);
+            app(\App\Services\AuditLogService::class)->logCreate(
+                'invoice',
+                $invoice->id,
+                [
+                    'invoice_number' => $invoice->invoice_number,
+                    'student_id' => $invoice->student_id,
+                    'total' => $invoice->total,
+                    'promo_code' => $promo?->code,
+                    'promo_discount' => $promoDiscount,
+                ],
+                $request,
+            );
+
+            return response()->json($invoice->load('items'), 201);
+        });
     }
 
-    public function show(Invoice $invoice)
+    /**
+     * نطاق الاشتراك لنطاق تطبيق الكود (البرنامج + فئة الخطة).
+     *
+     * ⭐ قبلها كان بيدور `$data['subscription_id']` **حتى لو مش
+     * مبعوت** → `Undefined array key` و500 صامت لأي فاتورة
+     * بكود ترويجي من غير اشتراك.
+     */
+    private function subscriptionScope($subscriptionId): array
+    {
+        if (empty($subscriptionId)) {
+            return [null, null];
+        }
+
+        $subscription = \App\Models\Subscription::with('plan')->find($subscriptionId);
+
+        if ($subscription === null) {
+            return [null, null];
+        }
+
+        return [$subscription->program_id, $subscription->plan?->category];
+    }
+
+public function show(Invoice $invoice)
     {
         // ⚡ سياسة العلاقة (PR 1.8): ولي الأمر فاتورة ابنه فقط
         // وبشرط `can_view_finance`، والطالب فواتيره، والموظف بالصلاحية.
