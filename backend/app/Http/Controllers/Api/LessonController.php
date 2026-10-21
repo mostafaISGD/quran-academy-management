@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\LessonStatus;
 use App\Exceptions\SchedulingConflictException;
 use App\Http\Controllers\Controller;
 use App\Models\Lesson;
@@ -10,9 +11,11 @@ use App\Models\LessonReschedule;
 use App\Models\MemorizationRecord;
 use App\Models\ProgressRecord;
 use App\Services\LessonScheduler;
+use App\Services\LessonService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 
 class LessonController extends Controller
 {
@@ -110,11 +113,25 @@ class LessonController extends Controller
         // ⚡ سياسة العلاقة (PR 1.8): تعديل الحصة لمعلم غير صاحبها مرفوض.
         Gate::authorize('update', $lesson);
 
+        /**
+         * ⭐⭐⭐ **PR 3.1 — `update` ما بيغيّرش الحالة.**
+         *
+         * المواصفة بتقول «يتجاهل `status`» — اخترنا **422**
+         * بدل التجاهل الصامت: التجاهل بيرجّع 200 والعميل يظن إن
+         * الحالة اتغيّرت، فبيلاقي الداتا زي ما هي. الرفض الصريح
+         * بيقول للعميل إن طريق التحويل هو
+         * `POST /api/lessons/{lesson}/transition`.
+         */
+        if ($request->has('status')) {
+            return response()->json([
+                'message' => 'تغيير حالة الحصة من /api/lessons/{lesson}/transition بس — الحقل status مش بيتقبل هنا',
+            ], 422);
+        }
+
         $data = $request->validate([
             'scheduled_start' => 'sometimes|date',
             'duration_minutes' => 'sometimes|integer|min:15',
             'notes' => 'nullable|string',
-            'status' => 'sometimes|in:scheduled,confirmed,in_progress,completed,cancelled,student_absent,teacher_absent,technical_issue,rescheduled',
         ]);
 
         if (isset($data['scheduled_start']) || isset($data['duration_minutes'])) {
@@ -149,6 +166,42 @@ class LessonController extends Controller
         return response()->json($lesson->fresh());
     }
 
+    /**
+     * ⭐⭐⭐ **PR 3.1 — القناة الوحيدة لتغيير حالة الحصة.**
+     *
+     * `LessonService::transition` هو الكاتب الوحيد للحالة، وكل
+     * تحويل يتسجَّل في `lesson_status_history`. التحويل المخالف
+     * لجدول التحويلات = **422** (مش 403 — الرفض من القاعدة لا
+     * من الصلاحية).
+     */
+    public function transition(Request $request, Lesson $lesson)
+    {
+        Gate::authorize('update', $lesson);
+
+        $data = $request->validate([
+            'to' => ['required', 'string', Rule::in(LessonStatus::values())],
+            'reason' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $to = LessonStatus::from($data['to']);
+
+        // ⭐ الإلغاء لازم سبب — من غيره السجل بيكون ناقص.
+        if ($to->isCancellation() && blank($data['reason'] ?? null)) {
+            return response()->json([
+                'message' => 'سبب الإلغاء مطلوب',
+            ], 422);
+        }
+
+        $updated = app(LessonService::class)->transition(
+            $lesson,
+            $to,
+            $request->user(),
+            $data['reason'] ?? null,
+        );
+
+        return response()->json($updated);
+    }
+
     public function cancel(Request $request, Lesson $lesson)
     {
         Gate::authorize('update', $lesson);
@@ -157,12 +210,20 @@ class LessonController extends Controller
             'cancellation_reason' => 'required|string|max:255',
         ]);
 
-        $lesson->update([
-            'status' => 'cancelled',
-            'cancellation_reason' => $data['cancellation_reason'],
-        ]);
+        /**
+         * ⭐⭐⭐ **PR 3.1 — الإلغاء بقى يمرّ بآلة الحالات.**
+         *
+         * `LessonService::cancel` يختار **المبكر** (`cancelled_by_academy`)
+         * أو **المتأخر** (`cancelled_late`) حسب وقت بداية الحصة —
+         * والفرق في **الرصيد والمستحقات** فرق حقيقي، مش شكلي.
+         */
+        $updated = app(LessonService::class)->cancel(
+            $lesson,
+            $request->user(),
+            $data['cancellation_reason'],
+        );
 
-        return response()->json($lesson->fresh());
+        return response()->json($updated);
     }
 
     public function makeup(Request $request, Lesson $lesson)
@@ -173,7 +234,13 @@ class LessonController extends Controller
             'scheduled_start' => 'required|date',
         ]);
 
-        $lesson->update(['status' => 'teacher_absent']);
+        // ⭐ PR 3.1 — غياب المعلم قرار مسجَّل، مش تعديلStatus مباشر.
+        $lesson = app(LessonService::class)->transition(
+            $lesson,
+            LessonStatus::TeacherAbsent,
+            $request->user(),
+            'جدولة حصة تعويضية',
+        );
 
         $start = Carbon::parse($data['scheduled_start']);
         $end = $start->copy()->addMinutes($lesson->duration_minutes);
@@ -194,6 +261,10 @@ class LessonController extends Controller
         /**
          * ⭐⭐ PR 2.10 — حارس الحالة: الإكمال قرار مرة واحدة.
          * النداء التاني كان بيكتب **مستحق تاني** لنفس الحصة.
+         *
+         * ⭐ PR 3.1 — الحارس بقى **جزء من جدول التحويلات**:
+         * `completed` حالة نهائية، فالتحويل المكرر = 422 من الآلة
+         * نفسها (والرسالة بقيت واحدة في مكان واحد).
          */
         if ($lesson->status === 'completed') {
             return response()->json([
@@ -205,9 +276,14 @@ class LessonController extends Controller
         // (لقطة السعر + الاعتماد التلقائي الإعدادات + القفل)
         app(\App\Services\TeacherEarningService::class)->ensureForLesson($lesson, $request->user());
 
-        $lesson->update(['status' => 'completed']);
+        // ⭐ PR 3.1 — الإكمال بيمرّ بآلة الحالات (مع تسجيل).
+        $updated = app(LessonService::class)->transition(
+            $lesson,
+            LessonStatus::Completed,
+            $request->user(),
+        );
 
-        return response()->json($lesson->fresh());
+        return response()->json($updated);
     }
 
     public function attendance(Request $request, Lesson $lesson)

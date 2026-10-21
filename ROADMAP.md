@@ -161,7 +161,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 
 **Phase 3 — Lesson Lifecycle and Academic Operations**
 
-- [ ] PR 3.1 — Lesson State Machine
+- [x] PR 3.1 — Lesson State Machine
 - [ ] PR 3.2 — Configurable Lesson Policies
 - [ ] PR 3.3 — Lesson Credit Consumption
 - [ ] PR 3.4 — Lesson Completion Pipeline (idempotent)
@@ -1441,6 +1441,17 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** A disallowed transition = 422; a test passes over all (from, to) pairs.
 **Depends on:** 0.7
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-21):**
+> - `App\Enums\LessonStatus` (enum مُسنَد) هو **مرجع المفردات الوحيد**، و`allowedTransitions()` هو **جدول التحويلات** — مفيش استعلامات موزّعة في الـcontroller. الخدمة `LessonService::transition()` هي **الكاتب الوحيد** لـ`lessons.status` (كل نداء تاني بيروح ليها).
+> - **مفردات جديدة**: `cancelled` و`technical_issue` اتشالوا من الجدول واستُبدلوا بـ`cancelled_by_academy` و`cancelled_late` — لأن «ملغاة» كانت بتقول نوعين مختلفين، والعطل التقني فعلياً إلغاء من الأكاديمية (السبب محفوظ في `cancellation_reason`). الميجريشن بيوسّع الـCHECK الأول (11 قيمة) → يحوّل الصفوف → يضيّق (9 قيم).
+> - **قيد Postgres (موثّق):** Laravel بينفّذ الـenum كـ`varchar check (...)` — والـCHECK القديم (`lessons_status_check`) **مش بيتشال** بـ`change()` لوحده، فالميجريشن بيمسح كل CHECK على العمود `lessons.status` يدوياً قبل كل خطوة. في SQLite `change()` بيعيد بناء الجدول (المفاتيح والأعمدة والفهارس محفوظة — اتأكدنا تجريبياً على نسخة من قاعدة التطوير).
+> - **حالة جديدة**: `lesson_status_history` (إضافة فقط — مفيش `updated_at`): من، إلى، الفاعل، السبب. كل تحويل يتسجَّل؛ والتحويل المرفوض **مش** بيتسجَّل.
+> - **المسار الوحيد**: `POST /api/lessons/{lesson}/transition` (صلاحية `lessons.update` + `LessonPolicy::update`). **`PUT /api/lessons/{id}` بقى يرفض `status` بـ422** بدل ما يتجاهله (المواصفة قالت «يتجاهل») — التجاهل الصامت بيرجّع 200 والعميل يظن إن الحالة اتغيّرت. التحويل المخالف = **422** (الرفض من القاعدة لا من الصلاحية).
+> - **الإلغاء** بقى يمرّ بالآلة وبيختار `cancelled_by_academy` (قبل بداية الحصة) أو `cancelled_late` (بعد بدايتها) — والفرق في **الرصيد والمستحقات** فرق حقيقي. و`complete`/`makeup` بقوا يمرّوا بالآلة (مع استحقاق المعلم زي ما هو).
+> - **قرار في جدول التحويلات:** الإكمال **المباشر** من `scheduled`/`confirmed` مسموح (`in_progress` حالة اختيارية) — لأن المعلم بيسجّل الحصة مكتملة من غير ما يضغط «بدأ»، ومنع ده كان بيكسر `TeacherEarningApprovalTest` (سلوك منتشر).
+> - **الواجهة:** نوع `Lesson["status"]` اتحدّث للمفردات التسع، وفلاتر «الملغاة»/«المشاكل» في صفحة الجدول و`TeacherScheduleEditor` وصفحة المعلمين اتعدّلت. `transitionLesson()` اتضافت في `lib/api.ts` (استخدامها في الواجهة في PR 3.2).
+> - **ما لم يُتحقق:** مسار Postgres **مش متجرَّب محلياً** (البيئة SQLite بس) — منطق إسقاط الـCHECK مكتوب بـSQL صريح و`pg_constraint`، لكن **جرّبته على Postgres قبل ما تنزل الميجريشن على الإنتاج**. كما أن إكمال «الغياب»/`rescheduled` من الواجهة لسه مش موجود (PR 3.2).
 ### PR 3.2 — Configurable Lesson Policies
 **Goal:** Implement decision 6: the administration controls it whenever it wishes.
 **Tasks:**

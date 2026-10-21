@@ -468,6 +468,10 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::post('/lessons/{lesson}/cancel', [LessonController::class, 'cancel'])->middleware('permission:lessons.cancel');
     Route::post('/lessons/{lesson}/makeup', [LessonController::class, 'makeup'])->middleware('permission:lessons.create');
     Route::post('/lessons/{lesson}/complete', [LessonController::class, 'complete'])->middleware('permission:lessons.update');
+    // ⭐ PR 3.1 — القناة الوحيدة لتغيير حالة الحصة (آلة الحالات).
+    // `update` ما بيغيّرش الحالة — التحويل من هنا بس، وكل تحويل
+    // يتسجَّل في `lesson_status_history`.
+    Route::post('/lessons/{lesson}/transition', [LessonController::class, 'transition'])->middleware('permission:lessons.update');
     Route::post('/lessons/{lesson}/attendance', [LessonController::class, 'attendance'])->middleware('permission:lessons.update');
     Route::post('/lessons/{lesson}/memorization', [LessonController::class, 'memorization'])->middleware('permission:lessons.update');
 

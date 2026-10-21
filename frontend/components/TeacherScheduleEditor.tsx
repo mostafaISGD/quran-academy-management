@@ -144,7 +144,7 @@ export default function TeacherScheduleEditor({
     () =>
       lessons
         .filter((l) => new Date(l.scheduled_start_at) >= new Date())
-        .filter((l) => l.status !== "cancelled")
+        .filter((l) => l.status !== "cancelled_by_academy" && l.status !== "cancelled_late")
         .sort(
           (a, b) =>
             new Date(a.scheduled_start_at).getTime() -

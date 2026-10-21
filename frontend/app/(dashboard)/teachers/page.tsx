@@ -42,10 +42,11 @@ const LESSON_STATUS_LABEL: Record<string, string> = {
   confirmed: "مؤكدة",
   in_progress: "جارية",
   completed: "مكتملة",
-  cancelled: "ملغاة",
+  // ⭐ PR 3.1 — مفردات آلة الحالات الجديدة.
+  cancelled_by_academy: "ملغاة من الأكاديمية",
+  cancelled_late: "ملغاة متأخرة",
   student_absent: " الطالب غائب",
   teacher_absent: "المعلم غائب",
-  technical_issue: "مشكلة تقنية",
   rescheduled: "مؤجلة",
 };
 
@@ -54,10 +55,10 @@ const LESSON_STATUS_COLORS: Record<string, string> = {
   scheduled: "bg-blue-100 text-blue-700",
   confirmed: "bg-blue-100 text-blue-700",
   in_progress: "bg-amber-100 text-amber-700",
-  cancelled: "bg-red-100 text-red-600",
+  cancelled_by_academy: "bg-red-100 text-red-600",
+  cancelled_late: "bg-red-100 text-red-600",
   student_absent: "bg-orange-100 text-orange-700",
   teacher_absent: "bg-orange-100 text-orange-700",
-  technical_issue: "bg-purple-100 text-purple-700",
   rescheduled: "bg-slate-100 text-slate-600",
 };
 

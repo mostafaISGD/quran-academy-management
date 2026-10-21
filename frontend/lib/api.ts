@@ -867,7 +867,8 @@ export type Lesson = {
   duration_minutes: number;
   meeting_provider: "zoom" | "google_meet" | "other" | null;
   meeting_url: string | null;
-  status: "scheduled" | "confirmed" | "in_progress" | "completed" | "cancelled" | "student_absent" | "teacher_absent" | "technical_issue" | "rescheduled";
+  // ⭐ PR 3.1 — مفردات حالة الحصة الجديدة (آلة الحالات).
+  status: "scheduled" | "confirmed" | "in_progress" | "completed" | "student_absent" | "teacher_absent" | "cancelled_by_academy" | "cancelled_late" | "rescheduled";
   cancellation_reason: string | null;
   notes: string | null;
   student?: { id: number; full_name: string };
@@ -4049,6 +4050,24 @@ export function cancelLesson(lessonId: number, reason: string) {
 
 export function completeLesson(lessonId: number) {
   return apiFetch<Lesson>(`/lessons/${lessonId}/complete`, { method: "POST" });
+}
+
+/**
+ * ⭐ PR 3.1 — قناة تغيير حالة الحصة (آلة الحالات).
+ *
+ * `PUT /lessons/{id}` **مش** بيغيّر الحالة (بيرفض `status` بـ422).
+ * التحويل من هنا بس، والـbackend بيتحقق من جدول التحويلات
+ * ويرجّع 422 لو التحويل مش مسموح. الإلغاء لازم سبب.
+ */
+export function transitionLesson(
+  lessonId: number,
+  to: Lesson["status"],
+  reason?: string,
+) {
+  return apiFetch<Lesson>(`/lessons/${lessonId}/transition`, {
+    method: "POST",
+    body: JSON.stringify({ to, reason }),
+  });
 }
 
 export function markAttendance(lessonId: number, status: string, lateMinutes?: number) {

@@ -25,10 +25,10 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   confirmed: { label: "مؤكدة", color: "text-blue-700", bg: "bg-blue-100 border-blue-300" },
   in_progress: { label: "جارية الآن", color: "text-purple-700", bg: "bg-purple-100 border-purple-300" },
   completed: { label: "مكتملة", color: "text-green-700", bg: "bg-green-100 border-green-300" },
-  cancelled: { label: "ملغاة", color: "text-red-700", bg: "bg-red-100 border-red-300" },
+  cancelled_by_academy: { label: "ملغاة من الأكاديمية", color: "text-red-700", bg: "bg-red-100 border-red-300" },
+  cancelled_late: { label: "ملغاة متأخرة", color: "text-red-700", bg: "bg-red-100 border-red-300" },
   student_absent: { label: "غياب الطالب", color: "text-orange-700", bg: "bg-orange-100 border-orange-300" },
   teacher_absent: { label: "غياب المعلم", color: "text-red-700", bg: "bg-red-100 border-red-300" },
-  technical_issue: { label: "مشكلة تقنية", color: "text-red-700", bg: "bg-red-100 border-red-300" },
   rescheduled: { label: "أُعيدت جدولتها", color: "text-purple-700", bg: "bg-purple-100 border-purple-300" },
 };
 
@@ -129,8 +129,10 @@ export default function SchedulePage() {
       scheduled: todayLessons.filter((l) => l.status === "scheduled").length,
       completed: todayLessons.filter((l) => l.status === "completed").length,
       absent: todayLessons.filter((l) => l.status === "student_absent" || l.status === "teacher_absent").length,
-      cancelled: todayLessons.filter((l) => l.status === "cancelled").length,
-      issues: todayLessons.filter((l) => l.status === "technical_issue").length,
+      // ⭐ PR 3.1 — الإلغاء بقى مفردين (مبكر/متأخر)، والعطل
+      // التقني اندمج في «ملغاة من الأكاديمية» (السبب أكاديمي).
+      cancelled: todayLessons.filter((l) => l.status === "cancelled_by_academy" || l.status === "cancelled_late").length,
+      issues: todayLessons.filter((l) => l.status === "cancelled_late").length,
       makeups: todayLessons.filter((l) => l.lesson_type === "makeup").length,
       unconfirmed: todayLessons.filter((l) => l.status === "scheduled").length,
       liveNow: todayLessons.filter((l) => l.status === "in_progress").length,
@@ -142,7 +144,7 @@ export default function SchedulePage() {
     let result = lessons;
     if (filter === "today") result = result.filter((l) => new Date(l.scheduled_start_at).toDateString() === new Date().toDateString());
     if (filter === "in_progress") result = result.filter((l) => l.status === "in_progress");
-    if (filter === "problems") result = result.filter((l) => ["technical_issue", "teacher_absent", "student_absent"].includes(l.status));
+    if (filter === "problems") result = result.filter((l) => ["teacher_absent", "student_absent", "cancelled_late"].includes(l.status));
     if (filter === "makeups") result = result.filter((l) => l.lesson_type === "makeup");
     if (filter === "trials") result = result.filter((l) => l.lesson_type === "trial");
     if (searchQuery) {
@@ -590,7 +592,7 @@ export default function SchedulePage() {
                 </a>
               )}
               <div className="flex gap-2 border-t border-slate-200 pt-3">
-                {selectedLesson.status !== "completed" && selectedLesson.status !== "cancelled" && (
+                {selectedLesson.status !== "completed" && selectedLesson.status !== "cancelled_by_academy" && selectedLesson.status !== "cancelled_late" && (
                   <>
                     <button onClick={() => { handleComplete(selectedLesson); setSelectedLesson(null); }} className="flex-1 rounded-lg bg-green-100 px-3 py-2 text-sm text-green-700 hover:bg-green-200">إنهاء</button>
                     <button onClick={() => { handleAttendance(selectedLesson, "present"); setSelectedLesson(null); }} className="flex-1 rounded-lg bg-blue-100 px-3 py-2 text-sm text-blue-700 hover:bg-blue-200">حاضر</button>
