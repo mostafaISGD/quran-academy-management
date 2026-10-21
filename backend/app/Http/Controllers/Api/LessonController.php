@@ -14,6 +14,7 @@ use App\Services\LessonScheduler;
 use App\Services\LessonService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 
@@ -272,16 +273,32 @@ class LessonController extends Controller
             ], 422);
         }
 
-        // ⭐⭐ PR 2.10 — إنشاء المستحق من `TeacherEarningService`
-        // (لقطة السعر + الاعتماد التلقائي الإعدادات + القفل)
-        app(\App\Services\TeacherEarningService::class)->ensureForLesson($lesson, $request->user());
+        /**
+         * ⭐⭐⭐ **PR 3.3 — العملية ذرّية: الحالة + الخصم + المستحق.**
+         *
+         * ⚠️ **ليه الـtransactionjpeg:**
+         * كان ترتيبها: **المستحق الأول** وبعدين التحويل (والخصم
+         * جوّه). فلو رصيد الطالب خلص ⇒ التحويل مرفوض (422) — بس
+         * **المستحق كان اتسجّل قبل الرفض** ⇒ مستحق معلم على حصة
+         * ما اتقبلتش (فلوس على حصة مش موجودة).
+         *
+         * ⭐ دلوقتي: التحويل (والخصم) **أول**، وبعدين المستحق —
+         * وكلهم في نفس الـtransaction ⇒ أي فشل يرجع كله.
+         */
+        $updated = DB::transaction(function () use ($lesson, $request) {
+            // ⭐ PR 3.1 — الإكمال بيمرّ بآلة الحالات (مع تسجيل).
+            $completed = app(LessonService::class)->transition(
+                $lesson,
+                LessonStatus::Completed,
+                $request->user(),
+            );
 
-        // ⭐ PR 3.1 — الإكمال بيمرّ بآلة الحالات (مع تسجيل).
-        $updated = app(LessonService::class)->transition(
-            $lesson,
-            LessonStatus::Completed,
-            $request->user(),
-        );
+            // ⭐⭐ PR 2.10 — إنشاء المستحق من `TeacherEarningService`
+            // (لقطة السعر + الاعتماد التلقائي الإعدادات + القفل)
+            app(\App\Services\TeacherEarningService::class)->ensureForLesson($completed, $request->user());
+
+            return $completed;
+        });
 
         return response()->json($updated);
     }

@@ -163,7 +163,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 
 - [x] PR 3.1 — Lesson State Machine
 - [x] PR 3.2 — Configurable Lesson Policies
-- [ ] PR 3.3 — Lesson Credit Consumption
+- [x] PR 3.3 — Lesson Credit Consumption
 - [ ] PR 3.4 — Lesson Completion Pipeline (idempotent)
 - [ ] PR 3.5 — Attendance Linked to Lesson Outcome
 - [ ] PR 3.6 — Scheduling Correctness
@@ -1483,6 +1483,16 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** A subscription of 8 lessons, 3 completed + 1 teacher absence = balance 5 (per the default policy).
 **Depends on:** 3.2
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-21):**
+> - **`LessonCreditService`** (`consume` · `refund` · `balance`) — والمصدر للحقيقة **`lesson_credit_transactions`**؛ و`lesson_credit_accounts.current_balance` **كاش متزامن** (بيحسب من الحركات وبيكتبه). قبل PR ده: الحساب كان بيتفتح و**مفيش حاجة بتتخصم منه** — فالرصيد اللي ولي الأمر بيشوفه كان دايماً الرصيد الأولي (8 مثلاً) مهما اتّصلت حصص.
+> - **الكمية سالبة للخصم** (`-1`) و`+1` للإرجاع — فمجموع الحركات = الرصيد (من غير علامات). و`balance_after` = الرصيد بعد الحركة.
+> - **متى يُخصم؟** وقت التحويل لو النتيجة في **لقطة السياسة** (`policy_snapshot` من PR 3.2) فيها `deduct_credit = true` — فالحصة المكتملة (الافتراضي) بتخصم، والغياب والإلغاء **ما بيخصموش**. الحصة **قبل** PR 3.2 (بلا لقطة) ما بتخصمش — سلوك آمن.
+> - **السحب (overdraft) ممنوع افتراضياً** عبر الإعداد `lesson_credit_overdraft_allowed` (bool): لو الرصيد ما يكفيش ⇒ **422** (`InsufficientLessonCredit`) والعملية كلها بترجع (الحالة + السجل + المستحق). والسحب المسموح ⇒ الرصيد بيوصل سالب.
+> - **بوابة ولي الأمر اتصلّحت**: `creditBalanceFor` و`creditAccountsFor` بقوا يقرأوا من الخدمة (المشتق) بدل `current_balance` المخزّن — والحساب والاشتراك بقوا متسقين.
+> - ⭐ **بِغ ذرّية اتكشّف في PR ده**: في `POST /lessons/{id}/complete` كان ترتيب العمليات **المستحق أولاً** وبعدين التحويل (والخصم) — فلو رصيد الطالب خلص، التحويل مرفوض (422) بس **المستحق كان اتسجّل قبل الرفض** (مستحق معلم على حصة ما اتقبلتش). دلوقتي: التحويل (والخصم) **أول** وبعدين المستحق، وكلهم في **نفس الـtransaction** ⇒ أي فشل يرجع كله. الاختبارين (الرفض والمستحق) بيغطّي الحالتين.
+> - **الإرجاع** (`refund`) = **سطر جديد** في السجل (مش تعديل — القاعدة 7)، وطريقة جاهزة للربط مع التصحيح الإداري.
+> - **ما لم يُتحقق:** الربط بين الاستهلاك و**مستحقات المعلم** على مستوى نفس العملية اتأكد (ذرّية)، بس **سياسة الاستهلاك حسب الباقة/الفترة** (حساب منفصل لكل باقة) لسه شغل PR 3.4+. كما أن واجهة الإعداد للسحب (`lesson_credit_overdraft_allowed`) جاية مع مركز الإعدادات (PR 3.12) — حالياً بيتضبط بالـAPI.
 ### PR 3.4 — Lesson Completion Pipeline (idempotent)
 **Goal:** Completing a lesson produces all of its effects exactly once.
 **Tasks:**

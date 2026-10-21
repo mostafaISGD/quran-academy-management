@@ -85,6 +85,14 @@ final class LessonService
 
             $locked->forceFill($attributes)->save();
 
+            // ⭐⭐⭐ **PR 3.3 — استهلاك رصيد الحصص.**
+            //
+            // بيشتغل **بعد** حفظ اللقطة (اللي بتقول هل النتيجة
+            // بتخصم ولا لأ) و**جوّه نفس الـtransaction** — فإما
+            // الحصة بتخلص عادي والرصيد بينقص، أو كله بيرجع (422
+            // لما الرصيد ما يكفيش والسحب ممنوع).
+            app(LessonCreditService::class)->consume($locked, $actor);
+
             LessonStatusHistory::create([
                 'lesson_id' => $locked->id,
                 'from_status' => $from->value,

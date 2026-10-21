@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Lesson;
 use App\Models\ParentModel;
+use App\Services\LessonCreditService;
 use App\Models\Subscription;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -184,16 +185,17 @@ class ParentPortalController extends Controller
         ];
     }
 
-    /** الرصيد المتبقي من حساب الحصص النشط للاشتراك */
+    /**
+     * ⭐⭐⭐ **PR 3.3 — الرصيد المتبقي من الخدمة** (مش من الكاش).
+     *
+     * ⭐ `LessonCreditService::balanceForSubscription` بيحسب الرصيد
+     * من **حركات** `lesson_credit_transactions` (المصدر للحقيقة) —
+     * لا من `current_balance` المخزّن. قبل PR ده البوابة كانت
+     * بتعرض رصيد ثابت (الأولي) مهما اتّصلت حصص.
+     */
     private function creditBalanceFor(int $subscriptionId): ?float
     {
-        $row = \Illuminate\Support\Facades\DB::table('lesson_credit_accounts')
-            ->where('subscription_id', $subscriptionId)
-            ->where('status', 'active')
-            ->orderByDesc('id')
-            ->first();
-
-        return $row ? (float) $row->current_balance : null;
+        return app(LessonCreditService::class)->balanceForSubscription($subscriptionId);
     }
 
     /**
@@ -211,15 +213,18 @@ class ParentPortalController extends Controller
             ? $includedByStudent
             : collect($includedByStudent);
 
+        $service = app(LessonCreditService::class);
+
         return \Illuminate\Support\Facades\DB::table('lesson_credit_accounts')
             ->whereIn('student_id', $studentIds)
-            ->where('status', 'active')
+            ->whereIn('status', ['active', 'depleted'])
             ->orderByDesc('id')
             ->get()
             ->groupBy('student_id')
             ->map(fn ($rows) => $rows->first())
             ->map(fn ($row) => [
-                'balance' => (float) $row->current_balance,
+                // ⭐ PR 3.3 — الرصيد **المشتق** من الحركات.
+                'balance' => $service->balance((int) $row->id),
                 'included' => (float) ($includedByStudent[$row->student_id] ?? 0),
                 'status' => $row->status,
                 'expires_at' => $row->expires_at,
