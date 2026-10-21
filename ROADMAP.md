@@ -162,7 +162,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 **Phase 3 — Lesson Lifecycle and Academic Operations**
 
 - [x] PR 3.1 — Lesson State Machine
-- [ ] PR 3.2 — Configurable Lesson Policies
+- [x] PR 3.2 — Configurable Lesson Policies
 - [ ] PR 3.3 — Lesson Credit Consumption
 - [ ] PR 3.4 — Lesson Completion Pipeline (idempotent)
 - [ ] PR 3.5 — Attendance Linked to Lesson Outcome
@@ -1450,7 +1450,7 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 > - **المسار الوحيد**: `POST /api/lessons/{lesson}/transition` (صلاحية `lessons.update` + `LessonPolicy::update`). **`PUT /api/lessons/{id}` بقى يرفض `status` بـ422** بدل ما يتجاهله (المواصفة قالت «يتجاهل») — التجاهل الصامت بيرجّع 200 والعميل يظن إن الحالة اتغيّرت. التحويل المخالف = **422** (الرفض من القاعدة لا من الصلاحية).
 > - **الإلغاء** بقى يمرّ بالآلة وبيختار `cancelled_by_academy` (قبل بداية الحصة) أو `cancelled_late` (بعد بدايتها) — والفرق في **الرصيد والمستحقات** فرق حقيقي. و`complete`/`makeup` بقوا يمرّوا بالآلة (مع استحقاق المعلم زي ما هو).
 > - **قرار في جدول التحويلات:** الإكمال **المباشر** من `scheduled`/`confirmed` مسموح (`in_progress` حالة اختيارية) — لأن المعلم بيسجّل الحصة مكتملة من غير ما يضغط «بدأ»، ومنع ده كان بيكسر `TeacherEarningApprovalTest` (سلوك منتشر).
-> - **الواجهة:** نوع `Lesson["status"]` اتحدّث للمفردات التسع، وفلاتر «الملغاة»/«المشاكل» في صفحة الجدول و`TeacherScheduleEditor` وصفحة المعلمين اتعدّلت. `transitionLesson()` اتضافت في `lib/api.ts` (استخدامها في الواجهة في PR 3.2).
+> - **الواجهة:** نوع `Lesson["status"]` اتحدّث للمفردات التسع، وفلاتر «الملغاة»/«المشاكل» في صفحة الجدول و`TeacherScheduleEditor` وصفحة المعلمين اتعدّلت. `transitionLesson()` اتضافت في `lib/api.ts` (استخدامها في الواجهة جاي مع ربط الاستهلاك في PR 3.3).
 > - **ما لم يُتحقق:** مسار Postgres **مش متجرَّب محلياً** (البيئة SQLite بس) — منطق إسقاط الـCHECK مكتوب بـSQL صريح و`pg_constraint`، لكن **جرّبته على Postgres قبل ما تنزل الميجريشن على الإنتاج**. كما أن إكمال «الغياب»/`rescheduled` من الواجهة لسه مش موجود (PR 3.2).
 ### PR 3.2 — Configurable Lesson Policies
 **Goal:** Implement decision 6: the administration controls it whenever it wishes.
@@ -1461,6 +1461,19 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** Changing the policy does not affect lessons already completed; a new lesson follows the new policy.
 **Depends on:** 3.1
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-21):**
+> - **إعادة تصميم `lesson_policies`:** بقى **صف لكل (نتيجة × نطاق)** (`global` أو `program`) بدل صف واحد بأعمدة ثابتة. السبب: كل نتيجة جديدة كانت هتحتاج عمودين جدد، وكل نطاق برنامج كان هيحتاج نسخة كاملة من الأعمدة — الشكل أفقي بيكبر بلا نهاية؛ الشكل الجديد بيكبر **رأسياً** (صف جديد لكل قرار) من غير ما يمسّ الجدول.
+> - **الأعمدة**: `deduct_credit` · `pay_teacher` · `allow_makeup` · `makeup_limit` · `makeup_window_days` · `notify_parent` · `late_cancel_notice_hours` + `makeup_deducts_from_package` (سلوك قائم من قبل محفوظ عشان ما يتكسّرش).
+> - **البيانات القديمة اتحوّلت** (مش اتضيعت): كل صف قديم (بأعمدة ثابتة) اتحوّل لـ5 صفوف — القيم القديمة اتتموضعت على نتايجها (غياب الطالب ← صف `student_absent` وهكذا).
+> - **اللقطة**: `lessons.policy_snapshot` (JSON) بتتخزّن على الحصة **وقت التحويل** — فبتعديل السياسة بعدين ما بيغيّرش التاريخ (القبول: «الحصة القديمة ما اتغيّرتش» / «الحصة الجديدة تاخد السياسة الجديدة»). النطاق `program` بيغلب `global` (الاختبار بيغطّي ده).
+> - **الصلاحيات جديدة**: `lessons.policies.view` (قراءة) و`lessons.policies.manage` (تعديل — قرار إداري). `supervisor` خد **القراءة بس**، و`admin` خد الكل. المسار القديم كان `settings.view/update` — اتغيّر لصلاحيات الحصة (تغيير سلوك موثّق).
+> - **الـAPI**: `GET /api/lesson-policy` (الصفوف + الافتراضات) و`PUT /api/lesson-policy/{policy}` (تعديل **صف واحد** — مش كائن كامل). كل تعديل بيتسجَّل في `audit_logs` (القديم والجديد).
+> - **ضمان الوجود**: `LessonPolicyService::ensure()` بيزرع الصفوف الناقصة بالافتراضات الآمنة لما الـAPI يتقرأ — عشان المدير دايماً يلاقي صف يعدّله حتى لو الـseeder ما اشتغلش.
+> - **الافتراضات الآمنة** (مصدر واحد `LessonPolicy::defaults()`): الحصة المكتملة بتخصم وبتدفع؛ الغياب والإلغاء **ما بيخصموش** و**ما بيدفعوش**؛ التعويض مسموح في الغياب (حد 4 / نافذة 30 يوماً).
+> - **الواجهة**: صفحة «سياسات الحصة» اتحوّلت من form بأعمدة ثابتة لجدول **صف لكل نتيجة** (كل صف بيتحفظ لوحده) + `api.ts` اتحدّث (نوع `LessonPolicy` + `updateLessonPolicy(id, payload)`).
+> - **تغيير عقد موثّق**: اختبارَين في `CreditAndCommissionTest` (قسم «سياسة الحصص») اتحدّثوا للشكل الجديد — النوايا (افتراضات/تعديل/صلاحية) زي ما هي.
+> - **ما لم يُتحقق:** مسار Postgres **مش متجرَّب محلياً** (البيئة SQLite بس) — الميجريشن فيه `rename` + `drop` + `create` وكلها مدعومة في Postgres، لكن **جرّب الرجوع (down) على Postgres قبل الإنتاج**. كما أن ربط السياسات بالاستهلاك الفعلي للرصيد (PR 3.3) لسه شغل PR 3.3.
 ### PR 3.3 — Lesson Credit Consumption
 **Goal:** The balance the parent sees is correct.
 **Tasks:**

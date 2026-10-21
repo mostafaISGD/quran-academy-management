@@ -16,6 +16,8 @@ class Lesson extends Model
         'lesson_type', 'scheduled_start_at', 'scheduled_end_at', 'actual_start', 'actual_end',
         'duration_minutes', 'meeting_provider', 'meeting_url', 'meeting_id',
         'meeting_password', 'status', 'cancellation_reason', 'notes',
+        // ⭐ PR 3.2 — لقطة السياسة وقت التحويل (JSON).
+        'policy_snapshot',
     ];
 
     protected function casts(): array
@@ -25,6 +27,8 @@ class Lesson extends Model
             'scheduled_end_at' => 'datetime',
             'actual_start' => 'datetime',
             'actual_end' => 'datetime',
+            // ⭐ PR 3.2 — اللقطة JSON (مصفوفة).
+            'policy_snapshot' => 'array',
         ];
     }
 

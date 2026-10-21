@@ -173,6 +173,9 @@ class SeedRolesPermissions extends Seeder
             'teachers.view',
             'lessons.view',
             'lessons.update',
+            // ⭐ PR 3.2 — يقدر يشوف سياسات الحصص (قرار التعديل
+            // لسه إدارة بس).
+            'lessons.policies.view',
             'reports.view',
             'programs.view',
             'attendance.view',

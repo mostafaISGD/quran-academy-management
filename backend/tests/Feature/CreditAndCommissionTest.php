@@ -241,36 +241,52 @@ class CreditAndCommissionTest extends TestCase
     // ============================================================
     // ③ سياسة الحصص
     // ============================================================
+    //
+    // ⭐⭐⭐ **PR 3.2 — الشكل اتغيّر**: بقى **صف لكل (نتيجة ×
+    // نطاق)** بدل صف واحد بأعمدة ثابتة، والصلاحيات بقت
+    // `lessons.policies.view` / `lessons.policies.manage`، والتعديل
+    // بقى على **صف واحد** (`PUT /api/lesson-policy/{policy}`).
+    // النوايا (الافتراضات + التعديل + الصلاحية) زي ما هي.
 
     public function test_lesson_policy_returns_defaults_on_first_access(): void
     {
-        $r = $this->getJsonAs('/api/lesson-policy', $this->paymentsUser());
+        $viewer = $this->makeUserWithRole('policy-viewer', ['lessons.policies.view']);
+
+        $r = $this->getJsonAs('/api/lesson-policy', $viewer);
 
         $r->assertOk();
-        $r->assertJsonPath('data.student_absence_consumes_lesson', false);
-        $r->assertJsonPath('data.makeup_deducts_from_package', true);
-        $r->assertJsonPath('data.max_makeup_per_month', 4);
+        $this->assertNotEmpty($r->json('data.policies'), 'مفيش سياسات مرجّعة');
+        $this->assertFalse($r->json('data.defaults.student_absent.deduct_credit'));
+        $this->assertTrue($r->json('data.defaults.student_absent.makeup_deducts_from_package'));
+        $this->assertSame(4, $r->json('data.defaults.student_absent.makeup_limit'));
     }
 
     public function test_lesson_policy_can_be_updated_and_persisted(): void
     {
-        $this->getJsonAs('/api/lesson-policy', $this->paymentsUser());
+        $manager = $this->makeUserWithRole('policy-manager', ['lessons.policies.view', 'lessons.policies.manage']);
 
-        $r = $this->putJsonAs('/api/lesson-policy', [
-            'student_absence_consumes_lesson' => true,
-            'student_absence_teacher_paid' => true,
-            'max_makeup_per_month' => 2,
-        ], $this->paymentsUser());
+        $listed = $this->getJsonAs('/api/lesson-policy', $manager);
+        $listed->assertOk();
+
+        $id = collect($listed->json('data.policies'))
+            ->firstWhere('outcome', 'student_absent')['id'];
+
+        $r = $this->putJsonAs("/api/lesson-policy/{$id}", [
+            'deduct_credit' => true,
+            'pay_teacher' => true,
+            'makeup_limit' => 2,
+        ], $manager);
 
         $r->assertOk();
-        $r->assertJsonPath('data.student_absence_consumes_lesson', true);
-        $r->assertJsonPath('data.student_absence_teacher_paid', true);
-        $r->assertJsonPath('data.max_makeup_per_month', 2);
+        $this->assertTrue($r->json('data.deduct_credit'));
+        $this->assertTrue($r->json('data.pay_teacher'));
+        $this->assertSame(2, $r->json('data.makeup_limit'));
 
         // ⭐ القراءة التانية ترجع القيم نفسها
-        $r2 = $this->getJsonAs('/api/lesson-policy', $this->paymentsUser());
-        $r2->assertJsonPath('data.student_absence_consumes_lesson', true);
-        $r2->assertJsonPath('data.max_makeup_per_month', 2);
+        $r2 = $this->getJsonAs('/api/lesson-policy', $manager);
+        $again = collect($r2->json('data.policies'))->firstWhere('id', $id);
+        $this->assertTrue($again['deduct_credit']);
+        $this->assertSame(2, $again['makeup_limit']);
     }
 
     public function test_non_admin_cannot_access_lesson_policy(): void

@@ -95,7 +95,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/pricing-admin", label: "إدارة الباقات", icon: "🏷️", permission: "pricing.manage" },
       { href: "/student-credits", label: "الرصيد الدائن", icon: "💳", permission: "payments.view" },
-      { href: "/lesson-policy", label: "سياسات الحصة", icon: "📋", permission: "settings.manage" },
+      { href: "/lesson-policy", label: "سياسات الحصة", icon: "📋", permission: "lessons.policies.view" },
       { href: "/promo-codes", label: "الأكواد الترويجية", icon: "🎟️", permission: "pricing.view" },
       { href: "/reminder-settings", label: "إعدادات التذكيرات", icon: "⏰", permission: "settings.manage" },
       // ⭐ الإشعارات مالهاش `permission` عمداً — كل دور بياخد

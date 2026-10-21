@@ -72,6 +72,17 @@ final class LessonService
                 $attributes['cancellation_reason'] = $reason;
             }
 
+            // ⭐⭐⭐ **PR 3.2 — لقطة السياسة.**
+            //
+            // النسخة المطبَّقة وقت التحويل بتتخزّن على الحصة — فبتعديل
+            // السياسة بعدين ما بيغيّرش history الحصة دي (والعكس:
+            // الحصة الجديدة بتاخد السياسة الجديدة).
+            $attributes['policy_snapshot'] = app(LessonPolicyService::class)->resolve(
+                (int) $locked->organization_id,
+                $to->value,
+                $locked->program_id === null ? null : (int) $locked->program_id,
+            );
+
             $locked->forceFill($attributes)->save();
 
             LessonStatusHistory::create([

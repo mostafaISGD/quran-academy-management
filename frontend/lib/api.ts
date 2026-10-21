@@ -2552,36 +2552,42 @@ export function getPromoCodeStats(id: number) {
 // سياسات الحصة (Lesson Policy)
 // ============================================================
 
+// ⭐ PR 3.2 — صف واحد = (نتيجة × نطاق).
 export type LessonPolicy = {
   id: number;
   organization_id: number;
-  student_absence_consumes_lesson: boolean;
-  student_absence_teacher_paid: boolean;
-  teacher_absence_consumes_lesson: boolean;
-  teacher_absence_teacher_paid: boolean;
-  makeup_consumes_lesson: boolean;
-  makeup_teacher_paid: boolean;
-  max_makeup_per_month: number;
-  max_makeup_days: number;
+  outcome: string;
+  scope: "global" | "program";
+  program_id: number | null;
+  program_name?: string | null;
+  deduct_credit: boolean;
+  pay_teacher: boolean;
+  allow_makeup: boolean;
+  makeup_limit: number;
+  makeup_window_days: number;
+  notify_parent: boolean;
+  late_cancel_notice_hours: number;
   makeup_deducts_from_package: boolean;
 };
 
 export function getLessonPolicy() {
-  return apiFetch<{ data: LessonPolicy }>("/lesson-policy");
+  return apiFetch<{
+    data: { policies: LessonPolicy[]; defaults: Record<string, Partial<LessonPolicy>> };
+  }>("/lesson-policy");
 }
 
-export function updateLessonPolicy(payload: Partial<{
-  student_absence_consumes_lesson: boolean;
-  student_absence_teacher_paid: boolean;
-  teacher_absence_consumes_lesson: boolean;
-  teacher_absence_teacher_paid: boolean;
-  makeup_consumes_lesson: boolean;
-  makeup_teacher_paid: boolean;
-  max_makeup_per_month: number;
-  max_makeup_days: number;
+/** ⭐ التعديل على **صف واحد** — مش على كائن كامل. */
+export function updateLessonPolicy(id: number, payload: Partial<{
+  deduct_credit: boolean;
+  pay_teacher: boolean;
+  allow_makeup: boolean;
+  makeup_limit: number;
+  makeup_window_days: number;
+  notify_parent: boolean;
+  late_cancel_notice_hours: number;
   makeup_deducts_from_package: boolean;
 }>) {
-  return apiFetch<{ message: string; data: LessonPolicy }>("/lesson-policy", {
+  return apiFetch<{ message: string; data: LessonPolicy }>(`/lesson-policy/${id}`, {
     method: "PUT",
     body: JSON.stringify(payload),
   });

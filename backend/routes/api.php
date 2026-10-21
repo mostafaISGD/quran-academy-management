@@ -532,8 +532,12 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
         ->middleware('permission:finance.payments.update');
 
     // ⭐ سياسة الحصص
-    Route::get('/lesson-policy', [LessonPolicyController::class, 'show'])->middleware('permission:settings.view');
-    Route::put('/lesson-policy', [LessonPolicyController::class, 'update'])->middleware('permission:settings.update');
+    // ⭐ PR 3.2 — سياسات الحصص: القراءة (`lessons.policies.view`)
+    // والتعديل قرار إدارة (`lessons.policies.manage`).
+    Route::get('/lesson-policy', [LessonPolicyController::class, 'show'])
+        ->middleware('permission:lessons.policies.view');
+    Route::put('/lesson-policy/{policy}', [LessonPolicyController::class, 'update'])
+        ->middleware('permission:lessons.policies.manage');
 
     // ⭐ تصدير CSV (Excel-compatible)
     Route::get('/exports/account-movements', [ExportController::class, 'accountMovements'])->middleware('permission:finance.accounts.view');

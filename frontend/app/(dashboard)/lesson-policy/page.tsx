@@ -10,101 +10,71 @@ import { useUI } from "@/components/ui";
 import { usePage } from "@/lib/use-page";
 
 /**
- * ⭐ سياسات الحصة — غياب الطالب، غياب المعلم، التعويض.
+ * ⭐⭐⭐ **سياسات الحصة (PR 3.2).**
  *
- * ⭐ صف واحد لكل أكاديمية. السياسات بتتحفظ وتترجع من API.
+ * ⭐ **صف = (نتيجة × نطاق)** — والجدول بيعرض الصفين جنب بعض:
+ * النطاق العام (`global`) ونطاق البرنامج (`program`) لو موجود.
+ *
+ * ⭐ **التعديل على صف واحد** (`PUT /api/lesson-policy/{id}`) — مش
+ * على كائن كامل: عشان تغيير سياسة برنامج مايمسّش بسياسة الأكاديمية.
+ *
+ * ⭐ **التعديل بيغيّر المستقبل بس** — الحصة اللي اتقبلت قبل
+ * التعديل محفوظة بلقطة سياستها.
  */
 
-const FIELD =
-  "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none";
-const BTN_PRIMARY =
-  "rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50";
+const BTN_SAVE =
+  "rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100 disabled:opacity-50";
 
-type PolicyForm = {
-  student_absence_consumes_lesson: boolean;
-  student_absence_teacher_paid: boolean;
-  teacher_absence_consumes_lesson: boolean;
-  teacher_absence_teacher_paid: boolean;
-  makeup_consumes_lesson: boolean;
-  makeup_teacher_paid: boolean;
-  makeup_deducts_from_package: boolean;
-  max_makeup_per_month: number;
-  max_makeup_days: number;
+const OUTCOME_LABEL: Record<string, string> = {
+  completed: "الحصة مكتملة",
+  student_absent: "الطالب غائب",
+  teacher_absent: "المعلم غائب",
+  cancelled_by_academy: "ملغاة من الأكاديمية",
+  cancelled_late: "ملغاة متأخرة",
 };
+
+const SCOPE_LABEL: Record<string, string> = {
+  global: "كل الأكاديمية",
+  program: "برنامج محدد",
+};
+
+/** ⭐ الحقول القابلة للتعديل في صف واحد. */
+type Editable = Pick<
+  LessonPolicy,
+  | "deduct_credit"
+  | "pay_teacher"
+  | "allow_makeup"
+  | "makeup_limit"
+  | "makeup_window_days"
+  | "notify_parent"
+  | "late_cancel_notice_hours"
+  | "makeup_deducts_from_package"
+>;
+
 export default function LessonPolicyPage() {
-
   const { toast } = useUI();
-  const [saving, setSaving] = useState(false);
+  const [savingId, setSavingId] = useState<number | null>(null);
 
-  /**
-   * ⭐ الجلب عن طريق `usePage` بدل `useEffect`.
-   *
-   * @see usePage
-   */
   const fetchPolicy = useCallback(() => getLessonPolicy(), []);
 
-  const { data: policyRes, loading, error, reload } = usePage<{ data: LessonPolicy } | null>(
-    "lesson-policy",
-    fetchPolicy,
-    { initial: null },
-  );
+  const { data: policyRes, loading, error, reload } = usePage<
+    { data: { policies: LessonPolicy[]; defaults: Record<string, Partial<LessonPolicy>> } } | null
+  >("lesson-policy", fetchPolicy, { initial: null });
 
-  const saved = policyRes?.data ?? null;
+  const policies = policyRes?.data?.policies ?? [];
 
-  /**
-   * ⭐ المسودة القابلة للتعديل — بتتبني من المحفوظ **أثناء الرسم**.
-   *
-   * ⭐⭐ دي نفس فكرة `attendance`: بنقارن البيانات المحملة
-   * بالنسخة اللي قبلنا، ولو اتغيّرت بننسخ تانية.
-   *
-   * ⭐ لازم نتبع **هوية** `saved` مش التاريخ: بعد الحفظ
-   * (`reload`) السيرفر بيرجّع كائن جديد، والمسودة لازم
-   * ترجع للمصدر.
-   */
-  const [policy, setPolicy] = useState<LessonPolicy | null>(null);
-  const [forSaved, setForSaved] = useState<LessonPolicy | null>(null);
-
-  if (saved !== forSaved) {
-    setForSaved(saved);
-    setPolicy(saved);
-  }
-
-  const handleChange = <K extends keyof PolicyForm>(
-    key: K,
-    value: PolicyForm[K],
-  ) => {
-    setPolicy((prev: LessonPolicy | null) =>
-      prev ? { ...prev, [key]: value } : null,
-    );
-  };
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!policy) return;
-
-    setSaving(true);
+  async function save(id: number, patch: Partial<Editable>) {
+    setSavingId(id);
     try {
-      const payload: Partial<PolicyForm> = {
-        student_absence_consumes_lesson: policy.student_absence_consumes_lesson,
-        student_absence_teacher_paid: policy.student_absence_teacher_paid,
-        teacher_absence_consumes_lesson: policy.teacher_absence_consumes_lesson,
-        teacher_absence_teacher_paid: policy.teacher_absence_teacher_paid,
-        makeup_consumes_lesson: policy.makeup_consumes_lesson,
-        makeup_teacher_paid: policy.makeup_teacher_paid,
-        makeup_deducts_from_package: policy.makeup_deducts_from_package,
-        max_makeup_per_month: policy.max_makeup_per_month,
-        max_makeup_days: policy.max_makeup_days,
-      };
-
-      await updateLessonPolicy(payload);
-      toast.success("تم حفظ السياسات");
-      // ⭐ بنجيب السياسة المحفوظة تاني — المسودة بتتبعها
+      await updateLessonPolicy(id, patch);
+      toast.success("تم حفظ السياسة");
       reload();
     } catch (e) {
       toast.apiError("فشل الحفظ", e);
     } finally {
-      setSaving(false);
+      setSavingId(null);
     }
-  };
+  }
 
   if (loading) {
     return (
@@ -120,180 +90,187 @@ export default function LessonPolicyPage() {
     return <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>;
   }
 
-  if (!policy) return null;
-
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-slate-800">سياسات الحصة</h1>
           <p className="mt-0.5 text-xs text-slate-500">
-            تتحكم في استهلاك الحصة وأجر المعلم لكل حالة
+            تتحكم في استهلاك الحصة وأجر المعلم لكل نتيجة — والتعديل بيغيّر
+            المستقبل بس، والحصص القديمة محفوظة بلقطة سياستها.
           </p>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit}>
-        <div className="space-y-6">
-          {/* غياب الطالب */}
-          <PolicySection title="غياب الطالب" icon="👤">
-            <CheckboxRow
-              label="الحصة تُستهلك من رصيد الطالب"
-              checked={policy.student_absence_consumes_lesson}
-              onChange={(v) => handleChange("student_absence_consumes_lesson", v)}
-              help="لو مفعل: الطالب الغايب بتتخصم حصة من باقته"
-            />
-            <CheckboxRow
-              label="المعلم يتقاضى أجره على الغياب"
-              checked={policy.student_absence_teacher_paid}
-              onChange={(v) => handleChange("student_absence_teacher_paid", v)}
-              help="لو مفعل: المعلم بياخد أجر الحصة حتى لو الطالب غاب"
-            />
-          </PolicySection>
+      {policies.length === 0 && (
+        <p className="rounded-lg bg-slate-50 px-4 py-3 text-sm text-slate-500">
+          مفيش سياسات معرّفة بعد.
+        </p>
+      )}
 
-          {/* غياب المعلم */}
-          <PolicySection title="غياب المعلم" icon="👨‍🏫">
-            <CheckboxRow
-              label="الحصة تُستهلك من رصيد الطالب"
-              checked={policy.teacher_absence_consumes_lesson}
-              onChange={(v) => handleChange("teacher_absence_consumes_lesson", v)}
-              help="لو مفعل: الحصة الملغية بتتخصم من باقة الطالب"
-            />
-            <CheckboxRow
-              label="المعلم يتقاضى أجره"
-              checked={policy.teacher_absence_teacher_paid}
-              onChange={(v) => handleChange("teacher_absence_teacher_paid", v)}
-              help="لو مفعل: المعلم بياخد أجره حتى لو هو الغايب"
-            />
-          </PolicySection>
-
-          {/* الحصة التعويضية */}
-          <PolicySection title="الحصة التعويضية" icon="🔁">
-            <CheckboxRow
-              label="تُستهلك من رصيد الطالب"
-              checked={policy.makeup_consumes_lesson}
-              onChange={(v) => handleChange("makeup_consumes_lesson", v)}
-              help="لو مفعل: حصة التعويض بتخصم من باقة الطالب الأصلية"
-            />
-            <CheckboxRow
-              label="المعلم يتقاضى أجره"
-              checked={policy.makeup_teacher_paid}
-              onChange={(v) => handleChange("makeup_teacher_paid", v)}
-              help="لو مفعل: المعلم بياخد أجر على حصة التعويض"
-            />
-            <CheckboxRow
-              label="تُخصم من الباقة الأصلية (مش مجانية)"
-              checked={policy.makeup_deducts_from_package}
-              onChange={(v) => handleChange("makeup_deducts_from_package", v)}
-              help="لو مفعل: التعويض بيتخصم من الباقة، مش حصة إضافية مجانية"
-            />
-          </PolicySection>
-
-          {/* حدود التعويض */}
-          <PolicySection title="حدود التعويض" icon="⏱️">
-            <NumberRow
-              label="الحد الأقصى للتعويض في الشهر"
-              value={policy.max_makeup_per_month}
-              onChange={(v) => handleChange("max_makeup_per_month", v)}
-              min={0}
-              max={31}
-              help="أقصى عدد حصص تعويضية مسموحة للطالب في الشهر الواحد"
-            />
-            <NumberRow
-              label="مهلة التعويض (بالأيام)"
-              value={policy.max_makeup_days}
-              onChange={(v) => handleChange("max_makeup_days", v)}
-              min={0}
-              max={365}
-              help="الطالب يقدر يطلب تعويض خلال كم يوم من تاريخ الحصة الأصلية"
-            />
-          </PolicySection>
-        </div>
-
-        <div className="mt-8 pt-6 border-t border-slate-200 flex justify-end">
-          <button
-            type="submit"
-            className={BTN_PRIMARY}
-            disabled={saving}
-          >
-            {saving ? "جاري الحفظ…" : "حفظ السياسات"}
-          </button>
-        </div>
-      </form>
+      <div className="space-y-4">
+        {policies.map((policy) => (
+          <PolicyRow
+            key={policy.id}
+            policy={policy}
+            saving={savingId === policy.id}
+            onSave={(patch) => save(policy.id, patch)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
 
-function PolicySection({
-  title,
-  icon,
-  children,
-}: { title: string; icon: string; children: React.ReactNode }) {
+/**
+ * ⭐ صف واحد — كل خانة بتتحفظ لوحدها (المهمة الصغيرة أأمن من
+ * حفظ كائن كامل فيه صفوف تانية).
+ */
+function PolicyRow({
+  policy,
+  saving,
+  onSave,
+}: {
+  policy: LessonPolicy;
+  saving: boolean;
+  onSave: (patch: Partial<Editable>) => void;
+}) {
+  const [draft, setDraft] = useState<Editable>({
+    deduct_credit: policy.deduct_credit,
+    pay_teacher: policy.pay_teacher,
+    allow_makeup: policy.allow_makeup,
+    makeup_limit: policy.makeup_limit,
+    makeup_window_days: policy.makeup_window_days,
+    notify_parent: policy.notify_parent,
+    late_cancel_notice_hours: policy.late_cancel_notice_hours,
+    makeup_deducts_from_package: policy.makeup_deducts_from_package,
+  });
+
+  const dirty =
+    draft.deduct_credit !== policy.deduct_credit ||
+    draft.pay_teacher !== policy.pay_teacher ||
+    draft.allow_makeup !== policy.allow_makeup ||
+    draft.makeup_limit !== policy.makeup_limit ||
+    draft.makeup_window_days !== policy.makeup_window_days ||
+    draft.notify_parent !== policy.notify_parent ||
+    draft.late_cancel_notice_hours !== policy.late_cancel_notice_hours ||
+    draft.makeup_deducts_from_package !== policy.makeup_deducts_from_package;
+
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-5">
-      <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
-        <span className="text-lg">{icon}</span>
-        {title}
-      </h2>
-      <div className="space-y-3">{children}</div>
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-800">
+            {OUTCOME_LABEL[policy.outcome] ?? policy.outcome}
+          </h2>
+          <p className="text-[11px] text-slate-500">
+            {SCOPE_LABEL[policy.scope] ?? policy.scope}
+            {policy.program_name ? ` — ${policy.program_name}` : ""}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => onSave(draft)}
+          disabled={!dirty || saving}
+          className={BTN_SAVE}
+        >
+          {saving ? "جاري الحفظ…" : "حفظ"}
+        </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Toggle
+          label="تُخصم من رصيد الطالب"
+          checked={draft.deduct_credit}
+          onChange={(v) => setDraft({ ...draft, deduct_credit: v })}
+        />
+        <Toggle
+          label="المعلم يتقاضى أجره"
+          checked={draft.pay_teacher}
+          onChange={(v) => setDraft({ ...draft, pay_teacher: v })}
+        />
+        <Toggle
+          label="يُسمح بحصة تعويضية"
+          checked={draft.allow_makeup}
+          onChange={(v) => setDraft({ ...draft, allow_makeup: v })}
+        />
+        <Toggle
+          label="إشعار ولي الأمر"
+          checked={draft.notify_parent}
+          onChange={(v) => setDraft({ ...draft, notify_parent: v })}
+        />
+        <Toggle
+          label="التعويض يُخصم من الباقة الأصلية"
+          checked={draft.makeup_deducts_from_package}
+          onChange={(v) => setDraft({ ...draft, makeup_deducts_from_package: v })}
+        />
+        <NumberField
+          label="حد التعويضات"
+          value={draft.makeup_limit}
+          max={60}
+          onChange={(v) => setDraft({ ...draft, makeup_limit: v })}
+        />
+        <NumberField
+          label="نافذة التعويض (أيام)"
+          value={draft.makeup_window_days}
+          max={365}
+          onChange={(v) => setDraft({ ...draft, makeup_window_days: v })}
+        />
+        <NumberField
+          label="إشعار الإلغاء المتأخر (ساعات)"
+          value={draft.late_cancel_notice_hours}
+          max={168}
+          onChange={(v) => setDraft({ ...draft, late_cancel_notice_hours: v })}
+        />
+      </div>
     </div>
   );
 }
 
-function CheckboxRow({
+function Toggle({
   label,
   checked,
   onChange,
-  help,
 }: {
   label: string;
   checked: boolean;
   onChange: (v: boolean) => void;
-  help?: string;
 }) {
   return (
-    <label className="flex items-start gap-3 cursor-pointer">
+    <label className="flex items-start gap-2 cursor-pointer">
       <input
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
         className="mt-1 w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
       />
-      <div className="flex-1">
-        <span className="text-sm text-slate-700">{label}</span>
-        {help && <p className="mt-0.5 text-[11px] text-slate-500">{help}</p>}
-      </div>
+      <span className="text-sm text-slate-700">{label}</span>
     </label>
   );
 }
 
-function NumberRow({
+function NumberField({
   label,
   value,
+  max,
   onChange,
-  min = 0,
-  max = 999,
-  help,
 }: {
   label: string;
   value: number;
+  max: number;
   onChange: (v: number) => void;
-  min?: number;
-  max?: number;
-  help?: string;
 }) {
   return (
     <div className="flex flex-col gap-1">
       <label className="text-sm text-slate-600">{label}</label>
       <input
         type="number"
-        min={min}
+        min={0}
         max={max}
         value={value}
         onChange={(e) => onChange(Number(e.target.value) || 0)}
-        className={FIELD}
+        className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
       />
-      {help && <p className="text-[11px] text-slate-500">{help}</p>}
     </div>
   );
 }

@@ -4,50 +4,75 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\LessonPolicy;
+use App\Services\LessonPolicyService;
 use Illuminate\Http\Request;
 
 /**
- * ⭐ سياسة استهلاك الحصة — غياب الطالب، غياب المعلم، التعويض.
+ * ⭐⭐⭐ **سياسات الحصص (PR 3.2).**
  *
- * ⭐ كل أكاديمية صف واحد. السياسات بت
- * عبر API مش طبيعي تعديلها من الداتابيز مباشرةً.
+ * ⭐ **صف لكل (نتيجة × نطاق)** — والتعديل على صف واحد:
+ * `PUT /api/lesson-policy/{policy}`.
+ *
+ * ⭐ **كل تعديل بيتسجَّل** (القديم والجديد) في `audit_logs` — لأن
+ * تغيّر قاعدة مالية لازم يبقى مراجَع.
+ *
+ * ⭐ **التعديل بيغيّر المستقبل بس**: الحصة اللي اتقبلت قبل
+ * التعديل محفوظة بلقطةها (`lessons.policy_snapshot`).
  */
 class LessonPolicyController extends Controller
 {
     public function show(Request $request)
     {
-        $policy = LessonPolicy::current($request->user()->organization_id);
+        // ⭐ ضمان وجود السياسات (الافتراضات الآمنة) — فالمدير دايماً
+        // بيلاقي صفوف يعدّلها، حتى لو الـseeder ما اشتغلشش.
+        app(LessonPolicyService::class)->ensure((int) $request->user()->organization_id);
 
-        return response()->json(['data' => $this->present($policy)]);
+        $policies = LessonPolicy::where('organization_id', $request->user()->organization_id)
+            ->with('program:id,name')
+            ->orderBy('outcome')
+            ->orderBy('scope')
+            ->get();
+
+        return response()->json([
+            'data' => [
+                'policies' => $policies->map(fn (LessonPolicy $p) => $this->present($p))->all(),
+                'defaults' => LessonPolicy::defaults(),
+            ],
+        ]);
     }
 
-    public function update(Request $request)
+    public function update(Request $request, LessonPolicy $policy)
     {
+        // ⭐ السياسة لازم تكون لنفس المؤسسة (مش سياسات أكاديمية تانية).
+        if ((int) $policy->organization_id !== (int) $request->user()->organization_id) {
+            abort(403);
+        }
+
         $data = $request->validate([
-            'student_absence_consumes_lesson' => 'sometimes|boolean',
-            'student_absence_teacher_paid' => 'sometimes|boolean',
-            'teacher_absence_consumes_lesson' => 'sometimes|boolean',
-            'teacher_absence_teacher_paid' => 'sometimes|boolean',
-            'makeup_consumes_lesson' => 'sometimes|boolean',
-            'makeup_teacher_paid' => 'sometimes|boolean',
-            'max_makeup_per_month' => 'sometimes|integer|min:0|max:31',
-            'max_makeup_days' => 'sometimes|integer|min:0|max:365',
+            'deduct_credit' => 'sometimes|boolean',
+            'pay_teacher' => 'sometimes|boolean',
+            'allow_makeup' => 'sometimes|boolean',
+            'makeup_limit' => 'sometimes|integer|min:0|max:60',
+            'makeup_window_days' => 'sometimes|integer|min:0|max:365',
+            'notify_parent' => 'sometimes|boolean',
+            'late_cancel_notice_hours' => 'sometimes|integer|min:0|max:168',
             'makeup_deducts_from_package' => 'sometimes|boolean',
         ]);
 
-        $policy = LessonPolicy::current($request->user()->organization_id);
+        $before = $policy->getOriginal();
+
         $policy->update($data);
 
         app(\App\Services\AuditLogService::class)->logUpdate(
             'lesson_policy',
             $policy->id,
-            $policy->getOriginal(),
+            $before,
             $policy->fresh()->toArray(),
             $request,
         );
 
         return response()->json([
-            'message' => 'اتحفظت سياسة الحصص',
+            'message' => 'اتحفظت سياسة الحصة',
             'data' => $this->present($policy->fresh()),
         ]);
     }
@@ -57,14 +82,17 @@ class LessonPolicyController extends Controller
         return [
             'id' => $p->id,
             'organization_id' => $p->organization_id,
-            'student_absence_consumes_lesson' => $p->student_absence_consumes_lesson,
-            'student_absence_teacher_paid' => $p->student_absence_teacher_paid,
-            'teacher_absence_consumes_lesson' => $p->teacher_absence_consumes_lesson,
-            'teacher_absence_teacher_paid' => $p->teacher_absence_teacher_paid,
-            'makeup_consumes_lesson' => $p->makeup_consumes_lesson,
-            'makeup_teacher_paid' => $p->makeup_teacher_paid,
-            'max_makeup_per_month' => $p->max_makeup_per_month,
-            'max_makeup_days' => $p->max_makeup_days,
+            'outcome' => $p->outcome,
+            'scope' => $p->scope,
+            'program_id' => $p->program_id,
+            'program_name' => $p->program?->name,
+            'deduct_credit' => $p->deduct_credit,
+            'pay_teacher' => $p->pay_teacher,
+            'allow_makeup' => $p->allow_makeup,
+            'makeup_limit' => $p->makeup_limit,
+            'makeup_window_days' => $p->makeup_window_days,
+            'notify_parent' => $p->notify_parent,
+            'late_cancel_notice_hours' => $p->late_cancel_notice_hours,
             'makeup_deducts_from_package' => $p->makeup_deducts_from_package,
         ];
     }

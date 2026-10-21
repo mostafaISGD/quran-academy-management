@@ -109,5 +109,8 @@ class DatabaseSeeder extends Seeder
         foreach ($surahs as $surah) {
             QuranSurah::firstOrCreate(['number' => $surah['number']], $surah);
         }
+
+        // ⭐ PR 3.2 — سياسات الحصص الافتراضية (الافتراضات الآمنة).
+        $this->call(LessonPolicySeeder::class);
     }
 }
