@@ -192,11 +192,11 @@ class LessonCreditConsumptionTest extends TestCase
         $subscription = $this->makeSubscription($this->makeProgram(), $student);
         $account = $this->openCreditAccount($subscription, 8);
 
-        $lesson = $this->makeLessonFor($student, $subscription, 'in_progress');
-        $this->completeLesson($manager, $student, $subscription, 'in_progress');
+        $lesson = $this->completeLesson($manager, $student, $subscription, 'in_progress');
 
         $this->assertEquals(7.0, (float) app(LessonCreditService::class)->balance($account->id));
 
+        $rows = \App\Models\LessonCreditTransaction::where('credit_account_id', $account->id)->get(['type', 'lesson_id', 'quantity'])->toArray();
         app(LessonCreditService::class)->refund($lesson, $manager, 'تصحيح إداري');
 
         $this->assertEquals(

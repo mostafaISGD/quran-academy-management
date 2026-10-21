@@ -4059,6 +4059,24 @@ export function completeLesson(lessonId: number) {
 }
 
 /**
+ * ⭐ PR 3.4 — تصحيح حالة حصة **بعد** الإتمام.
+ *
+ * التصحيح **مش تعديل**: الأثر بيتعكس بحركات (رجوع حصة للطالب +
+ * إلغاء مستحق المعلم) — والمستحق المدفوع مرفوض (422) لأن عكسه
+ * محتاج قيد في دفتر المعلم.
+ */
+export function correctLesson(
+  lessonId: number,
+  to: Lesson["status"],
+  reason: string,
+) {
+  return apiFetch<Lesson>(`/lessons/${lessonId}/correct`, {
+    method: "POST",
+    body: JSON.stringify({ to, reason }),
+  });
+}
+
+/**
  * ⭐ PR 3.1 — قناة تغيير حالة الحصة (آلة الحالات).
  *
  * `PUT /lessons/{id}` **مش** بيغيّر الحالة (بيرفض `status` بـ422).

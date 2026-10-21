@@ -18,8 +18,12 @@ class SchedulingConflictException extends Exception
             'message' => 'المعلم لديه حصة أخرى في هذا التوقيت',
             'conflicting_lesson' => [
                 'id' => $this->conflict->id,
-                'scheduled_start_at' => $this->conflict->scheduled_start->toIso8601String(),
-                'scheduled_end_at' => $this->conflict->scheduled_end->toIso8601String(),
+                // ⭐ الأسماء الصحيحة: `scheduled_start_at` /
+                // `scheduled_end_at` — كان هنا `scheduled_start`
+                // (اسم مش موجود على الموديل) ⇒ المسار كله (409)
+                // كان بيقع 500 بسبب `toIso8601String()` على null.
+                'scheduled_start_at' => $this->conflict->scheduled_start_at?->toIso8601String(),
+                'scheduled_end_at' => $this->conflict->scheduled_end_at?->toIso8601String(),
                 'status' => $this->conflict->status,
             ],
         ], 409);

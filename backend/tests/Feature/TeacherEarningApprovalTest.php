@@ -40,8 +40,14 @@ class TeacherEarningApprovalTest extends TestCase
 
         $this->postJsonAs("/api/lessons/{$lesson->id}/complete", [], $clerk)->assertOk();
 
-        // النداء التاني لازم يترفض مش يكتب مستحق تاني
-        $this->postJsonAs("/api/lessons/{$lesson->id}/complete", [], $clerk)->assertStatus(422);
+        // ⭐⭐⭐ **PR 3.4 — النداء التاني = بلا أثر (مش رفض).**
+        //
+        // قبل PR ده كان 422 (التحويل من `completed` لـ`completed`
+        // ممنوع في جدول التحويلات) — والـAPI كان بيرفض طلب
+        // تكرار بدل ما يرجّع الحالة نفسها. دلوقتي الإكمال
+        // **idempotent**: بيرجّع 200 بالحالة الحالية و**بلا أي
+        // أثر جديد** — وهو المطلوب في المواصفة.
+        $this->postJsonAs("/api/lessons/{$lesson->id}/complete", [], $clerk)->assertOk();
 
         $this->assertSame(
             1,

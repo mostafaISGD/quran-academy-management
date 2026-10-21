@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Lesson;
 use App\Models\Setting;
+use App\Exceptions\EarningAlreadyPaid;
 use App\Models\TeacherEarning;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
@@ -104,6 +105,40 @@ class TeacherEarningService
 
             return $earning;
         });
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 3.4 — عكس مستحق الحصة** (تصحيح بعد الإتمام).
+     *
+     * ⭐ **مش حذف ولا تعديل**: المستحق بيتحوّل `cancelled` والسبب
+     * بيتسجّل — فالتاريخ باقي (القاعدة 7).
+     *
+     * ⭐ **المدفوع ممنوع**: لو المستحق اتصرف خلاص، العكس محتاج
+     * **قيد عكسي في دفتر المعلم** (`teacher_ledger_entries`) —
+     * وده شغل الدفتر مش هنا ⇒ 422 (تصحيح يدوي بقيد عكسي).
+     */
+    public function reverseForLesson(Lesson $lesson, ?User $by = null, ?string $reason = null): ?TeacherEarning
+    {
+        $earning = TeacherEarning::where('lesson_id', $lesson->id)->first();
+
+        if ($earning === null) {
+            return null;
+        }
+
+        if ($earning->status === 'cancelled') {
+            return $earning;
+        }
+
+        if ($earning->status === 'paid') {
+            throw new EarningAlreadyPaid($earning);
+        }
+
+        $earning->forceFill([
+            'status' => 'cancelled',
+            'notes' => trim(($earning->notes ?? '').' | عكس: '.($reason ?? 'تصحيح حالة الحصة')),
+        ])->save();
+
+        return $earning->fresh();
     }
 
     /**

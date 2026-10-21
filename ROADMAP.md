@@ -164,7 +164,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 3.1 — Lesson State Machine
 - [x] PR 3.2 — Configurable Lesson Policies
 - [x] PR 3.3 — Lesson Credit Consumption
-- [ ] PR 3.4 — Lesson Completion Pipeline (idempotent)
+- [x] PR 3.4 — Lesson Completion Pipeline (idempotent)
 - [ ] PR 3.5 — Attendance Linked to Lesson Outcome
 - [ ] PR 3.6 — Scheduling Correctness
 - [ ] PR 3.7 — Time Zones
@@ -1502,6 +1502,16 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** `complete` ×2 = one earning and one deduction; a later correction reverses precisely.
 **Depends on:** 3.3 · 2.10
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-21):**
+> - **`LessonService::complete`** = خط أنابيب واحد في **transaction واحد**: ① تحويل الحالة + سطر في `lesson_status_history`، ② استهلاك الرصيد حسب لقطة السياسة، ③ مستحق المعلم بلقطة السعر، ④ سطر في **سجل نشاط جديد** (`activity_logs`) + **إشعار** لولي الأمر (`lesson_completed` + عمود `lesson_id` في `notifications`).
+> - **idempotent**: النداء التاني بيرجّع **200 بالحالة الحالية وبلا أي أثر** (مستحق واحد + خصم واحد). قبل PR ده كان 422 (الحارس القديم) — والمواصفة طلبت «النداء التاني = بلا أثر». الاختبار القديم في `TeacherEarningApprovalTest` اتحدّث Behavioral (النية نفسها: مستحق واحد).
+> - **التفرّد اتقوّى على مستوى القاعدة**: `unique(lesson_id)` على `teacher_earnings` — فمستحق واحد لكل حصة حتى مع سباق طلبين (كان المنع بالتطبيق بس).
+> - ⭐ **بِغ مكتشف في PR ده (1)**: `SchedulingConflictException::render()` كان بيقرأ `scheduled_start` (اسم **غير موجود** على الموديل — الصح `scheduled_start_at`) ⇒ مسار **409 كله** كان بيقع 500 بسبب `toIso8601String()` على null. اتصلّح، والاختبار الجديد بيغطّي المسار.
+> - ⭐ **بِغ مكتشف في PR ده (2)**: `LessonCreditService::refund` كان بيزيد حصة **دايماً** — فلو التصحيح على حصة **ما اتخصمتش** كانت هتدي الطالب حصة زيادة. دلوقتي بيتأكد إن في حركة `lesson_used` لنفس الحصة، وإلا مفيش إرجاع.
+> - ⭐ **التصحيح** = **حركات عكسية** مش تعديل (القاعدة 7): `POST /api/lessons/{lesson}/correct` (صلاحية `lessons.update`) ⇒ المستحق بيتحوّل `cancelled` (مع السبب) + سطر `refund` للطالب + سطر في `lesson_status_history` + سطر في سجل النشاط. والمستحق **المدفوع** مرفوض (422) لأن عكسه محتاج قيد عكسي في دفتر المعلم (شغل الدفتر مش هنا).
+> - **`makeup` بقى ذرّي**: الحجز الجديد **أول** وبعدين تغيير حالة الأصل — قبل PR ده كان الأصل بيتحوّل `teacher_absent` **قبل** الحجز، فلو الحجز فشل (تعارض) كان الأصل اتغيّر والحصة التعويضية مش موجودة. دلوقتي كله في transaction واحد.
+> - **ما لم يُتحقق:** **العكس في دفتر المعلم** (المستحق المدفوع) لسه مش منفَّذ — رفض 422 صريح بدل نصف عكس. وربط الحضور بالحصص الجماعية (PR 3.5) لسه شغل جاي.
 ### PR 3.5 — Attendance Linked to Lesson Outcome
 **Goal:** Attendance drives the financial effect.
 **Tasks:**

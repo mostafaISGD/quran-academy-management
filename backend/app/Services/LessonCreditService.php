@@ -123,11 +123,30 @@ final class LessonCreditService
      * ⭐ إرجاع مش تعديل: سطر **جديد** في السجل (القاعدة 7 — السجل
      * المالي ما بيتعدّلش).
      */
+    /**
+     * ⭐⭐⭐ **PR 3.4 — الإرجاع بيحقق: يرجّع الحصة بس لو كانت
+     * اتخصمت.
+     *
+     * ⭐ قبل PR ده كان `refund` بيزيد 1 **دايماً** — يعني تصحيح
+     * على حصة ما اتخصمتش كان بيدي الطالب حصة زيادة. دلوقتي
+     * الخدمة بتشوف: في حركة `lesson_used` لنفس الحصة؟ لو لأ ⇒
+     * مفيش إرجاع (بلا أثر).
+     */
     public function refund(Lesson $lesson, ?User $actor = null, ?string $reason = null): ?LessonCreditTransaction
     {
         $account = $this->accountFor($lesson);
 
         if ($account === null) {
+            return null;
+        }
+
+        $consumed = LessonCreditTransaction::where('credit_account_id', $account->id)
+            ->where('lesson_id', $lesson->id)
+            ->where('type', 'lesson_used')
+            ->exists();
+
+        // ⭐ مفيش خصم ⇒ مفيش إرجاع (التصحيح ما يقدرش يدي زيادة).
+        if (! $consumed) {
             return null;
         }
 

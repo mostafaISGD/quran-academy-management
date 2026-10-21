@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class Notification extends Model
 {
     protected $fillable = [
-        'user_id', 'student_id', 'event_type', 'channel', 'payload', 'sent_at', 'read_at',
+        'user_id', 'student_id', 'lesson_id', 'event_type', 'channel', 'payload', 'sent_at', 'read_at',
     ];
 
     protected function casts(): array
@@ -27,5 +27,11 @@ class Notification extends Model
     public function student()
     {
         return $this->belongsTo(Student::class);
+    }
+
+    /** ⭐ PR 3.4 — الإشعار مربوط بالحصة. */
+    public function lesson()
+    {
+        return $this->belongsTo(Lesson::class);
     }
 }

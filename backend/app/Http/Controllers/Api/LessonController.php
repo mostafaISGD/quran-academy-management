@@ -235,19 +235,37 @@ class LessonController extends Controller
             'scheduled_start' => 'required|date',
         ]);
 
-        // ⭐ PR 3.1 — غياب المعلم قرار مسجَّل، مش تعديلStatus مباشر.
-        $lesson = app(LessonService::class)->transition(
-            $lesson,
-            LessonStatus::TeacherAbsent,
-            $request->user(),
-            'جدولة حصة تعويضية',
-        );
-
         $start = Carbon::parse($data['scheduled_start']);
         $end = $start->copy()->addMinutes($lesson->duration_minutes);
 
+        /**
+         * ⭐⭐⭐ **PR 3.4 — الحجز الجديد **أول**، وبعدين|Original
+         * بيتغيّر.**
+         *
+         * ⚠️ كان العكس: الأصل بيتحوّل `teacher_absent` **وبعدين**
+         * بنحجز التعويضية — فلو الحجز فشل (تعارض جدول) =>
+         * الأصل بقى «المعلم غاب» والحصة التعويضية **مش موجودة**.
+         * (صُحّح جزئياً في PR 3.1 بإضافة قفل، لكن الترتيب فضل
+         * غلط ⇒ دلوقتي Atomicity كاملة.)
+         *
+         * ⭐ كله في transaction واحد: أي فشل يرجّع الأصل زي ما
+         * كان (والتعارض بيرجّع 409 زي الأول).
+         */
         try {
-            $makeup = $this->scheduler->createMakeupLesson($lesson, $start, $end);
+            $makeup = DB::transaction(function () use ($lesson, $start, $end, $request) {
+                // ⭐ ① الحجز الجديد **أول** — لو فشل، الأصل ماتغيّرش.
+                $makeup = $this->scheduler->createMakeupLesson($lesson, $start, $end);
+
+                // ⭐ ② غياب المعلم قرار مسجَّل (مش تعديل status مباشر).
+                app(LessonService::class)->transition(
+                    $lesson,
+                    LessonStatus::TeacherAbsent,
+                    $request->user(),
+                    'جدولة حصة تعويضية',
+                );
+
+                return $makeup;
+            });
         } catch (SchedulingConflictException $e) {
             return $e->render();
         }
@@ -260,45 +278,43 @@ class LessonController extends Controller
         Gate::authorize('update', $lesson);
 
         /**
-         * ⭐⭐ PR 2.10 — حارس الحالة: الإكمال قرار مرة واحدة.
-         * النداء التاني كان بيكتب **مستحق تاني** لنفس الحصة.
+         * ⭐⭐⭐ **PR 3.4 — الإكمال = خط أنابيب واحد (idempotent).**
          *
-         * ⭐ PR 3.1 — الحارس بقى **جزء من جدول التحويلات**:
-         * `completed` حالة نهائية، فالتحويل المكرر = 422 من الآلة
-         * نفسها (والرسالة بقيت واحدة في مكان واحد).
+         * كل الآثار (الحالة + الخصم + المستحق + سجل النشاط +
+         * الإشعار) في **نفس الـtransaction** جوه `LessonService`:
+         *
+         * - النداء التاني = **بلا أثر** (200 بالحالة الحالية) —
+         *   بدل 422 القديم اللي كان بيعني «كرّر الطلب» ما كانش
+         *   بيتعامل معاه صح.
+         * - لو رصيد الطالب ما كفى ⇒ 422 والكل يرجع (مفيش مستحق
+         *   معلّق على حصة ما اتقبلتش).
          */
-        if ($lesson->status === 'completed') {
-            return response()->json([
-                'message' => 'الحصة دي متسجلة مكتملة من قبل',
-            ], 422);
-        }
+        $updated = app(LessonService::class)->complete($lesson, $request->user());
 
-        /**
-         * ⭐⭐⭐ **PR 3.3 — العملية ذرّية: الحالة + الخصم + المستحق.**
-         *
-         * ⚠️ **ليه الـtransactionjpeg:**
-         * كان ترتيبها: **المستحق الأول** وبعدين التحويل (والخصم
-         * جوّه). فلو رصيد الطالب خلص ⇒ التحويل مرفوض (422) — بس
-         * **المستحق كان اتسجّل قبل الرفض** ⇒ مستحق معلم على حصة
-         * ما اتقبلتش (فلوس على حصة مش موجودة).
-         *
-         * ⭐ دلوقتي: التحويل (والخصم) **أول**، وبعدين المستحق —
-         * وكلهم في نفس الـtransaction ⇒ أي فشل يرجع كله.
-         */
-        $updated = DB::transaction(function () use ($lesson, $request) {
-            // ⭐ PR 3.1 — الإكمال بيمرّ بآلة الحالات (مع تسجيل).
-            $completed = app(LessonService::class)->transition(
-                $lesson,
-                LessonStatus::Completed,
-                $request->user(),
-            );
+        return response()->json($updated);
+    }
 
-            // ⭐⭐ PR 2.10 — إنشاء المستحق من `TeacherEarningService`
-            // (لقطة السعر + الاعتماد التلقائي الإعدادات + القفل)
-            app(\App\Services\TeacherEarningService::class)->ensureForLesson($completed, $request->user());
+    /**
+     * ⭐⭐⭐ **PR 3.4 — تصحيح حالة حصة بعد الإتمام.**
+     *
+     * ⭐ **مش تعديل**: الأثر بيتعكس بحركات (رصيد + مستحق)،
+     * والتعديل بيتسجَّل في سجل التحويلات وسجل النشاط.
+     */
+    public function correct(Request $request, Lesson $lesson)
+    {
+        Gate::authorize('update', $lesson);
 
-            return $completed;
-        });
+        $data = $request->validate([
+            'to' => ['required', 'string', Rule::in(LessonStatus::values())],
+            'reason' => ['required', 'string', 'max:500'],
+        ]);
+
+        $updated = app(LessonService::class)->correct(
+            $lesson,
+            LessonStatus::from($data['to']),
+            $request->user(),
+            $data['reason'],
+        );
 
         return response()->json($updated);
     }

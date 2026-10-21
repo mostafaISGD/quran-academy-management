@@ -4,8 +4,10 @@ namespace App\Services;
 
 use App\Enums\LessonStatus;
 use App\Exceptions\InvalidLessonTransition;
+use App\Models\ActivityLog;
 use App\Models\Lesson;
 use App\Models\LessonStatusHistory;
+use App\Models\Notification;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
@@ -103,6 +105,158 @@ final class LessonService
 
             return $locked->fresh();
         });
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 3.4 — إتمام الحصة (خط أنابيب كامل، idempotent).**
+     *
+     * الأثر الواحد = أربع حركات، **كلها في نفس الـtransaction**:
+     *
+     * ① تحويل الحالة (`completed`) + سطر في `lesson_status_history`.
+     * ② استهلاك رصيد الطالب حسب لقطة السياسة.
+     * ③ مستحق المعلم بسعر **اللحظة** (`rate_snapshot`).
+     * ④ سطر في سجل النشاط + إشعار لولي الأمر.
+     *
+     * ⭐ **idempotent**: النداء التاني = **بلا أثر** — بيرجّع
+     * الحالة الحالية (200). قبل PR ده كان بيرجّع 422 (التحويل
+     * من `completed` لـ`completed` ممنوع في جدول التحويلات).
+     */
+    public function complete(Lesson $lesson, User $actor): Lesson
+    {
+        return DB::transaction(function () use ($lesson, $actor): Lesson {
+            // ⭐ النداء التاني — الحالة خلاص وصلت، نرجّعها زي ما هي.
+            if ($lesson->status === LessonStatus::Completed->value) {
+                return $lesson->fresh();
+            }
+
+            $completed = $this->transition($lesson, LessonStatus::Completed, $actor);
+
+            // ⭐ ③ المستحق (بلقطة السعر) — idempotent برضه.
+            app(TeacherEarningService::class)->ensureForLesson($completed, $actor);
+
+            // ⭐ ④ سجل النشاط + إشعار ولي الأمر.
+            $this->logActivity($completed, 'lesson_completed', $actor, 'الحصة اتقبلت');
+            $this->notifyParentsOfCompletion($completed, $actor);
+
+            return $completed;
+        });
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 3.4 — تصحيح حالة بعد الإتمام.**
+     *
+     * ⭐ **القاعدة 7**: التصحيح **مش تعديل** — كل أثر بيتعكس
+     * بحركة جديدة:
+     *
+     * - مستحق المعلم → `cancelled` (مع سبب) — و**ما بينفعش** لو
+     *   اتصرف فعلاً (المستحق مدفوع ⇒ العكس محتاج قيد في دفتر
+     *   المعلم، ودفتر المعلم مش شغل هنا ⇒ 422).
+     * - رصيد الطالب → سطر `refund` (رجوع الحصة).
+     *
+     * ⭐ **تجاوز جدول التحويلات**: التصحيح قرار إداري بعد قفل
+     * الحالة — فبينتاقله ومسجَّل في `lesson_status_history` +
+     * `activity_logs` (مش صامت).
+     */
+    public function correct(Lesson $lesson, LessonStatus $to, User $actor, string $reason): Lesson
+    {
+        return DB::transaction(function () use ($lesson, $to, $actor, $reason): Lesson {
+            $locked = Lesson::query()->lockForUpdate()->findOrFail($lesson->id);
+
+            $from = LessonStatus::fromDatabase((string) $locked->status);
+
+            if ($from === $to) {
+                return $locked->fresh();
+            }
+
+            // ⭐ المستحق المدفوع — التصحيح مرفوض.
+            app(TeacherEarningService::class)->reverseForLesson($locked, $actor, $reason);
+
+            // ⭐ عكس الرصيد — لو اتخصم (الخدمة بتتأكد بنفسها).
+            app(LessonCreditService::class)->refund($locked, $actor, 'تصحيح: '.$reason);
+
+            $locked->forceFill(['status' => $to->value])->save();
+
+            // ⭐ التوثيق: سطر في سجل التحويلات + سجل النشاط.
+            LessonStatusHistory::create([
+                'lesson_id' => $locked->id,
+                'from_status' => $from->value,
+                'to_status' => $to->value,
+                'actor_id' => $actor->id,
+                'reason' => 'تصحيح: '.$reason,
+            ]);
+
+            $this->logActivity($locked, 'lesson_corrected', $actor, 'تصحيح حالة الحصة', [
+                'from' => $from->value,
+                'to' => $to->value,
+                'reason' => $reason,
+            ]);
+
+            return $locked->fresh();
+        });
+    }
+
+    /**
+     * ⭐ سطر في سجل النشاط.
+     */
+    private function logActivity(
+        Lesson $lesson,
+        string $action,
+        User $actor,
+        ?string $description = null,
+        array $meta = [],
+    ): void {
+        ActivityLog::create([
+            'organization_id' => $lesson->organization_id,
+            'user_id' => $actor->id,
+            'subject_type' => 'lesson',
+            'subject_id' => $lesson->id,
+            'action' => $action,
+            'description' => $description,
+            'meta' => $meta === [] ? null : $meta,
+            'created_at' => now(),
+        ]);
+    }
+
+    /**
+     * ⭐ إشعار ولي الأمر بإتمام الحصة.
+     *
+     * ⭐ **مَن؟** أولياء أمر الطالب (الربط المؤكد بس — زي
+     * `ParentChildScope`).
+     */
+    private function notifyParentsOfCompletion(Lesson $lesson, User $actor): void
+    {
+        $student = $lesson->student;
+
+        if ($student === null) {
+            return;
+        }
+
+        $parents = $student->parents()
+            ->wherePivot('status', 'verified')
+            ->with('user')
+            ->get();
+
+        foreach ($parents as $parent) {
+            if ($parent->user === null) {
+                continue;
+            }
+
+            Notification::create([
+                'user_id' => $parent->user->id,
+                'lesson_id' => $lesson->id,
+                'event_type' => 'lesson_completed',
+                'channel' => 'in_app',
+                'payload' => [
+                    'lesson_id' => $lesson->id,
+                    'student_id' => $student->id,
+                    'program_id' => $lesson->program_id,
+                    'completed_at' => now()->toIso8601String(),
+                ],
+                'sent_at' => now(),
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
     }
 
     /**

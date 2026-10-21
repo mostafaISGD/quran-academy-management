@@ -472,6 +472,8 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     // `update` ما بيغيّرش الحالة — التحويل من هنا بس، وكل تحويل
     // يتسجَّل في `lesson_status_history`.
     Route::post('/lessons/{lesson}/transition', [LessonController::class, 'transition'])->middleware('permission:lessons.update');
+    // ⭐ PR 3.4 — تصحيح حالة بعد الإتمام (حركات عكسية، مش تعديل).
+    Route::post('/lessons/{lesson}/correct', [LessonController::class, 'correct'])->middleware('permission:lessons.update');
     Route::post('/lessons/{lesson}/attendance', [LessonController::class, 'attendance'])->middleware('permission:lessons.update');
     Route::post('/lessons/{lesson}/memorization', [LessonController::class, 'memorization'])->middleware('permission:lessons.update');
 
