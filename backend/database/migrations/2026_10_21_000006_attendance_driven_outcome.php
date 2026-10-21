@@ -53,10 +53,33 @@ return new class extends Migration
             $table->dropUnique(['lesson_id']);
             $table->unique(['lesson_id', 'student_id'], 'lesson_attendance_lesson_student_unique');
         });
+
+        /**
+         * ⭐⭐⭐ **إعادة ضبط الـdefaults — إعادة بناء SQLite بتفقدها!**
+         *
+         * ⚠️ `change()` في SQLite بيعيد بناء الجدول، والصف الجديد
+         * **بيطلع من غير الـdefaults** ⇒ `status` بقى NOT NULL من
+         * غير default ⇒ أي `INSERT` من غير `status` كان بيقع
+         * (violation) ⇒ 500 في `POST /api/lessons`.
+         *
+         * ⭐ نفس البِغ في `PR 3.1` (تغيير الـenum بتاع الحالة) —
+         * فاتح دلوقتي في نفس الميجريشن (الأحدث) عشان نصلّح
+         * الحالة النهائية.
+         */
+        Schema::table('lessons', function (Blueprint $table) {
+            $table->string('status')->default('scheduled')->change();
+            $table->unsignedSmallInteger('duration_minutes')->default(30)->change();
+        });
     }
 
     public function down(): void
     {
+        Schema::table('lessons', function (Blueprint $table) {
+            // ⭐ نفس إعادة البناء — نرجّع الـdefaults كمان.
+            $table->string('status')->default('scheduled')->change();
+            $table->unsignedSmallInteger('duration_minutes')->default(30)->change();
+        });
+
         Schema::table('lesson_attendance', function (Blueprint $table) {
             $table->dropUnique('lesson_attendance_lesson_student_unique');
             $table->unique(['lesson_id']);

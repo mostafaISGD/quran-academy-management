@@ -2,28 +2,147 @@
 
 namespace App\Services;
 
+use App\Exceptions\LessonOnHoliday;
 use App\Exceptions\SchedulingConflictException;
+use App\Exceptions\TeacherUnavailable;
+use App\Models\Holiday;
 use App\Models\Lesson;
 use App\Models\LessonReschedule;
+use App\Models\Setting;
+use App\Models\TeacherSchedule;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
 
 class LessonScheduler
 {
+    /**
+     * ⭐⭐⭐ **PR 3.6 — التعارض يشمل المعلم **والطالب** (والمجموعة).**     *
+     * ⭐ قبل PR ده كان بيفحص المعلم بس ⇒ كان ممكن تحجز نفس
+     * الطالب في وقت حصته ( الطالب بيتناقض مع نفسه ) — والقبول
+     * في المواصفة: «حجز طالب في وقت حصة أخرى = 422».
+     *
+     * @param  int[]  $studentIds  طلاب الحصة (جماعية) — كلهم لازم
+     *                            يبقوا فاضيين
+     */
     public function findConflict(
         string $teacherId,
         Carbon $startAt,
         Carbon $endAt,
-        ?string $excludeLessonId = null
+        ?string $excludeLessonId = null,
+        int|array|null $studentIds = null,
     ): ?Lesson {
+        $studentIds = array_values(array_filter(array_map(
+            'intval',
+            is_array($studentIds) ? $studentIds : [$studentIds],
+        )));
+
         return Lesson::query()
-            ->where('teacher_id', $teacherId)
             ->blockingTeacherTime()
             ->when($excludeLessonId, fn ($q) => $q->where('id', '!=', $excludeLessonId))
             ->where('scheduled_start_at', '<', $endAt)
             ->where('scheduled_end_at', '>', $startAt)
+            ->where(function ($query) use ($teacherId, $studentIds) {
+                $query->where('teacher_id', $teacherId);
+
+                if ($studentIds !== []) {
+                    $query->orWhereIn('student_id', $studentIds);
+                }
+            })
             ->first();
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 3.6 — فحص الجدولة كله قبل الحجز.**
+     *
+     * الترتيب: **العطلة** (أوضح رسالة) ← **حظر المعلم** ←
+     * **التعارض** (معلم أو طالب).
+     *
+     * @throws LessonOnHoliday
+     * @throws TeacherUnavailable
+     * @throws SchedulingConflictException
+     */
+    public function assertBookable(
+        string $teacherId,
+        Carbon $startAt,
+        Carbon $endAt,
+        ?int $organizationId = null,
+        int|array|null $studentIds = null,
+        ?string $excludeLessonId = null,
+    ): void {
+        // ① العطلة (رسمية أو أكاديمية) — بتغطي اليوم كله.
+        $holiday = Holiday::findFor($startAt->toDateString(), $organizationId);
+
+        if ($holiday !== null) {
+            throw new LessonOnHoliday($holiday, $startAt);
+        }
+
+        // ② حظر جدول المعلم (شغل خارجي / إجازة / شخصي).
+        if ($this->teacherIsBlocked($teacherId, $startAt, $endAt)) {
+            throw new TeacherUnavailable($teacherId, $startAt);
+        }
+
+        // ③ التعارض (معلم أو طالب) — والسبب بيحدّد الرسالة.
+        $conflict = $this->findConflict($teacherId, $startAt, $endAt, $excludeLessonId, $studentIds);
+
+        if ($conflict !== null) {
+            $studentIds = array_values(array_filter(array_map(
+                'intval',
+                is_array($studentIds) ? $studentIds : [$studentIds],
+            )));
+
+            $reason = (string) $conflict->teacher_id === (string) $teacherId
+                ? 'teacher'
+                : 'student';
+
+            throw new SchedulingConflictException($conflict, $reason);
+        }
+    }
+
+    /**
+     * ⭐ هل المعلم محظور في الوقت ده (من `teacher_schedules`)؟
+     */
+    public function teacherIsBlocked(string $teacherId, Carbon $startAt, Carbon $endAt): bool
+    {
+        $teacherId = (int) $teacherId;
+
+        return TeacherSchedule::query()
+            ->where('teacher_id', $teacherId)
+            ->where(function ($query) use ($startAt) {
+                // ⭐ أسبوعي (is_recurring) أو محدّد بيوم معيّن.
+                $query->where(function ($q) use ($startAt) {
+                    $q->where('is_recurring', true)->where('weekday', $startAt->dayOfWeek);
+                })->orWhere(function ($q) use ($startAt) {
+                    $q->where('is_recurring', false)->whereDate('specific_date', $startAt->toDateString());
+                });
+            })
+            ->get()
+            ->contains(function (TeacherSchedule $block) use ($startAt, $endAt) {
+                $blockStart = Carbon::parse($startAt->toDateString().' '.$block->starts_at);
+                $blockEnd = Carbon::parse($startAt->toDateString().' '.$block->ends_at);
+
+                // ⭐ التداخل: بداية الحصة قبل نهاية الحظر **أو**
+                // نهايتها بعد بداية الحظر.
+                return $startAt->lt($blockEnd) && $endAt->gt($blockStart);
+            });
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 3.6 — حدود التوليد من الإعدادات.**
+     *
+     * ⭐ كانت أرقام ثابتة في الكود (200 حصة / 3 شهور) — دلوقتي
+     * من `settings` (الافتراضيات زي الأول) عشان مركز الإعدادات
+     * (PR 3.12) يتحكم فيها من غير كود.
+     */
+    public function maxGenerationCount(?int $organizationId = null): int
+    {
+        return (int) Setting::get('lessons.max_generation_count', 200, $organizationId);
+    }
+
+    /** ⭐ نافذة التوليد بالأشهر (3 افتراضيًا). */
+    public function maxGenerationMonths(?int $organizationId = null): int
+    {
+        return (int) Setting::get('lessons.max_generation_months', 3, $organizationId);
     }
 
     /**
@@ -34,11 +153,13 @@ class LessonScheduler
         $start = Carbon::parse($attributes['scheduled_start_at']);
         $end = Carbon::parse($attributes['scheduled_end_at']);
 
-        $conflict = $this->findConflict($attributes['teacher_id'], $start, $end);
-
-        if ($conflict) {
-            throw new SchedulingConflictException($conflict);
-        }
+        $this->assertBookable(
+            (string) $attributes['teacher_id'],
+            $start,
+            $end,
+            $attributes['organization_id'] ?? null,
+            $attributes['student_id'] ?? null,
+        );
 
         return Lesson::create($attributes);
     }
@@ -55,17 +176,45 @@ class LessonScheduler
         $cursor = CarbonImmutable::parse($data['series_start_date']);
         $endBoundary = CarbonImmutable::parse($data['end_date'])->endOfDay();
 
+        // ⭐⭐⭐ **PR 3.6 — حد التوليد من الإعدادات** (200 افتراضيًا).
+        $max = $this->maxGenerationCount($data['organization_id'] ?? null);
+
         while ($cursor <= $endBoundary) {
+            // ⭐ الحد وصل ⇒ نقف (والتاولة لو عايز/تعرف).
+            if (count($created) >= $max) {
+                $skipped[] = [
+                    'date' => $cursor->toDateString(),
+                    'reason' => "وصلنا لحد التوليد ({$max} حصة) — زوّد `lessons.max_generation_count` لو أكتر",
+                ];
+                break;
+            }
+
             if (in_array($cursor->dayOfWeek, $data['weekdays'], true)) {
                 [$hour, $minute] = explode(':', $data['start_time']);
                 $start = $cursor->setTime((int) $hour, (int) $minute);
                 $end = $start->addMinutes($data['duration_minutes']);
 
-                $conflict = $this->findConflict(
-                    $data['teacher_id'],
-                    Carbon::instance($start),
-                    Carbon::instance($end)
-                );
+                // ⭐ العطلات وحظر المعلم — بنفس قواعد الحجز المفرد.
+                $holiday = Holiday::findFor($start->toDateString(), $data['organization_id'] ?? null);
+
+                if ($holiday !== null) {
+                    $skipped[] = [
+                        'date' => $start->toDateString(),
+                        'reason' => "يوم عطلة ({$holiday->name})",
+                    ];
+                } elseif ($this->teacherIsBlocked($data['teacher_id'], Carbon::instance($start), Carbon::instance($end))) {
+                    $skipped[] = [
+                        'date' => $start->toDateString(),
+                        'reason' => 'المعلم مش متاح في التوقيت ده (التزام في جدوله)',
+                    ];
+                } else {
+                    $conflict = $this->findConflict(
+                        $data['teacher_id'],
+                        Carbon::instance($start),
+                        Carbon::instance($end),
+                        null,
+                        $data['student_id'] ?? null,
+                    );
 
                 if ($conflict) {
                     $skipped[] = [
@@ -86,6 +235,7 @@ class LessonScheduler
                         'duration_minutes' => $data['duration_minutes'],
                         'status' => 'scheduled',
                     ]);
+                }
                 }
             }
 

@@ -61,8 +61,20 @@ class Lesson extends Model
     public function isMakeup(): bool { return $this->lesson_type === 'makeup'; }
     public function isTrial(): bool { return $this->lesson_type === 'trial'; }
 
+    /**
+     * ⭐⭐⭐ **PR 3.6 — الحصة اللي بتحجب الوقت.**
+     *
+     * ⚠️ **بِغ**: الاستثناء كان `whereNotIn('status', ['cancelled'])` —
+     * و«cancelled» مفردة **اختفت** في PR 3.1 (بقالت
+     * `cancelled_by_academy` / `cancelled_late`) ⇒ الحصة الملغاة
+     * **بتحجب المعلم** والحجز في وقتها كان بيترفض.
+     */
     public function scopeBlockingTeacherTime(Builder $query): Builder
     {
-        return $query->whereNotIn('status', ['cancelled']);
+        return $query->whereNotIn('status', [
+            'cancelled',
+            'cancelled_by_academy',
+            'cancelled_late',
+        ]);
     }
 }

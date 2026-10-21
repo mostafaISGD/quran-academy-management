@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\LessonStatus;
+use App\Exceptions\LessonOnHoliday;
 use App\Exceptions\SchedulingConflictException;
+use App\Exceptions\TeacherUnavailable;
 use App\Http\Controllers\Controller;
 use App\Models\Lesson;
 use App\Models\LessonAttendance;
@@ -140,9 +142,23 @@ class LessonController extends Controller
             $duration = $data['duration_minutes'] ?? $lesson->duration_minutes;
             $end = $start->copy()->addMinutes($duration);
 
-            $conflict = $this->scheduler->findConflict($lesson->teacher_id, $start, $end, excludeLessonId: $lesson->id);
-            if ($conflict) {
-                return (new SchedulingConflictException($conflict))->render();
+            // ⭐⭐⭐ **PR 3.6 — إعادة الجدولة بتفحص الجدولة كلها:**
+            // عطلة + حظر المعلم + تعارض (معلم **أو طالب**).
+            try {
+                $this->scheduler->assertBookable(
+                    (string) $lesson->teacher_id,
+                    $start,
+                    $end,
+                    (int) $lesson->organization_id,
+                    $lesson->student_id,
+                    (string) $lesson->id,
+                );
+            } catch (SchedulingConflictException $e) {
+                return $e->render();
+            } catch (LessonOnHoliday $e) {
+                return $e->render();
+            } catch (TeacherUnavailable $e) {
+                return $e->render();
             }
 
             LessonReschedule::create([

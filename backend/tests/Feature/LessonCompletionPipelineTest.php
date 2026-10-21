@@ -208,7 +208,10 @@ class LessonCompletionPipelineTest extends TestCase
             $manager,
         );
 
-        $r->assertStatus(409);
+        // ⭐⭐⭐ **PR 3.6 — تعارض الجدولة بقى 422** (مش 409):
+        // المواصفة بتقول «حجز متعارض = 422» — لأن الطلب صح في
+        // صيغته، بس مستحيل في هذا الوقت.
+        $r->assertStatus(422);
         $this->assertSame('in_progress', $lesson->fresh()->status, 'الأصل اتغيّر رغم فشل الحجز الجديد');
     }
 

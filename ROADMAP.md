@@ -166,7 +166,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 3.3 — Lesson Credit Consumption
 - [x] PR 3.4 — Lesson Completion Pipeline (idempotent)
 - [x] PR 3.5 — Attendance Linked to Lesson Outcome
-- [ ] PR 3.6 — Scheduling Correctness
+- [x] PR 3.6 — Scheduling Correctness
 - [ ] PR 3.7 — Time Zones
 - [ ] PR 3.8 — Pausing and Resuming a Subscription
 - [ ] PR 3.9 — Trial Lessons and Assessment Conversion
@@ -1539,6 +1539,16 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** Booking a student at the time of another lesson = 422; booking on an official holiday = 422 with a clear message.
 **Depends on:** 3.1
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-21):**
+> - **التعارض بقى يشمل الطالب**: `LessonScheduler::findConflict` كان يفحص **المعلم بس** ⇒ كان ممكن ت-booking نفس الطالب في وقت حصته. دلوقتي يفحص المعلم **أو** أي طالب (فرد أو طلاب الحصة الجماعية) — والرسالة بتفرّق (`reason: teacher|student`).
+> - **جدول `holidays` (جديد)**: `date` + `name` + `type` (`official` = لكل الأكاديميات و`organization_id` null · `academy` = إجازة الأكاديمية). الحجز في عطلة = **422** برسالة فيها اسم العطلة (`LessonOnHoliday`).
+> - **حظر المعلم** (`teacher_schedules`): الحجز في وقت **محجوب** في جدوله (شغل خارجي/إجازة/شخصي) = **422** (`TeacherUnavailable`). والتوليد المتكرر (recurring) **يتخطّى** العطلات والحظر وبيسجّل السبب في `skipped`.
+> - ⭐ **تغيير سلوك موثّق**: تعارض الجدولة بقى **422** بدل **409** (المواصفة: «حجز متعارض = 422» — الطلب صح في صيغته، بس مستحيل في الوقت ده). الاختبار في `LessonCompletionPipelineTest` اتحدّث (409 → 422).
+> - ⭐ **بِغ مكتشف (1)**: نطاق `blockingTeacherTime` كان بيستثني `cancelled` — وهي مفردة **اختفت** في PR 3.1 ⇒ الحصة الملغاة كانت **بتتحجب المعلم** والحجز في وقتها كان بيترفض. اتصلّح (المفردات التلاتة).
+> - ⭐ **بِغ مكتشف (2)**: `change()` على SQLite بيعيد بناء الجدول و**بيفقد الـdefaults** ⇒ `lessons.status` بقى NOT NULL من غير default ⇒ أي `INSERT` من غير `status` كان بيقع 500 في `POST /api/lessons`. الميجريشن رجّع الـdefaults (`status` + `duration_minutes`). (نفس المصيبة كانت في PR 3.1 — اتصلّحت هنا.)
+> - **حدود التوليد بقت من الإعدادات**: `lessons.max_generation_count` (200) و`lessons.max_generation_months` (3) — والعدد الأقصى بيتقيّد في `createRecurringSeries` (والتوليد يوقف ويسجّل السبب).
+> - **ما لم يُتحقق:** نافذة **الأشهر** (3) ما اتفرضتش على `createRecurringSeries` (الحد بالعدد فقط) — والضبط الفعلي للنافذة جاي مع مركز الإعدادات (PR 3.12). كما أن **إدارة العطلات** (CRUD + واجهة) لسه مش موجودة — الجدول والإلزام شغّالان بس.
 ### PR 3.7 — Time Zones
 **Goal:** Every user sees their lessons in their correct time.
 **Tasks:**
