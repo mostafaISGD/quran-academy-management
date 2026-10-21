@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { getPayments, createPayment, refundPayment, type Payment } from "@/lib/api";
+import { getPayments, createPayment, refundPayment, downloadPaymentReceipt, type Payment } from "@/lib/api";
 import { usePage } from "@/lib/use-page";
 import { date, egp, money } from "@/lib/format";
 import Pagination from "@/components/Pagination";
@@ -143,6 +143,29 @@ export default function PaymentsPage() {
     } catch (err) { setActionError(err instanceof Error ? err.message : "فشل الاسترجاع"); }
   }
 
+  // ⭐ PR 2.17 — إيصال الدفعة PDF (عربي RTL): نفس نمط نمط التقارير
+  // (blob/anchor)؛ الأخطاء تسقط في سطر أحمر على التاب نفسه.
+  const [receiptError, setReceiptError] = useState("");
+  const [receiptBusy, setReceiptBusy] = useState<number | null>(null);
+
+  async function handleDownloadReceipt(id: number) {
+    setReceiptBusy(id);
+    try {
+      const blob = await downloadPaymentReceipt(id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `RCP-${id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setReceiptError("");
+    } catch (e) {
+      setReceiptError(e instanceof Error ? e.message : "تعذّر تحميل الإيصال PDF");
+    } finally {
+      setReceiptBusy(null);
+    }
+  }
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
@@ -175,6 +198,7 @@ export default function PaymentsPage() {
       {loading && <p className="text-sm text-slate-500">جارٍ التحميل...</p>}
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
       {actionError && <p className="mb-4 text-sm text-red-600">{actionError}</p>}
+      {receiptError && <p className="mb-4 text-sm text-red-600">{receiptError}</p>}
       {showForm && (
         <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="mb-4 text-sm font-semibold text-slate-800">تسجيل دفعة</h2>
@@ -230,7 +254,12 @@ export default function PaymentsPage() {
                   <td className="px-4 py-3 text-slate-600">{p.transaction_reference ?? "—"}</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${p.status === "completed" ? "bg-green-100 text-green-700" : p.status === "pending" ? "bg-amber-100 text-amber-700" : p.status === "failed" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-500"}`}>{STATUS_LABEL[p.status]}</span></td>
                   <td className="px-4 py-3 text-slate-500">{date(p.paid_at)}</td>
-                  <td className="px-4 py-3">{p.status === "completed" && <button onClick={() => setRefundPaymentId(p.id)} className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100">استرجاع</button>}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      {p.status === "completed" && <button onClick={() => setRefundPaymentId(p.id)} className="rounded bg-red-50 px-2 py-1 text-xs text-red-600 hover:bg-red-100">استرجاع</button>}
+                      {p.status === "completed" && <button onClick={() => handleDownloadReceipt(p.id)} disabled={receiptBusy === p.id} className="rounded bg-teal-50 px-2 py-1 text-xs text-teal-700 hover:bg-teal-100 disabled:opacity-50">{receiptBusy === p.id ? "..." : "إيصال PDF"}</button>}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>

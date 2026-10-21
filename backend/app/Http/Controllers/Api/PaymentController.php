@@ -9,6 +9,7 @@ use App\Models\PaymentAllocation;
 use App\Models\Refund;
 use App\Models\StudentLedgerEntry;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class PaymentController extends Controller
 {
@@ -131,6 +132,28 @@ class PaymentController extends Controller
     public function show(Payment $payment)
     {
         return response()->json($payment->load(['student', 'invoice', 'refunds', 'receivedBy', 'allocations.invoice']));
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 2.17 — إيصال استلام PDF** للدفعة.
+     *
+     * الحماية: `PaymentPolicy::viewPdf` — الموظف المالي بالصلاحية،
+     * والطالب إيصاله، وولي الأمر ابنه بشرط `can_view_finance`،
+     * وولي آخر → 403 (المواصفة). المسار نفسه بلا `permission:`
+     * — استثناء مُعلَّل في `RouteProtectionTest::EXCEPTIONS`.
+     *
+     * الرقم الظاهر في الإيصال عبر `PdfDocumentService::receiptNumber`
+     * — دالة صريقة، مش عدّاد مستهلك عند كل طباعة.
+     */
+    public function receipt(Payment $payment)
+    {
+        Gate::authorize('viewPdf', $payment);
+
+        $pdf = app(\App\Services\PdfDocumentService::class)->receiptPdf($payment);
+
+        return response($pdf, 200)
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', 'attachment; filename="'.\App\Services\PdfDocumentService::receiptNumber($payment).'.pdf"');
     }
 
     /**

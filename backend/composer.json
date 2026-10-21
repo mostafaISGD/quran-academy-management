@@ -7,7 +7,8 @@
         "laravel/framework": "^11.0",
         "laravel/sanctum": "^4.0",
         "spatie/laravel-permission": "^6.0",
-        "pragmarx/google2fa-laravel": "^3.0"
+        "pragmarx/google2fa-laravel": "^3.0",
+        "mpdf/mpdf": "^8.3"
     },
     "require-dev": {
         "laravel/pint": "^1.0",

@@ -4073,6 +4073,25 @@ export function getInvoices(params?: {
   return apiFetch<Paginated<Invoice>>(`/invoices?${search.toString()}`);
 }
 
+/**
+ * ⭐ PR 2.17 — مستند الفاتورة PDF (عربي RTL مع mPDF): الرؤوس من
+ * الإعدادات المؤسسية + رقم تسلسلي + QR متجه. حمايته عبر
+ * `InvoicePolicy::viewPdf` — موظف مالي بإذن `finance.payments.view`
+ * بلا هوامش، طالب بفواتيره، وولي أمر بشرط `can_view_finance`.
+ * الرد غير 200 يطرف كـ`ApiError` عبر `apiFetchBlob`.
+ */
+export async function downloadInvoicePdf(id: number): Promise<Blob> {
+  return apiFetchBlob(`/invoices/${id}/pdf`);
+}
+
+/**
+ * ⭐ PR 2.17 — إيصال استلام PDF للدفعة (رقمه `RCP-YYYY-######`
+ * مشتق). حمايته كتالية عبر `PaymentPolicy::viewPdf`.
+ */
+export async function downloadPaymentReceipt(id: number): Promise<Blob> {
+  return apiFetchBlob(`/payments/${id}/receipt`);
+}
+
 export function createInvoice(payload: {
   student_id: number; parent_id?: string; subscription_id?: string; issue_date: string;
   due_date?: string; items: { description: string; quantity: number; unit_price: number }[];

@@ -93,6 +93,18 @@ class RouteProtectionTest extends TestCase
         // فعلاً ولي أمر. وده الوضع الصح — ولي الأمر مالوش دور
         // في كتالوج الصلاحيات أصلاً.
         'GET api/parent/children' => 'محمي بـ parent.only middleware (مش permission) — وده الوضع الصح لولي الأمر',
+
+        // ===== مستندات PDF (PR 2.17) =====
+        //
+        // الفاتورة/الإيصال PDF عائليان قبلهما: ولي الأمر مالوش
+        // كتالوج صلاحيات أصلاً (نفس منطق بوابة ولي الأمر فوق)،
+        // فتقيد بـ `permission:` هيمنعه من الطباعة أكثر وسيطاً.
+        // الحكم كله في الـPolicies: موظف مالي (finance.payments.view
+        // + بلا هوامش) — طالب (إيصالاته/فواتيره) — ولي بشرط
+        // can_view_finance — وولي آخر 403. اختباراته في
+        // InvoicePdfTest + PaymentReceiptTest.
+        'GET api/invoices/{invoice}/pdf' => 'محمي بـ InvoicePolicy::viewPdf — الولي بشرط can_view_finance والفرد الغريب 403',
+        'GET api/payments/{payment}/receipt' => 'محمي بـ PaymentPolicy::viewPdf — نفس منطق الإيصال العائلي',
     ];
 
     /**

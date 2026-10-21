@@ -343,6 +343,27 @@ public function show(Invoice $invoice)
      *   ② التقرير يقدر يقول «فيه فاتورة اتلغت في مارس» — رقم
      *      فيه فجوة من غير تفسير = شك.
      */
+    /**
+     * ⭐⭐⭐ **PR 2.17 — مستند الفاتورة PDF** (عربي RTL مع mPDF).
+     *
+     * - تفاصيل الأكاديمية من **الإعدادات المؤسسية** والرقم التسلسلي.
+     * - الحماية: `InvoicePolicy::viewPdf` — الموظف المالي بالصلاحية
+     *   `finance.payments.view` بلا هوامش، والطالب، وولي الأمر
+     *   بشرط `can_view_finance` للابن نفسه — و**ولي آخر 403**.
+     *   المسار بلا `permission:` عشان يصل للولي — استثناء مُعلَّل
+     *   في `RouteProtectionTest::EXCEPTIONS`.
+     */
+    public function pdf(Invoice $invoice)
+    {
+        Gate::authorize('viewPdf', $invoice);
+
+        $pdf = app(\App\Services\PdfDocumentService::class)->invoicePdf($invoice);
+
+        return response($pdf, 200)
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', 'attachment; filename="'.$invoice->invoice_number.'.pdf"');
+    }
+
     public function void(Request $request, Invoice $invoice)
     {
         if ($invoice->status === 'void') {

@@ -478,6 +478,12 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::put('/invoices/{invoice}', [InvoiceController::class, 'update'])->middleware('permission:finance.payments.update');
     Route::delete('/invoices/{invoice}', [InvoiceController::class, 'destroy'])->middleware('permission:finance.payments.update');
 
+    // ⭐ PR 2.17 — مستند الفاتورة PDF: بلا `permission:` لأن ولي
+    // الأمر يصله (الولي مالوش كتالوج صلاحيات) — الحكم في
+    // `InvoicePolicy::viewPdf` (موظف مالي/طالب/ولي بـcan_view_finance
+    // فقط) واستثناءه مُعلَّل في RouteProtectionTest::EXCEPTIONS.
+    Route::get('/invoices/{invoice}/pdf', [InvoiceController::class, 'pdf']);
+
     // ⭐ PR 2.6 — الحالة بقت **أفعال صريحة** مش تعديل حقل.
     //
     // ⚠️ الاعتماد/الإلغاء **قرار له أثر** (الفاتورة بقت مطالبة على
@@ -491,6 +497,9 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/payments', [PaymentController::class, 'index'])->middleware('permission:finance.payments.view');
     Route::post('/payments', [PaymentController::class, 'store'])->middleware('permission:finance.payments.create');
     Route::get('/payments/{payment}', [PaymentController::class, 'show'])->middleware('permission:finance.payments.view');
+    // ⭐ PR 2.17 — إيصال الدفعة PDF: نفس المبدأ — عائلي (ولي/
+    // طالب) بلا permission، والحكم `PaymentPolicy::viewPdf`.
+    Route::get('/payments/{payment}/receipt', [PaymentController::class, 'receipt']);
     Route::post('/payments/{payment}/refund', [PaymentController::class, 'refund'])
         ->middleware('permission:finance.payments.refund');
     // ⭐⭐ PR 2.8 — عكس دفعة خاطئة (status= reversed + سطور عكسية)

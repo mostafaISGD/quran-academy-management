@@ -157,7 +157,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 2.14 — Discounts and Promo Codes
 - [x] PR 2.15 — SQL Financial Reports
 - [x] PR 2.16 — Debt Aging, Account Balances, and Excel Export
-- [ ] PR 2.17 — Arabic PDF Receipts and Invoices
+- [x] PR 2.17 — Arabic PDF Receipts and Invoices
 
 **Phase 3 — Lesson Lifecycle and Academic Operations**
 
@@ -1416,6 +1416,17 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** A test on Arabic text and the specified Latin digits; another parent = 403.
 **Depends on:** 2.6 · 1.8
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-21):**
+> - **mPDF 8.3** للتوليد (اختيار المواصفة) — تشكيل عربي RTL حقيقي من PHP: خط `dejavusans` المضمّن + محرك التشكيل الداخلي + `dir="rtl"`. البديل `dompdf` لا يُشكّل الحروف العربية (حروف مقطوعة)، و`wkhtmltopdf` يحتاج ثنائياً خارجياً على الجهاز.
+> - **قيد البيئة (انحراف موثّق):** الجهاز بلا `ext-gd` (و`ext-zip`) → التنصيب بـ`--ignore-platform-req=ext-gd --ignore-platform-req=php`. القوالب كلها **نص + QR متجه** — لا مسار صورة نقطية يمرّ بـGD. لو أُضيف شعار نقطي لاحقاً فسيلزم جهاز فيه GD (أو شعار SVG).
+> - **الشعار:** المواصفة طلبت «شعار الأكاديمية» — نُفِّذ كترويسة نصية (اسم/هاتف/بريد/عنوان من `settings`: `academy_name`/`academy_phone`/`academy_email`/`academy_address`، والاسم fallback لاسم المؤسسة) + QR متجه. **لم يُخزَّن شعار نقطي** لأن `settings` لا يملك مفتاح شعار أصلاً، ولأن مسارات الصور النقطية غير مضمونة بلا GD.
+> - **المسارات:** `GET /api/invoices/{invoice}/pdf` و`GET /api/payments/{payment}/receipt` — **بلا `permission:`** لأن ولي الأمر (مالوش كتالوج صلاحيات أصلاً) مستخدم أساسي للفاتورة؛ الحكم كله في `InvoicePolicy::viewPdf` و`PaymentPolicy::viewPdf` (الجديدة)، واستثناءهما **مُعلَّل** في `RouteProtectionTest::EXCEPTIONS`. الموظف المالي يدخل بـ`finance.payments.view` **وبلا هوامش** (موظف مرتبط ببروفايل يبقى محكوماً بهامشه شرعاً)، والطالب بوثائقه، وولي الأمر بابنه **بشرط `can_view_finance`** — وولي آخر = **403** (قبول المواصفة).
+> - **رقم الإيصال** `RCP-YYYY-######` **مشتق** (دالة صرفة في `id` + سنة `paid_at`) مش عدّاد مخزَّن: كل إعادة طباعة كانت هتستهلك رقم وتعمل فجوات. رقم الفاتورة نفسه تسلسلي حقيقي من `InvoiceService::nextNumber` (قفل `lockForUpdate`).
+> - **الأرقام لاتينية** في كل القوالب (`number_format` + تواريخ `Y-m-d`) — والمبالغ تُقرأ من الـcast المالية (الـDB بيخزّن القروش والـcast بيرجّع الوحدة الرئيسية).
+> - **إثبات العربية داخل الـPDF:** mPDF يكتب الـmetadata بترميز UTF-16BE داخل سلسلة PDF — وحرف «ة» بايته السفلي `0x29` = `)` فيتهرّب داخل الملف إلى `\)`. الاختبار يولّد البايتات المُتهرَبة المطابقة (بلا BOM خارج بداية السلسلة) ويثبّت: العنوان العربي + الرقم اللاتيني + `FontFile2` (خط TrueType مضمّن = دليل إن العربي مرسوم بخط حقيقي لا بخط PDF أساسي بلا حروف عربية).
+> - **الواجهة:** زر «PDF» في صف الفاتورة وزر «إيصال PDF» في صف الدفعة (`downloadInvoicePdf` / `downloadPaymentReceipt` في `lib/api.ts`، تحميل blob/anchor).
+> - **ما لم يُتحقق:** الشكل البصري الفعلي للـPDF (وصل الحروف والعلامات) **غير مرئي آلياً** — الاختبار يثبت البايتات والخط المضمّن لا الشكل؛ يُفتح الملف يدوياً. كما أن **الشعار النقطي** غير منفَّذ (انظر أعلاه) و`ext-gd` غير متاح في هذه البيئة.
 ---
 
 # Phase 3 — Lesson Lifecycle and Academic Operations

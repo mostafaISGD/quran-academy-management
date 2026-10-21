@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { getInvoices, createInvoice, deleteInvoice, type Invoice } from "@/lib/api";
+import { getInvoices, createInvoice, deleteInvoice, downloadInvoicePdf, type Invoice } from "@/lib/api";
 import { usePage } from "@/lib/use-page";
 import { egp, money } from "@/lib/format";
 import Pagination from "@/components/Pagination";
@@ -112,6 +112,29 @@ export default function InvoicesPage() {
     }
   }
 
+  // ⭐ PR 2.17 — مستند الفاتورة PDF (عربي RTL): تحميل بـblob/anchor
+  // مثل نمط تصدير التقارير؛ خطأه يظهر على التاب.
+  const [pdfError, setPdfError] = useState("");
+  const [pdfBusy, setPdfBusy] = useState<number | null>(null);
+
+  async function handleDownloadPdf(id: number, invoiceNumber: string) {
+    setPdfBusy(id);
+    try {
+      const blob = await downloadInvoicePdf(id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${invoiceNumber}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setPdfError("");
+    } catch (e) {
+      setPdfError(e instanceof Error ? e.message : "تعذّر تحميل الفاتورة PDF");
+    } finally {
+      setPdfBusy(null);
+    }
+  }
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between">
@@ -141,6 +164,7 @@ export default function InvoicesPage() {
 
       {loading && <p className="text-sm text-slate-500">جارٍ التحميل...</p>}
       {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
+      {pdfError && <p className="mb-4 text-sm text-red-600">{pdfError}</p>}
       {showForm && (
         <div className="mb-8 rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="mb-4 text-sm font-semibold text-slate-800">إنشاء فاتورة</h2>
@@ -200,7 +224,12 @@ export default function InvoicesPage() {
                   <td className="px-4 py-3 text-green-600">{money(inv.paid_amount, inv.currency)}</td>
                   <td className="px-4 py-3 text-red-600">{money(inv.balance_due, inv.currency)}</td>
                   <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs ${inv.status === "paid" ? "bg-green-100 text-green-700" : inv.status === "overdue" ? "bg-red-100 text-red-700" : inv.status === "partially_paid" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>{STATUS_LABEL[inv.status]}</span></td>
-                  <td className="px-4 py-3"><button onClick={() => handleDelete(inv.id, inv.invoice_number, inv.student?.full_name ?? "—")} className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">حذف</button></td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => handleDownloadPdf(inv.id, inv.invoice_number)} disabled={pdfBusy === inv.id} className="rounded-lg bg-teal-50 px-2.5 py-1.5 text-xs font-medium text-teal-700 hover:bg-teal-100 disabled:opacity-50">{pdfBusy === inv.id ? "..." : "PDF"}</button>
+                      <button onClick={() => handleDelete(inv.id, inv.invoice_number, inv.student?.full_name ?? "—")} className="rounded-lg bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 hover:bg-red-100">حذف</button>
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
