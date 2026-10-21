@@ -118,8 +118,19 @@ class LessonScheduler
             })
             ->get()
             ->contains(function (TeacherSchedule $block) use ($startAt, $endAt) {
-                $blockStart = Carbon::parse($startAt->toDateString().' '.$block->starts_at);
-                $blockEnd = Carbon::parse($startAt->toDateString().' '.$block->ends_at);
+                // ⭐⭐⭐ **PR 3.7 — ساعات الحظر محلية ⇒ نقارنها في
+                // نفس منطقة الموعد.** قبل PR 3.7 كانت كل القيم
+                // UTC فالمقارنة كانت متسقة بالصدفة؛ بعد ما بقى
+                // الموعد بينتاقص في منطقة المستخدم، لازم الحظر
+                // يتقارن بنفس المنطقة وإلا غاب الحظر.
+                $blockStart = Carbon::parse(
+                    $startAt->toDateString().' '.$block->starts_at,
+                    $startAt->getTimezone(),
+                );
+                $blockEnd = Carbon::parse(
+                    $startAt->toDateString().' '.$block->ends_at,
+                    $startAt->getTimezone(),
+                );
 
                 // ⭐ التداخل: بداية الحصة قبل نهاية الحظر **أو**
                 // نهايتها بعد بداية الحظر.
@@ -161,10 +172,34 @@ class LessonScheduler
             $attributes['student_id'] ?? null,
         );
 
+        /**
+         * ⭐⭐⭐ **PR 3.7 — التخزين بـUTC صراحةً.**
+         *
+         * ⚠️ Eloquent **مش** بيحوّل Carbon للمنطقة قبل الكتابة
+         * (`fromDateTime` بيكتب `format('Y-m-d H:i:s')` زي ما هو)
+         * ⇒ حصة اتعملت 16:00 القاهرة كانت بتتخزّن 16:00 (أي
+         * ساعتين غلط عن UTC).
+         *
+         * ⭐ فبيحوّل دي للـUTC **قبل** الحفظ — وبكده كل `scheduled_*_at`
+         * مخزّن UTC زي ما المواصفة بتقول.
+         */
+        $attributes['scheduled_start_at'] = $start->copy()->setTimezone('UTC');
+        $attributes['scheduled_end_at'] = $end->copy()->setTimezone('UTC');
+
         return Lesson::create($attributes);
     }
 
     /**
+     * ⭐⭐⭐ **PR 3.7 — توليد السلسلة المتكررة في المنطقة المحلية.**
+     *
+     * ⭐ **ليه؟** التوقيت الصيفي (DST) بيغيّر فرق UTC بس **الساعة
+     * المحلية ما بتتغيّرش**. فلو ولّدنا بـUTC (16:00 UTC) ⇒ بعد
+     * التغير الصيفي الساعة المحلية بقت 17:00/15:00 — غلط.
+     *
+     * ⭐ فبنولّد بـCarbon في **منطقة السلسلة** (`$timezone`)، وبنخزّن
+     * `timezone` + `local_start_time` على كل حصة ⇒ الساعة المحلية
+     * محفوظة زي ما هي مهما تغيّر التوقيت الصيفي.
+     *
      * @return array{created: Lesson[], skipped: array}
      */
     public function createRecurringSeries(array $data): array
@@ -173,8 +208,11 @@ class LessonScheduler
         $created = [];
         $skipped = [];
 
-        $cursor = CarbonImmutable::parse($data['series_start_date']);
-        $endBoundary = CarbonImmutable::parse($data['end_date'])->endOfDay();
+        // ⭐ منطقة السلسلة (المعلم/المؤسسة) — الافتراضي UTC.
+        $timezone = (string) ($data['timezone'] ?? config('app.timezone'));
+
+        $cursor = CarbonImmutable::parse($data['series_start_date'], $timezone);
+        $endBoundary = CarbonImmutable::parse($data['end_date'], $timezone)->endOfDay();
 
         // ⭐⭐⭐ **PR 3.6 — حد التوليد من الإعدادات** (200 افتراضيًا).
         $max = $this->maxGenerationCount($data['organization_id'] ?? null);
@@ -191,6 +229,8 @@ class LessonScheduler
 
             if (in_array($cursor->dayOfWeek, $data['weekdays'], true)) {
                 [$hour, $minute] = explode(':', $data['start_time']);
+                // ⭐ `setTime` في **منطقة السلسلة** ⇒ الساعة المحلية
+                // ثابتة عبر التوقيت الصيفي.
                 $start = $cursor->setTime((int) $hour, (int) $minute);
                 $end = $start->addMinutes($data['duration_minutes']);
 
@@ -230,9 +270,12 @@ class LessonScheduler
                         'program_id' => $data['program_id'],
                         'level_id' => $data['level_id'] ?? null,
                         'lesson_type' => $data['lesson_type'] ?? 'regular',
-                        'scheduled_start_at' => $start,
-                        'scheduled_end_at' => $end,
+                        'scheduled_start_at' => $start->copy()->setTimezone('UTC'),
+                        'scheduled_end_at' => $end->copy()->setTimezone('UTC'),
                         'duration_minutes' => $data['duration_minutes'],
+                        // ⭐ PR 3.7 — المنطقة + الساعة المحلية الأصلية.
+                        'timezone' => $timezone,
+                        'local_start_time' => $start->format('H:i:s'),
                         'status' => 'scheduled',
                     ]);
                 }

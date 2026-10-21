@@ -14,7 +14,7 @@ import {
   type Lesson, type Student, type Teacher, type Program, type Subscription,
 } from "@/lib/api";
 import { usePage } from "@/lib/use-page";
-import { date, dateSmart, monthYear, time } from "@/lib/format";
+import { date, dateSmart, monthYear, time, userTimeZone } from "@/lib/format";
 import { useUI } from "@/components/ui";
 
 type ViewMode = "day" | "week" | "teachers";
@@ -480,7 +480,7 @@ export default function SchedulePage() {
                   {tLessons.length === 0 && <p className="text-sm text-slate-400">لا توجد حصص</p>}
                   {tLessons.map((lesson) => (
                     <div key={lesson.id} className="flex items-center justify-between rounded-lg bg-slate-50 px-3 py-2 text-sm">
-                      <span className="text-slate-600">{time(lesson.scheduled_start_at)} — {lesson.student?.full_name}</span>
+                      <span className="text-slate-600">{time(lesson.scheduled_start_at, userTimeZone())} — {lesson.student?.full_name}</span>
                       <span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_CONFIG[lesson.status]?.bg ?? "bg-slate-100"}`}>
                         {STATUS_CONFIG[lesson.status]?.label ?? lesson.status}
                       </span>
@@ -578,7 +578,7 @@ export default function SchedulePage() {
               </div>
               <p className="text-sm text-slate-600">المعلم: {selectedLesson.teacher?.full_name}</p>
               <p className="text-sm text-slate-600">البرنامج: {selectedLesson.program?.name}</p>
-              <p className="text-sm text-slate-600">الوقت: {time(selectedLesson.scheduled_start_at)} — {time(selectedLesson.scheduled_end_at)}</p>
+              <p className="text-sm text-slate-600">الوقت: {time(selectedLesson.scheduled_start_at, userTimeZone())} — {time(selectedLesson.scheduled_end_at, userTimeZone())}</p>
               <p className="text-sm text-slate-600">النوع: {LESSON_TYPE_LABEL[selectedLesson.lesson_type]}</p>
               {selectedLesson.lesson_type === "makeup" && (
                 <p className="text-sm text-teal-600">تعويضية عن حصة #{selectedLesson.parent_lesson_id}</p>
@@ -626,7 +626,7 @@ function LessonCard({ lesson, onClick }: { lesson: Lesson; onClick: () => void }
         <span className={`rounded-full px-2 py-0.5 text-xs ${config.bg} ${config.color}`}>{config.label}</span>
       </div>
       <p className="mt-1 text-sm text-slate-600">المعلم: {lesson.teacher?.full_name}</p>
-      <p className="text-xs text-slate-500">{time(lesson.scheduled_start_at)} — {time(lesson.scheduled_end_at)}</p>
+      <p className="text-xs text-slate-500">{time(lesson.scheduled_start_at, userTimeZone())} — {time(lesson.scheduled_end_at, userTimeZone())}</p>
       <p className="text-xs text-slate-500">{lesson.program?.name}</p>
       {lesson.lesson_type === "trial" && <span className="mt-1 inline-block rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">🆕 تجريبية</span>}
       {lesson.lesson_type === "makeup" && <span className="mt-1 inline-block rounded bg-teal-100 px-2 py-0.5 text-xs text-teal-700">↪ تعويضية</span>}
@@ -647,7 +647,7 @@ function DraggableLessonCard({ lesson, onClick }: { lesson: Lesson; onClick: () 
       <div className="flex items-center justify-between">
         <span className="font-medium text-slate-800">{lesson.student?.full_name}</span>
       </div>
-      <p className="mt-1 text-slate-500">{time(lesson.scheduled_start_at)} — {lesson.teacher?.full_name}</p>
+      <p className="mt-1 text-slate-500">{time(lesson.scheduled_start_at, userTimeZone())} — {lesson.teacher?.full_name}</p>
       {lesson.lesson_type === "trial" && <span className="mt-0.5 inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] text-blue-700">🆕</span>}
       {lesson.lesson_type === "makeup" && <span className="mt-0.5 inline-block rounded bg-teal-100 px-1.5 py-0.5 text-[10px] text-teal-700">↪</span>}
     </div>

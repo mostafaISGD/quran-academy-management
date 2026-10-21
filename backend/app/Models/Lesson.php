@@ -18,6 +18,8 @@ class Lesson extends Model
         'meeting_password', 'status', 'cancellation_reason', 'notes',
         // ⭐ PR 3.2 — لقطة السياسة وقت التحويل (JSON).
         'policy_snapshot',
+        // ⭐ PR 3.7 — المنطقة + الساعة المحلية الأصلية.
+        'timezone', 'local_start_time',
     ];
 
     protected function casts(): array

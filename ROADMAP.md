@@ -167,7 +167,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 3.4 — Lesson Completion Pipeline (idempotent)
 - [x] PR 3.5 — Attendance Linked to Lesson Outcome
 - [x] PR 3.6 — Scheduling Correctness
-- [ ] PR 3.7 — Time Zones
+- [x] PR 3.7 — Time Zones
 - [ ] PR 3.8 — Pausing and Resuming a Subscription
 - [ ] PR 3.9 — Trial Lessons and Assessment Conversion
 - [ ] PR 3.10 — Teacher API (Teacher Portal Backend)
@@ -1558,6 +1558,16 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** A weekly series across a daylight saving time change (e.g. Europe/London) preserves the local hour; a student in a different time zone from the teacher sees their correct time.
 **Depends on:** 3.6
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-21):**
+> - **`APP_TIMEZONE=UTC` كان موجود** أصلاً — النقص كان في التطبيق: المواعيد كانت بتُفسَّر بـ`Carbon::parse($value)` **بلا منطقة** ⇒ رقم «16:00» من عميل في القاهرة كان بيتخزّن 16:00 **UTC** (ساعتين غلط).
+> - ⭐ **بِغ في الحفظ (مكتشف هنا)**: Eloquent **مش** بيحوّل Carbon لـUTC قبل الكتابة (`fromDateTime` بيكتب `format('Y-m-d H:i:s')` زي ما هو) ⇒ كل `scheduled_*_at` كان بيتخزّن بالساعة المحلية. الإصلاح في `LessonScheduler` (كل الحفظ بيعدّي منها): `->copy()->setTimezone('UTC')` قبل `create`.
+> - **السلسلة المتكررة بقت تُولَّد في منطقة السلسلة** (`timezone` من `users.timezone`) بـ`CarbonImmutable::parse($date, $tz)` + `setTime()` ⇒ **الساعة المحلية ثابتة عبر التوقيت الصيفي** (DST) — والقبول مثبَت: سلسلة `Europe/London` عبر 29 مارس 2026 حافظت على 16:00 محليًا (وفروق UTC اختلفت ساعة).
+> - **عمودان جديدان على `lessons`**: `timezone` (المنطقة التي اتولّدت فيها الحصة) و`local_start_time` (الساعة المحلية الأصلية) ⇒ السلسلة قابلة لإعادة التوليد/العرض بالساعة المحلية الأصلية.
+> - **الحجز بيفسّر الموعد في منطقة المستخدم**: `LessonController::timezoneFor()` ⇒ `users.timezone` (fallback: `config('app.timezone')`). ولو القيمة فيها **offset** (ISO-8601) بيُحترم زي ما هو.
+> - ⭐ **بِغ في مقارنة الحظر (مكتشف هنا)**: ساعات `teacher_schedules` **محلية** — كانت بتُقارن في UTC (متسقة بالصدفة قبل PR ده)، ولما بقت المواعيد بينتاقص في منطقة المستخدم ⇒ الحظر **اختفى** من المقارنة. الإصلاح: نبني بداية/نهاية الحظر في **نفس منطقة الموعد**.
+> - **الواجهة**: `lib/format.ts` بقى يقبل `timeZone?` في `date`/`time`/`dateTime` + `userTimeZone()` (من `localStorage` ثم منطقة المتصفح) — وصفحة الجدول بقت تمرّرها. ⭐ **حارس التنسيق** (`tests/guard.ts`) زي ما هو: كل `toLocale*` لسه جوّه `lib/format.ts` بس.
+> - **ما لم يُتحقق:** ⭐ **`users.timezone` لسه مش بيتحفظ في `localStorage`** ⇒ `userTimeZone()` بيرجّع **منطقة المتصفح** لحد ما يتربط. يعني: مستخدم مسافر بتشتغل صح غالبًا (منطقة الجهاز = منطقة المستخدم)، لكن **مستخدم في منطقة تانية عن جهازه** بيشوف وقت متصفحه. ربط `users.timezone` بالـsession شغل قادم مع مركز الإعدادات (PR 3.12).
 ### PR 3.8 — Pausing and Resuming a Subscription
 **Goal:** Actually use `SubscriptionPause`.
 **Tasks:**

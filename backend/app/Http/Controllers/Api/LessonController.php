@@ -49,6 +49,23 @@ class LessonController extends Controller
         return response()->json($query->orderBy('scheduled_start_at')->get());
     }
 
+    /**
+     * ⭐⭐⭐ **PR 3.7 — منطقة المستخدم** (من `users.timezone`).
+     *
+     * ⭐ الfallback = `config('app.timezone')` (UTC) — عشان أي
+     * حساب بلا منطقة محفوظة ما يبقاش فيه سلوك غامض.
+     */
+    private function timezoneFor(Request $request): string
+    {
+        $timezone = $request->user()?->timezone;
+
+        if (is_string($timezone) && $timezone !== '') {
+            return $timezone;
+        }
+
+        return (string) config('app.timezone');
+    }
+
     public function store(Request $request)
     {
         $data = $request->validate([
@@ -68,7 +85,20 @@ class LessonController extends Controller
         $data['organization_id'] = $request->user()->organization_id;
         $data['lesson_type'] = $data['lesson_type'] ?? 'regular';
 
-        $start = Carbon::parse($data['scheduled_start']);
+        /**
+         * ⭐⭐⭐ **PR 3.7 — تفسير الموعد في منطقة صريحة.**
+         *
+         * ⭐ قبل PR ده كان `Carbon::parse($value)` **بلا منطقة** ⇒
+         * التفسير كان على `APP_TIMEZONE` (UTC) ⇒ عميل في القاهرة
+         * كاتب «16:00» كان بيحجز 16:00 **UTC** (يعني 18:00
+         * محليًا). دلوقتي: لو القيمة فيها offset (ISO-8601) بيُحترم
+         * زي ما هو؛ ولو مفيهاش ⇒ بنفسّرها في **منطقة المستخدم**
+         * (`users.timezone`) — وهي المنطقة اللي المستخدم شايف
+         * المواعيد بيها.
+         */
+        $timezone = $this->timezoneFor($request);
+
+        $start = Carbon::parse($data['scheduled_start'], $timezone);
         $end = $start->copy()->addMinutes($data['duration_minutes']);
 
         try {
@@ -101,6 +131,10 @@ class LessonController extends Controller
         ]);
 
         $data['organization_id'] = $request->user()->organization_id;
+
+        // ⭐⭐⭐ **PR 3.7 — السلسلة بتتولّد في منطقة المستخدم**
+        // (أو المعلم) ⇒ الساعة المحلية ثابتة عبر التوقيت الصيفي.
+        $data['timezone'] = $this->timezoneFor($request);
 
         $result = $this->scheduler->createRecurringSeries($data);
 
@@ -138,7 +172,9 @@ class LessonController extends Controller
         ]);
 
         if (isset($data['scheduled_start']) || isset($data['duration_minutes'])) {
-            $start = Carbon::parse($data['scheduled_start'] ?? $lesson->scheduled_start_at);
+            // ⭐ PR 3.7 — تفسير الموعد في منطقة المستخدم (صريحة).
+            $timezone = $this->timezoneFor($request);
+            $start = Carbon::parse($data['scheduled_start'] ?? $lesson->scheduled_start_at, $timezone);
             $duration = $data['duration_minutes'] ?? $lesson->duration_minutes;
             $end = $start->copy()->addMinutes($duration);
 

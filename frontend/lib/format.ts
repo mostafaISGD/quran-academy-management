@@ -112,7 +112,7 @@ export function currencyLabel(currency: string | null | undefined): string {
  *
  * ⭐ ليه لازم يبقى معرّف هنا كمان (وليس في الـbackend بس)؟
  * لأن العرض بيحصل في المتصفح، والـAPI بيرجّع `150000` من غير ما
- * يقول «ده فول不方便. فلو الواجهة_clauseتعارف الأساس غلط، عرض
+ * ⭐ `timeZone` اختياري في كل دوال التاريخ/الوقت — فالباقي من
  * `150000` بدل `1,500` = خطأ **في الفاتورة**.
  *
  * ⭐ لازم يطابق `backend/config/currencies.php` بالظبط.
@@ -249,14 +249,43 @@ export function money(
   return `${n.toLocaleString(LOCALE, { maximumFractionDigits: maxFrac })}${NBSP}${currencyLabel(currency)}`;
 }
 
+/**
+ * ⭐⭐⭐ **منطقة العرض (PR 3.7).**
+ *
+ * ⭐ المواعيد مخزّنة **UTC** في الـAPI — والعميل لازم يعرضها
+ * بمنطقة **المستخدم** (`users.timezone`)، مش بمنطقة المتصفح
+ * (اللي ممكن تكون غلط على جهاز مشترك أو في سفر).
+ *
+ * ⭐ `timeZone` اختياري في كل دوال التاريخ/الوقت — فالباقي من
+ * السلوك زي ما كان (منطقة المتصفح) لوحده ناقص.
+ */
+export function userTimeZone(): string {
+  try {
+    const stored = localStorage.getItem("qa.timezone");
+    if (stored) return stored;
+  } catch {
+    // ⭐ localStorage مش متاح (SSR / private mode) — نكمل.
+  }
+
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch {
+    return "UTC";
+  }
+}
+
 /** تاريخ بس: `7 أكتوبر 2026` */
-export function date(value: string | Date | null | undefined): string {
+export function date(
+  value: string | Date | null | undefined,
+  timeZone?: string,
+): string {
   const d = toDate(value);
   if (!d) return "—";
   return d.toLocaleDateString(LOCALE, {
     day: "numeric",
     month: "short",
     year: "numeric",
+    ...(timeZone ? { timeZone } : {}),
   });
 }
 
@@ -347,10 +376,16 @@ export function weekday(value: string | Date | null | undefined): string {
 }
 
 /** وقت بس: `7:05 م` */
-export function time(value: string | Date | null | undefined): string {
+export function time(
+  value: string | Date | null | undefined,
+  timeZone?: string,
+): string {
   const d = toDate(value);
   if (!d) return "—";
-  return d.toLocaleTimeString(LOCALE, TIME_OPTS);
+  return d.toLocaleTimeString(LOCALE, {
+    ...TIME_OPTS,
+    ...(timeZone ? { timeZone } : {}),
+  });
 }
 
 /**
@@ -364,13 +399,18 @@ export function time(value: string | Date | null | undefined): string {
  *
  * ⭐ مافيش سنة هنا — لأنها بتزحم. لو محتاجها، استخدم `dateSmart()`.
  */
-export function dateTime(value: string | Date | null | undefined): string {
+export function dateTime(
+  value: string | Date | null | undefined,
+  timeZone?: string,
+): string {
   const d = toDate(value);
   if (!d) return "—";
 
-  const dayPart = d.toLocaleDateString(LOCALE, { day: "numeric", month: "short" });
-  const weekdayPart = d.toLocaleDateString(LOCALE, { weekday: "long" });
-  const timePart = d.toLocaleTimeString(LOCALE, TIME_OPTS);
+  const zone = timeZone ? { timeZone } : {};
+
+  const dayPart = d.toLocaleDateString(LOCALE, { day: "numeric", month: "short", ...zone });
+  const weekdayPart = d.toLocaleDateString(LOCALE, { weekday: "long", ...zone });
+  const timePart = d.toLocaleTimeString(LOCALE, { ...TIME_OPTS, ...zone });
 
   return `${dayPart}، ${weekdayPart} - ${timePart}`;
 }
