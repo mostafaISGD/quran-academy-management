@@ -31,18 +31,25 @@
         <table width="100%">
             <tr>
                 <td width="62%" style="vertical-align: top;">
-                    <p class="academy">{{ $academy['name'] }}</p>
-                    <p class="academy-meta">
-                        @if ($academy['phone'] !== '')
-                            {{ $academy['phone'] }}
-                        @endif
-                        @if ($academy['email'] !== '')
-                            @if ($academy['phone'] !== '')
-                                &nbsp;•&nbsp;
-                            @endif
-                            {{ $academy['email'] }}
-                        @endif
-                    </p>
+                    <table>
+                        <tr>
+                            <td width="46" height="46" style="background: #0f766e; color: #ffffff; text-align: center; font-size: 20pt; font-weight: bold; border-radius: 8px;">{{ $academy['logoInitial'] }}</td>
+                            <td style="vertical-align: middle; padding-right: 10px;">
+                                <p class="academy">{{ $academy['name'] }}</p>
+                                <p class="academy-meta">
+                                    @if ($academy['phone'] !== '')
+                                        {{ $academy['phone'] }}
+                                    @endif
+                                    @if ($academy['email'] !== '')
+                                        @if ($academy['phone'] !== '')
+                                            &nbsp;•&nbsp;
+                                        @endif
+                                        {{ $academy['email'] }}
+                                    @endif
+                                </p>
+                            </td>
+                        </tr>
+                    </table>
                 </td>
                 <td style="vertical-align: top;">
                     <h1 class="doc-title">إيصال استلام</h1>

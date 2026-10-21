@@ -130,7 +130,7 @@ final class PdfDocumentService
      * عليه اسم المؤسسة نفسها إذا الإعداد فارغ (بدون ما نسمّيه
      * نصاً كاذباً في مستند رسمي).
      *
-     * @return array{name: string, phone: string, email: string, address: string}
+     * @return array{name: string, phone: string, email: string, address: string, logoInitial: string}
      */
     private function academy(?int $organizationId): array
     {
@@ -141,11 +141,17 @@ final class PdfDocumentService
             $name = $org?->name ?? 'الأكاديمية';
         }
 
+        $name = trim($name);
+
         return [
-            'name' => (string) $name,
+            'name' => $name,
             'phone' => (string) Setting::get('academy_phone', '', $organizationId),
             'email' => (string) Setting::get('academy_email', '', $organizationId),
             'address' => (string) Setting::get('academy_address', '', $organizationId),
+            // ⭐ «شعار» نصي — أول حرف من الاسم في مربع ملوّن.
+            // صور الشعار النقطية تحتاج GD (غير متاح هنا) — وهذا
+            // بديل متجهي يشتغل في أي بيئة بلا اعتماد إضافي.
+            'logoInitial' => mb_substr($name, 0, 1, 'UTF-8'),
         ];
     }
 
@@ -153,7 +159,7 @@ final class PdfDocumentService
      * تكوين mPDF: A4 بمحرك تشكيل عربي.
      * default font `dejavusans` = خط مضمّن يرسم العربي فعلياً.
      *
-     * @param array{name: string, phone: string, email: string, address: string} $academy
+     * @param array{name: string, phone: string, email: string, address: string, logoInitial: string} $academy
      */
     private function newPdf(array $academy): Mpdf
     {
