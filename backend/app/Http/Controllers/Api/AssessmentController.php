@@ -12,6 +12,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\PeriodLock;
 use App\Models\Payment;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 
 class AssessmentController extends Controller
@@ -32,8 +33,42 @@ class AssessmentController extends Controller
 
     public function store(Request $request)
     {
-        $data = $request->validate(['lead_id' => 'required|exists:leads,id', 'teacher_id' => 'required|exists:teachers,id', 'scheduled_at' => 'required|date']);
-        $assessment = Assessment::create($data);
+        $data = $request->validate([
+            'lead_id' => 'required|exists:leads,id',
+            'teacher_id' => 'required|exists:teachers,id',
+            'scheduled_at' => 'required|date',
+            'duration_minutes' => 'nullable|integer|min:15|max:240',
+        ]);
+
+        $lead = Lead::findOrFail($data['lead_id']);
+        $duration = (int) ($data['duration_minutes'] ?? 30);
+        $start = Carbon::parse($data['scheduled_at']);
+        $end = $start->copy()->addMinutes($duration);
+
+        /**
+         * ⭐⭐⭐ **PR 3.9 — الحصة التجريبية بتتسجَّل فعلاً.**
+         *
+         * ⭐ قبل PR ده كان التقييم بيتسجَّل وخلاص (من غير حصة) ⇒
+         * مفيش حصة تجريبية ولا فحص تعارض ولا رابط بالحصة.
+         *
+         * ⭐ دلوقتي: الحصة بتتشcreating عبر `LessonScheduler`
+         * (فحص التعارض + المنطقة الزمنية + التخزين UTC)،
+         * و`student_id` بيفضل **null** (الحصة تجريبية قبل التحول
+         * لطالب).
+         */
+        $lesson = app(\App\Services\LessonScheduler::class)->createLesson([
+            'organization_id' => $request->user()->organization_id,
+            'student_id' => null,
+            'teacher_id' => $data['teacher_id'],
+            'program_id' => $lead->interested_program_id,
+            'lesson_type' => 'trial',
+            'scheduled_start_at' => $start,
+            'scheduled_end_at' => $end,
+            'duration_minutes' => $duration,
+            'status' => 'scheduled',
+        ]);
+
+        $assessment = Assessment::create($data + ['lesson_id' => $lesson->id]);
         Lead::where('id', $data['lead_id'])->update(['status' => 'trial_booked']);
         return response()->json($assessment, 201);
     }
@@ -65,83 +100,25 @@ class AssessmentController extends Controller
             'payment_method' => 'required|in:cash,bank_transfer,wallet,online_payment,card,other',
         ]);
 
-        $lead = $assessment->lead;
-        if (!$lead) return response()->json(['message' => 'لا يوجد Lead مرتبط'], 422);
+        /**
+         * ⭐⭐⭐ **PR 3.9 — التحويل بقى في خدمة واحدة ذرّية.**
+         *
+         * ⭐ قبل PR ده كان كله هنا: طالب جديد + اشتراك + فاتورة
+         * + دفع — **يدويًا** (من غير الخدمات) و**من غير
+         * transaction** ⇒ التحويل مرتين = طالبان، وفشل في النص
+         * بيسيب طالب بلا اشتراك.
+         */
+        $result = app(\App\Services\AssessmentConversionService::class)->convert(
+            $assessment,
+            $data,
+            $request->user(),
+        );
 
-        $student = Student::create([
-            'organization_id' => $request->user()->organization_id,
-            'lead_id' => $lead->id,
-            'student_code' => 'STU-' . strtoupper(uniqid()),
-            'first_name' => $lead->full_name,
-            'country_code' => $lead->country_code,
-            'phone' => $lead->phone,
-            'email' => $lead->email,
-            'status' => 'active',
-        ]);
-
-        $plan = SubscriptionPlan::findOrFail($data['plan_id']);
-        $subscription = Subscription::create([
-            'organization_id' => $request->user()->organization_id,
-            'student_id' => $student->id,
-            'plan_id' => $plan->id,
-            'program_id' => $plan->program_id,
-            'teacher_id' => $data['teacher_id'],
-            'start_date' => now()->toDateString(),
-            'end_date' => now()->addDays($plan->duration_days ?? 30)->toDateString(),
-            'billing_type' => $plan->billing_type,
-            'price' => $plan->price,
-            'currency' => $plan->currency,
-            'lesson_duration_minutes' => $plan->lesson_duration_minutes,
-            'lessons_included' => $plan->lessons_count,
-            'status' => 'active',
-        ]);
-
-        // ⭐⭐ PR 2.13 — فاتورة الاشتراك في فترة مقفولة = مرفوض
-        PeriodLock::assertOpen(now()->toDateString(), 'invoices');
-
-        $invoice = Invoice::create([
-            'organization_id' => $request->user()->organization_id,
-            'student_id' => $student->id,
-            'subscription_id' => $subscription->id,
-            'invoice_number' => 'INV-' . strtoupper(uniqid()),
-            'issue_date' => now()->toDateString(),
-            'due_date' => now()->addDays(7)->toDateString(),
-            'subtotal' => $plan->price,
-            'total' => $plan->price,
-            'balance_due' => $plan->price,
-            'currency' => $plan->currency,
-            'status' => 'issued',
-        ]);
-
-        InvoiceItem::create([
-            'invoice_id' => $invoice->id,
-            'description' => $plan->name,
-            'quantity' => 1,
-            'unit_price' => $plan->price,
-            'total' => $plan->price,
-        ]);
-
-        $payment = Payment::create([
-            'organization_id' => $request->user()->organization_id,
-            'student_id' => $student->id,
-            'invoice_id' => $invoice->id,
-            'amount' => $data['payment_amount'],
-            'currency' => $plan->currency,
-            'payment_method' => $data['payment_method'],
-            'status' => 'completed',
-            'paid_at' => now(),
-            'received_by' => $request->user()->id,
-        ]);
-
-        $invoice->update([
-            'paid_amount' => $data['payment_amount'],
-            'balance_due' => max(0, (float) $plan->price - $data['payment_amount']),
-            'status' => $data['payment_amount'] >= (float) $plan->price ? 'paid' : 'partially_paid',
-        ]);
-
-        $assessment->update(['student_id' => $student->id]);
-        $lead->update(['status' => 'converted']);
-
-        return response()->json(['student' => $student, 'subscription' => $subscription, 'invoice' => $invoice, 'payment' => $payment], 201);
+        return response()->json([
+            'student' => $result['student'],
+            'subscription' => $result['subscription'],
+            'invoice' => $result['invoice'],
+            'payment' => $result['payment'],
+        ], 201);
     }
 }

@@ -10,11 +10,17 @@ class Assessment extends Model
         'lead_id', 'student_id', 'teacher_id', 'scheduled_at',
         'reading_score', 'tajweed_score', 'memorization_score',
         'recommended_level', 'notes', 'result',
+        // ⭐ PR 3.9 — رابط الحصة التجريبية + سجل التحويل.
+        'lesson_id', 'converted_at', 'converted_subscription_id',
     ];
 
     protected function casts(): array
     {
-        return ['scheduled_at' => 'datetime'];
+        return [
+            'scheduled_at' => 'datetime',
+            // ⭐ PR 3.9 — وقت التحويل.
+            'converted_at' => 'datetime',
+        ];
     }
 
     public function lead() { return $this->belongsTo(Lead::class); }

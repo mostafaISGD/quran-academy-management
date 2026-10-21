@@ -169,7 +169,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 3.6 — Scheduling Correctness
 - [x] PR 3.7 — Time Zones
 - [x] PR 3.8 — Pausing and Resuming a Subscription
-- [ ] PR 3.9 — Trial Lessons and Assessment Conversion
+- [x] PR 3.9 — Trial Lessons and Assessment Conversion
 - [ ] PR 3.10 — Teacher API (Teacher Portal Backend)
 - [ ] PR 3.11 — Lesson Links and Join Tracking
 - [ ] PR 3.12 — Settings Center (Backend)
@@ -1594,6 +1594,16 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** Converting twice = the second is rejected; a failure midway through the operation does not leave a student without a subscription.
 **Depends on:** 3.4 · 2.7
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-21):**
+> - **`AssessmentConversionService`** (جديد): التحويل كله في `DB::transaction` واحد و**عبر الخدمات**: `SubscriptionActivationService::activate()` (فاتورة + **حساب رصيد** + جدولة) و`PaymentService::record()` (دفع + توزيع + **دفتر المال**) — بدل الـ`Model::create` اليدوي القديم.
+> - **الحماية من التحويل المزدوج**: قفل الصف (`lockForUpdate`) + فحص `student_id` + **قيد فريد** `unique(assessments.student_id)` في الميجريشن ⇒ التحويل مرتين: الثاني **422** (`AssessmentAlreadyConverted`) ومفيش طالب تاني.
+> - **سجل التحويل**: `assessments.converted_at` + `converted_subscription_id` + `lesson_id` (رابط الحصة التجريبية).
+> - **`AssessmentController::store` بقى بيعمل حصة تجريبية**: عبر `LessonScheduler` (فحص التعارض + المنطقة الزمنية + التخزين UTC) بنوع `trial` و`student_id = null` (الحصة قبل التحول لطالب) — قبل PR ده ما كانش في حصة خالص ولا رابط.
+> - ⭐ **بِغ مكتشف (1)**: التحويل القديم كان ينشئ الطالب بـ`first_name` فقط (الاسم كامل في خانة واحدة) ⇒ `last_name` NOT NULL ⇒ الـINSERT كان **بيقع 500 دايمًا** ⇒ التحويل **ما كانش أصلاً شغّال**. اتصلّح (تقسيم الاسم صح).
+> - ⭐ **بِغ مكتشف (2)**: مفتاح التكرار (`idempotency_key`) اتضاف للدفع ⇒ نفس التحويل مرتين ما يعملش دفعتين (حماية إضافية فوق القيد الفريد).
+> - ⭐ **بِغ مكتشف (3)**: `SubscriptionActivationService::openInvoice` بيولّد رقم فاتورة بـ`uniqid()` (مش تسلسلي) ⇒ فاتورة التحويل كانت خارج تسلسل الفواتير. (الرقم التسلسلي في `InvoiceService::nextNumber` — الربط بيتم في PR لاحق مع مركز الفواتير.)
+> - **ما لم يُتحقق:** ⭐ **الرقم التسلسلي للفاتورة** في التحويل لسه `uniqid()` (انظر البِغ 3) — إصلاحه بيحتاج ربط `openInvoice` بـ`InvoiceService::nextNumber` (خارج نطاق PR ده لأن ده بيمسّ كل اشتراك جديد). كما أن الإشعارات للطالب/ولي الأمر بعد التحويل **لسه مش** موجودة (PR 4.2).
 ### PR 3.10 — Teacher API (Teacher Portal Backend)
 **Goal:** The teacher runs their work without admin permissions.
 **Tasks:**
