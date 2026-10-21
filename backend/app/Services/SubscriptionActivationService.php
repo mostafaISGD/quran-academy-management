@@ -25,6 +25,17 @@ class SubscriptionActivationService
 {
     public function __construct(private TeacherAvailabilityService $availability) {}
 
+    /** ⭐ الفاعل (مين يعمل الإجراء) — للأوامر اليومية بيكون null. */
+    private ?\App\Models\User $by = null;
+
+    /** ⭐ محدِّد الفاعل (للاستدعاءات من الـAPI). */
+    public function actingAs(?\App\Models\User $by): self
+    {
+        $this->by = $by;
+
+        return $this;
+    }
+
     /**
      * @return array{
      *   invoice_id: ?int,
@@ -219,12 +230,42 @@ class SubscriptionActivationService
             $wrongDuration = (int) $lesson->duration_minutes !== $duration;
 
             if ($wrongTeacher || $wrongDay || $wrongTime || $wrongDuration) {
-                $lesson->update(['status' => 'cancelled']);
+                /**
+                 * ⭐⭐⭐ **PR 3.8 — بِغ موروث اتصلّح:**
+                 * كان `->update(['status' => 'cancelled'])` — تعديل
+                 * مباشر للحالة (خلاف «الكاتب الوحيد») وبمفردة
+                 * **منتهية** (اختفت في PR 3.1) ⇒ الـCHECK كان
+                 * بيرفضها. دلوقتي: آلة الحالات + المفردة الجديدة.
+                 */
+                app(\App\Services\LessonService::class)->transition(
+                    $lesson,
+                    \App\Enums\LessonStatus::CancelledByAcademy,
+                    $this->by,
+                    'تغيير المواعيد',
+                );
                 $cancelled++;
             }
         }
 
         return $cancelled;
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 3.8 — إعادة توليد الحصص الناقصة (بعد الاستئناف).**
+     *
+     * ⭐ بتاخد **المتبقي** من `lessons_included` بس ⇒ **من غير
+     * تكرار** — والحصص اللي اتلغت أثناء الإيقاف بتتحسب «مش
+     * موجودة» ⇒ بتتعوّض.
+     *
+     * @return array{created:int, skipped:array}
+     */
+    public function regenerateLessons(Subscription $subscription): array
+    {
+        return $this->scheduleLessons($subscription, [
+            'weekdays' => $subscription->schedule_weekdays ?? [],
+            'start_time' => $subscription->schedule_start_time ?? '16:00',
+            'duration_minutes' => $subscription->lesson_duration_minutes ?? 30,
+        ]);
     }
 
     /**
@@ -244,8 +285,13 @@ class SubscriptionActivationService
         }
 
         // الحصص اللي متولدة فعلاً — عشان إعادة التفعيل ما تزودش حصة زيادة
+        // ⭐⭐⭐ **PR 3.8 — بِغ:** المفردة 'cancelled' بقت **منتهية**
+        // (PR 3.1) ⇒ الشرط `!= 'cancelled'` بقى شامل، فالحصص
+        // الملغاة كانت بتتحسب «موجودة» ⇒ إعادة التوليد بعد
+        // الإيقاف **ما كانتش بتعمل حاجة**. دلوقتي بنحسب
+        // الحصص اللي **ما اتلغتش** بس.
         $existing = Lesson::where('subscription_id', $subscription->id)
-            ->where('status', '!=', 'cancelled')
+            ->whereNotIn('status', ['cancelled', 'cancelled_by_academy', 'cancelled_late'])
             ->count();
 
         $toCreate = $limit - $existing;
@@ -278,24 +324,25 @@ class SubscriptionActivationService
                 $start = $cursor->copy()->setTime($hour, $minute);
                 $end = $start->copy()->addMinutes($duration);
 
-                // المعلم مشغول في الوقت ده؟ نتخطى — بس لو الخانة دي
-                // فيها حصة من نفس الاشتراك يبقى هي أصلاً متجدولة
-                $blocking = Lesson::query()
-                    ->where('teacher_id', $subscription->teacher_id)
-                    ->blockingTeacherTime()
-                    ->where('scheduled_start_at', '<', $end)
-                    ->where('scheduled_end_at', '>', $start)
-                    ->first(['id', 'subscription_id']);
+                // ⭐⭐⭐ **PR 3.8 — بِغ: فحص التعارض كان للمعلم بس.**
+                // ⭐ الطالب اللي عنده حصة في نفس الوقت كان بياخد
+                // حصة تانية ⇒ **تكرار**. دلوقتي الفحص شامل
+                // (المعلم **أو** الطالب) عبر `findConflict` — وأي
+                // تعارض (حتى من نفس الاشتراك) بيتخطّى.
+                $blocking = app(\App\Services\LessonScheduler::class)->findConflict(
+                    (string) $subscription->teacher_id,
+                    $start,
+                    $end,
+                    null,
+                    $subscription->student_id,
+                );
 
-                $alreadyOurs = $blocking
-                    && (int) $blocking->subscription_id === (int) $subscription->id;
-
-                if ($blocking && !$alreadyOurs) {
+                if ($blocking) {
                     $skipped[] = [
                         'date' => $start->toDateString(),
-                        'reason' => 'المعلم عنده حصة في نفس الوقت',
+                        'reason' => 'فيه حصة في نفس الوقت (معلم أو طالب)',
                     ];
-                } elseif (!$blocking) {
+                } else {
                     Lesson::create([
                         'organization_id' => $subscription->organization_id,
                         'student_id' => $subscription->student_id,

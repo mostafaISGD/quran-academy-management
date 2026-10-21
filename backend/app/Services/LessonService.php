@@ -33,13 +33,48 @@ use Illuminate\Support\Facades\DB;
 final class LessonService
 {
     /**
+     * ⭐⭐⭐ **PR 3.8 — تأجيل حصة بمدة (أيام).**
+     *
+     * ⭐ بتستخدمها قاعدة الإيقاف (`pause_lesson_action = shift`):
+     * الحصة بتتزحزح بنفس المدة — مع سطر في `lesson_reschedules`
+     * (سجل مواعيد الحصة) عشان يبقى فيه تاريخ.
+     */
+    public function reschedule(Lesson $lesson, int $days, User $actor, ?string $reason = null): Lesson
+    {
+        return DB::transaction(function () use ($lesson, $days, $actor, $reason): Lesson {
+            $locked = Lesson::query()->lockForUpdate()->findOrFail($lesson->id);
+
+            $newStart = $locked->scheduled_start_at->copy()->addDays($days);
+            $newEnd = $locked->scheduled_end_at->copy()->addDays($days);
+
+            LessonReschedule::create([
+                'lesson_id' => $locked->id,
+                'old_start' => $locked->scheduled_start_at,
+                'old_end' => $locked->scheduled_end_at,
+                'new_start' => $newStart,
+                'new_end' => $newEnd,
+                'reason' => $reason ?? 'تأجيل بسبب إيقاف اشتراك',
+                'changed_by' => $actor->id,
+                'created_at' => now(),
+            ]);
+
+            $locked->forceFill([
+                'scheduled_start_at' => $newStart,
+                'scheduled_end_at' => $newEnd,
+            ])->save();
+
+            return $locked->fresh();
+        });
+    }
+
+    /**
      * تحويل حالة الحصة — يرمي `InvalidLessonTransition` (422)
      * لو التحويل مش في جدول التحويلات.
      */
     public function transition(
         Lesson $lesson,
         LessonStatus $to,
-        User $actor,
+        ?User $actor = null,
         ?string $reason = null,
     ): Lesson {
         return DB::transaction(function () use ($lesson, $to, $actor, $reason): Lesson {
@@ -100,7 +135,7 @@ final class LessonService
                 'lesson_id' => $locked->id,
                 'from_status' => $from->value,
                 'to_status' => $to->value,
-                'actor_id' => $actor->id,
+                'actor_id' => $actor?->id,
                 'reason' => $reason,
             ]);
 

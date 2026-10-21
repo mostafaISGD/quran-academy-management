@@ -152,10 +152,23 @@ class SubscriptionController extends Controller
 
     public function update(Request $request, Subscription $subscription)
     {
+        /**
+         * ⭐⭐⭐ **PR 3.8 — الحالة ما بتتغيّرش من `update`.**
+         *
+         * ⭐ قبل PR ده كان `status` حقل عادي ⇒ إيقاف بلا أثر
+         * (مفيش تأجيل حصص، مفيش تمديد نهاية، مفيش سجل ولا إشعار).
+         * دلوقتي: الإيقاف/الاستئناف لهما مساراهما (`/pause` و
+         * `/resume`) اللي بيعملوا الأثر كله.
+         */
+        if ($request->has('status')) {
+            return response()->json([
+                'message' => 'تغيير حالة الاشتراك من /api/subscriptions/{id}/pause أو /resume بس',
+            ], 422);
+        }
+
         $data = $request->validate([
             'program_id' => 'sometimes|exists:programs,id',
             'teacher_id' => 'nullable|exists:teachers,id',
-            'status' => 'sometimes|in:active,expired,paused,cancelled',
             'start_date' => 'sometimes|date',
             'end_date' => 'nullable|date',
             'billing_type' => 'nullable|in:monthly,per_lesson',
@@ -231,6 +244,48 @@ class SubscriptionController extends Controller
      * نفس أمر `subscriptions:process-day` بالظبط، وبنفس ضمانات عدم
      * التكرار — فالأدمن يقدر يضغط الزر بأمان أكتر من مرة.
      */
+    /**
+     * ⭐⭐⭐ **PR 3.8 — إيقاف اشتراك** (بأثر حقيقي: تأجيل/إلغاء
+     * الحصص + تمديد النهاية + سجل + إشعار لولي الأمر).
+     */
+    public function pause(Request $request, Subscription $subscription)
+    {
+        $data = $request->validate([
+            'start_date' => 'required|date',
+            'end_date' => 'required|date|after_or_equal:start_date',
+            'reason' => 'nullable|string|max:255',
+        ]);
+
+        $pause = app(\App\Services\SubscriptionPauseService::class)->pause(
+            $subscription,
+            $request->user(),
+            $data,
+        );
+
+        return response()->json([
+            'message' => 'تم إيقاف الاشتراك',
+            'pause' => $pause,
+            'subscription' => $subscription->fresh(),
+        ]);
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 3.8 — استئناف اشتراك** (الحصص الناقصة بتتولّد
+     * من جديد، من غير تكرار).
+     */
+    public function resume(Request $request, Subscription $subscription)
+    {
+        $updated = app(\App\Services\SubscriptionPauseService::class)->resume(
+            $subscription,
+            $request->user(),
+        );
+
+        return response()->json([
+            'message' => 'تم استئناف الاشتراك',
+            'subscription' => $updated,
+        ]);
+    }
+
     public function processDay(Request $request)
     {
         $data = $request->validate([

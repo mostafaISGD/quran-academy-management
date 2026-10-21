@@ -168,7 +168,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 3.5 — Attendance Linked to Lesson Outcome
 - [x] PR 3.6 — Scheduling Correctness
 - [x] PR 3.7 — Time Zones
-- [ ] PR 3.8 — Pausing and Resuming a Subscription
+- [x] PR 3.8 — Pausing and Resuming a Subscription
 - [ ] PR 3.9 — Trial Lessons and Assessment Conversion
 - [ ] PR 3.10 — Teacher API (Teacher Portal Backend)
 - [ ] PR 3.11 — Lesson Links and Join Tracking
@@ -1576,6 +1576,16 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** A two-week pause shifts the end by two weeks and cancels the lessons within the window; resuming regenerates the lessons without duplication.
 **Depends on:** 3.4 · 3.7
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-21):**
+> - **`SubscriptionPauseService`** (جديد) + `POST /api/subscriptions/{id}/pause` و`/resume` (صلاحية `students.update` — مفيش صلاحية جديدة). قبل PR ده `subscription_pauses` كان **جدولًا فاضيًا** (لا أحد يكتب فيه) و`PUT` كان بيغيّر `status` مباشرة ⇒ **إيقاف بلا أثر**.
+> - **الأثر (بقواعد قابلة للضبط)**: `subscriptions.pause_lesson_action` = `cancel` (افتراضي) ⇒ الحصص جوه نافذة الإيقاف **تتلغى عبر آلة الحالات** (فبتتسجَّل)؛ `shift` ⇒ بتتأجل بنفس المدة. و`subscriptions.pause_extends_end_date` (افتراضي true) ⇒ `end_date` بيزاح مدة الإيقاف.
+> - **`PUT /api/subscriptions/{id}` بقى يرفض `status` بـ422** — الحالة من الخدمة بس (`/pause` و`/resume`)، زي ما عملنا مع `LessonController::update` في PR 3.1.
+> - **الاستئناف**: `SubscriptionActivationService::regenerateLessons()` (جديد) بتولّد **الناقص بس** ⇒ بلا تكرار، وسطر الإيقاف بيتقفل (`ended`)، مع سطر في `activity_logs` وإشعار لولي الأمر (`subscription_paused` / `subscription_resumed` + عمود `notifications.subscription_id`).
+> - ⭐ **بِغ موروث (1)**: `cancelStaleLessons` كان بيكتب `->update(['status' => 'cancelled'])` — تعديل مباشر للحالة (خلاف «الكاتب الوحيد») وبمفردة **منتهية** (اختفت في PR 3.1) ⇒ الـCHECK كان بيرفضها. اتصلّح (آلة الحالات + `cancelled_by_academy`).
+> - ⭐ **بِغ موروث (2)**: حساب «الحصص الموجودة» في التوليد كان `where('status', '!=', 'cancelled')` ⇒ بعد اختفاء المفردة بقى **شامل** ⇒ الحصص الملغاة كانت بتتحسب «موجودة» ⇒ إعادة التوليد بعد الإيقاف **ما كانتش بتعمل حاجة**. اتصلّح (`whereNotIn` بالمفردات التلاتة).
+> - ⭐ **بِغ موروث (3)**: فحص التعارض في التوليد كان **للمعلم بس** ⇒ الطالب اللي عنده حصة في نفس الوقت بياخد حصة تانية (**تكرار**). اتصلّح بـ`findConflict` الشامل (معلم **أو** طالب) — وده نفس الإصلاح اللي عملناه في PR 3.6.
+> - **ما لم يُتحقق:** ⭐ **الإيقاف الجزئي** (إيقاف أيام معيّنة وسط الشهر) غير منفَّذ — الإيقاف بيغطي نافذة كاملة ويزوّد النهاية. كما أن **الإشعارات** للولي الأمر `in_app` بس (قنوات email/SMS من PR 4.2).
 ### PR 3.9 — Trial Lessons and Assessment Conversion
 **Goal:** A safe conversion that does not produce duplicate students.
 **Tasks:**

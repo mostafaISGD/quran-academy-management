@@ -447,6 +447,9 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::post('/subscriptions', [SubscriptionController::class, 'store'])->middleware('permission:students.update');
     Route::get('/subscriptions/{subscription}', [SubscriptionController::class, 'show'])->middleware('permission:students.view');
     Route::put('/subscriptions/{subscription}', [SubscriptionController::class, 'update'])->middleware('permission:students.update');
+    // ⭐ PR 3.8 — إيقاف/استئناف الاشتراك (بأثر حقيقي: حصص + نهاية + سجل + إشعار).
+    Route::post('/subscriptions/{subscription}/pause', [SubscriptionController::class, 'pause'])->middleware('permission:students.update');
+    Route::post('/subscriptions/{subscription}/resume', [SubscriptionController::class, 'resume'])->middleware('permission:students.update');
     Route::delete('/subscriptions/{subscription}', [SubscriptionController::class, 'destroy'])->middleware('permission:students.update');
 
     // المعالجة اليومية — نفس اللي بيحصل بالأمر التلقائي، عشان
