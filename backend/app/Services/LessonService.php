@@ -6,6 +6,7 @@ use App\Enums\LessonStatus;
 use App\Exceptions\InvalidLessonTransition;
 use App\Models\ActivityLog;
 use App\Models\Lesson;
+use App\Models\LessonAttendance;
 use App\Models\LessonStatusHistory;
 use App\Models\Notification;
 use App\Models\User;
@@ -105,6 +106,91 @@ final class LessonService
 
             return $locked->fresh();
         });
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 3.5 — تسجيل الحضور وقيادة النتيجة.**
+     *
+     * ⭐ **الحضور مش سجل جانبي** — هو اللي بيحدّد:
+     *
+     * - **نتيجة الحصة**: لو كل الطلاب حاضرين (ولا excuses) ⇒
+     *   الحصة `completed`؛ لو فيه غايب ⇒ النتيجة **مش واحدة
+     *   للحصة** (كل طالب ليه نتيجته في سجل الحضور).
+     * - **الأثر المالي لكل طالب**: `present`/`late` ⇒ خصم حصة
+     *   (حسب سياسة `student_absent`/السnapshot)؛ `absent`/
+     *   `excused` ⇒ **بلا خصم** + **سطر حركة** يوثّق القرار
+     *   (صفر خصم) ⇒ سجل الرصيد بيقول «ليه» لكل طالب.
+     *
+     * ⭐ **idempotent**: تسجيل نفس الحضور مرتين **ما بيخصفش
+     * مرتين** — السطر بيتحدث (مش سطر جديد) والخصم بيتعمل مرة.
+     *
+     * @param array<int, array{student_id: int, status: string, late_minutes?: int|null, notes?: string|null}> $entries
+     */
+    public function recordAttendance(Lesson $lesson, array $entries, User $actor): array
+    {
+        return DB::transaction(function () use ($lesson, $entries, $actor): array {
+            $locked = Lesson::query()->lockForUpdate()->findOrFail($lesson->id);
+
+            $students = $locked->students()->pluck('students.id')->all();
+            $single = $locked->student_id !== null ? [$locked->student_id] : [];
+
+            $allowed = array_values(array_unique(array_merge($students, $single)));
+            $results = [];
+
+            foreach ($entries as $entry) {
+                $studentId = (int) $entry['student_id'];
+
+                if (! in_array($studentId, $allowed, true)) {
+                    continue;
+                }
+
+                $status = (string) $entry['status'];
+
+                $attendance = LessonAttendance::updateOrCreate(
+                    ['lesson_id' => $locked->id, 'student_id' => $studentId],
+                    [
+                        'status' => $status,
+                        'late_minutes' => $entry['late_minutes'] ?? null,
+                        'marked_at' => now(),
+                        'marked_by' => $actor->id,
+                        'notes' => $entry['notes'] ?? null,
+                    ],
+                );
+
+                $results[] = $attendance;
+
+                // ⭐ الأثر المالي للطالب ده — من لقطة السياسة.
+                $this->applyOutcomeToCredit($locked, $studentId, $status, $actor);
+            }
+
+            // ⭐ نتيجة الحصة الجماعية: المعلم قدّم الحصة ⇒ بتخلص،
+            // و**غياب طالب ماشي حاله** (نتيجة لكل طالب في سجل
+            // الحضور، مش حالة واحدة للحصة).
+            if ($results !== [] && $locked->status !== LessonStatus::Completed->value) {
+                $this->complete($locked, $actor);
+            }
+
+            return $results;
+        });
+    }
+
+    /**
+     * ⭐ الأثر المالي للحضور: خصم (حاضر/متأخر) أو سطر توثيق
+     * (غائب/بعذر) — **بلا خصم** في الحالتين الأخيرتين.
+     */
+    private function applyOutcomeToCredit(Lesson $lesson, int $studentId, string $status, User $actor): void
+    {
+        $service = app(LessonCreditService::class);
+
+        // ⭐ ناتج الحضور ⇢ نتيجة الحصة ⇢ سياسة الخصم.
+        $outcome = match ($status) {
+            'present', 'late' => 'completed',
+            default => 'student_absent',
+        };
+
+        $deduct = $status === 'present' || $status === 'late';
+
+        $service->recordAttendanceOutcome($lesson, $studentId, $outcome, $deduct, $actor);
     }
 
     /**

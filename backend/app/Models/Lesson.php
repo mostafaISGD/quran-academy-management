@@ -33,6 +33,19 @@ class Lesson extends Model
     }
 
     public function student() { return $this->belongsTo(Student::class); }
+
+    /**
+     * ⭐⭐⭐ **PR 3.5 — طلاب الحصة الجماعية.**
+     *
+     * ⭐ الحصة الجماعية = **سطر `lessons` واحد** (بلا طالب مفرد)
+     * + صفوف هنا — فالحضور والاستهلاك **لكل طالب**، وأجر المعلم
+     * **ثابت للحصة** (قرار 7).
+     */
+    public function students()
+    {
+        return $this->belongsToMany(Student::class, 'lesson_students')
+            ->withTimestamps();
+    }
     public function teacher() { return $this->belongsTo(Teacher::class); }
     public function subscription() { return $this->belongsTo(Subscription::class); }
     public function program() { return $this->belongsTo(Program::class); }

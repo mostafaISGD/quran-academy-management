@@ -124,7 +124,83 @@ final class LessonCreditService
      * المالي ما بيتعدّلش).
      */
     /**
-     * ⭐⭐⭐ **PR 3.4 — الإرجاع بيحقق: يرجّع الحصة بس لو كانت
+     * ⭐⭐⭐ **PR 3.5 — سطر رصيد لكل طالب بحضوره.**
+     *
+     * ⭐ **سطر لكل طالب** (مش بس للحاضرين) — عشان السجل يقول
+     * «ليه» لكل واحد: الحاضر اتخصم منه، والغائب اتسجّل بصفر خصم
+     * (حسب السياسة) — فمفيش طالب غاب من غير أثر في السجل.
+     *
+     * ⭐ **idempotent**: نفس الحضور مرتين ⇒ **نفس السطر** (بيتحدّث)
+     * و**مفيش خصم تاني** — لأننا بنشوف: هل في سطر لنفس
+     * (الحصة، الطالب)؟ لو أيوه ⇒ نحدّثه بدل ما نخصم.
+     */
+    public function recordAttendanceOutcome(
+        Lesson $lesson,
+        int $studentId,
+        string $outcome,
+        bool $deduct,
+        ?User $actor = null,
+    ): ?LessonCreditTransaction {
+        $account = LessonCreditAccount::where('student_id', $studentId)
+            ->whereIn('status', ['active', 'depleted'])
+            ->orderByDesc('id')
+            ->first();
+
+        if ($account === null) {
+            return null;
+        }
+
+        $existing = LessonCreditTransaction::where('credit_account_id', $account->id)
+            ->where('lesson_id', $lesson->id)
+            ->where('student_id', $studentId)
+            ->whereIn('type', ['lesson_used', 'adjustment'])
+            ->latest('id')
+            ->first();
+
+        // ⭐ اتسجّل قبل كده ⇒ نحدّث نفس السطر (مفيش خصم تاني).
+        if ($existing !== null) {
+            $existing->forceFill([
+                'type' => $deduct ? 'lesson_used' : 'adjustment',
+                'quantity' => $deduct ? -1 : 0,
+                'balance_after' => $this->balance($account->id),
+                'reason' => $outcome,
+            ])->save();
+
+            return $existing->fresh();
+        }
+
+        return DB::transaction(function () use ($account, $lesson, $studentId, $outcome, $deduct, $actor): LessonCreditTransaction {
+            $locked = LessonCreditAccount::query()->lockForUpdate()->find($account->id);
+
+            $balance = $this->balance($locked->id);
+
+            if ($deduct && $balance < 1 && ! $this->overdraftAllowed($lesson->organization_id)) {
+                throw new InsufficientLessonCredit($balance);
+            }
+
+            $newBalance = $balance - ($deduct ? 1 : 0);
+
+            $transaction = LessonCreditTransaction::create([
+                'credit_account_id' => $locked->id,
+                'student_id' => $studentId,
+                'subscription_id' => $locked->subscription_id,
+                'lesson_id' => $lesson->id,
+                'type' => $deduct ? 'lesson_used' : 'adjustment',
+                'quantity' => $deduct ? -1 : 0,
+                'balance_after' => $newBalance,
+                'reason' => $outcome,
+                'created_by' => $actor?->id,
+                'created_at' => now(),
+            ]);
+
+            $this->syncBalance($locked, $newBalance);
+
+            return $transaction;
+        });
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 3.4 — إرجاع بيحقق: يرجّع الحصة بس لو كانت
      * اتخصمت.
      *
      * ⭐ قبل PR ده كان `refund` بيزيد 1 **دايماً** — يعني تصحيح

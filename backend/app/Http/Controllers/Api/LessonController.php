@@ -323,25 +323,41 @@ class LessonController extends Controller
     {
         Gate::authorize('update', $lesson);
 
+        /**
+         * ⭐⭐⭐ **PR 3.5 — الحضور يدرّج النتيجة.**
+         *
+         * ⭐ قبل PR ده: الحضور كان **سجل جانبي** (سطر واحد للحصة
+         * بـ`unique(lesson_id)`) ولا كان بيلمس الحالة ولا الرصيد.
+         * دلوقتي: الحضور **لكل طالب** (`entries`) وهو اللي بيحدّد
+         * النتيجة والأثر المالي (خصم الحاضر، بلا خصم الغايب).
+         *
+         * ⭐ والشكل القديم (حصة فردية: `status` على مستوى الحصة)
+         * لسه شغّال — بيتحوّل لentry واحد.
+         */
         $data = $request->validate([
-            'status' => 'required|in:present,absent,late,excused',
-            'late_minutes' => 'nullable|integer|min:0',
-            'notes' => 'nullable|string',
+            'entries' => ['sometimes', 'array', 'min:1'],
+            'entries.*.student_id' => ['required_with:entries', 'integer', 'exists:students,id'],
+            'entries.*.status' => ['required_with:entries', 'in:present,absent,late,excused'],
+            'entries.*.late_minutes' => ['nullable', 'integer', 'min:0'],
+            'entries.*.notes' => ['nullable', 'string', 'max:500'],
+            'status' => ['required_without:entries', 'in:present,absent,late,excused'],
+            'late_minutes' => ['nullable', 'integer', 'min:0'],
+            'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
-        $attendance = LessonAttendance::updateOrCreate(
-            ['lesson_id' => $lesson->id],
-            [
-                'student_id' => $lesson->student_id,
-                'status' => $data['status'],
-                'late_minutes' => $data['late_minutes'] ?? null,
-                'marked_at' => now(),
-                'marked_by' => $request->user()->id,
-                'notes' => $data['notes'] ?? null,
-            ]
-        );
+        $entries = $data['entries'] ?? [[
+            'student_id' => $lesson->student_id,
+            'status' => $data['status'],
+            'late_minutes' => $data['late_minutes'] ?? null,
+            'notes' => $data['notes'] ?? null,
+        ]];
 
-        return response()->json($attendance, 201);
+        $results = app(LessonService::class)->recordAttendance($lesson, $entries, $request->user());
+
+        return response()->json([
+            'data' => $results,
+            'lesson' => $lesson->fresh(),
+        ], 201);
     }
 
     public function memorization(Request $request, Lesson $lesson)

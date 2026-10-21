@@ -165,7 +165,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 3.2 — Configurable Lesson Policies
 - [x] PR 3.3 — Lesson Credit Consumption
 - [x] PR 3.4 — Lesson Completion Pipeline (idempotent)
-- [ ] PR 3.5 — Attendance Linked to Lesson Outcome
+- [x] PR 3.5 — Attendance Linked to Lesson Outcome
 - [ ] PR 3.6 — Scheduling Correctness
 - [ ] PR 3.7 — Time Zones
 - [ ] PR 3.8 — Pausing and Resuming a Subscription
@@ -1521,6 +1521,15 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** A group lesson with 5 students (4 present + 1 absent): 5 credit entries per the policy + one teacher earning.
 **Depends on:** 3.4
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-21):**
+> - **نموذج الحصة الجماعية اتبنى** (كان مش موجود): `lessons.student_id` بقى **nullable** + نوع درس `group` + جدول **`lesson_students`** (طلاب الحصة) — و`lesson_attendance` الـunique بقى **(lesson_id, student_id)** فالحضور **لكل طالب** (كان سطر واحد للحصة ⇒ الحصة الجماعية مستحيلة).
+> - **الحضور بقى بيحرّك النتيجة**: `LessonService::recordAttendance()` — الحاضر/المتأخر ⇒ **خصم** حصة (حسب السياسة)؛ الغائب/المعذور ⇒ **بلا خصم** + **سطر حركة** بكمية صفر يوثّق القرار (السجل بيقول «ليه» لكل طالب). والحصة بتخلص والمعلم قدّمها (غياب طالب ماشي حاله في سجل الحضور، مش حالة للحصة).
+> - **القبول متحقّق**: حصة جماعية بـ5 طلاب (4 حاضر + 1 غايب) ⇒ **5 حركات رصيد** (4 خصم + 1 توثيق) + **مستحق معلم واحد** + `lesson_students` 5 صفوف.
+> - **قرار 7 (`lessons.group_teacher_pay_mode`)**: `per_lesson` (افتراضي) = **أجر واحد ثابت للحصة** مهما عدد الطلاب؛ `per_student` = **السعر × عدد الطلاب**. ⭐ `per_student` اتنفّذ كـ**سطر واحد** بمبلغ مضروب (لأن `teacher_earnings.lesson_id` فريد — ضمان PR 3.4) مع `pay_mode` و`students_count` في `rate_snapshot` والعدد في `notes`.
+> - **idempotent**: تسجيل نفس الحضور مرتين ⇒ **نفس السطر** (بيتحدّث) و**مفيش خصم تاني** (الرصيد بيتحسب من الحركات).
+> - **تغيير عقد**: `POST /lessons/{id}/attendance` بقبل `entries[]` (لكل طالب) وشكله القديم (حصة فردية) لسه شغّال (بيتحول لentry واحد)، والرد بقى `{data, lesson}` بدل سطر الحضور لوحده. `markAttendance()` في `lib/api.ts` ما بيستخدم الرد ⇒ الواجهة ما تأثّرتش.
+> - **ما لم يُتحقق:** **نموذج مجموعة `GroupClass`** (صفوف المجموعات) لسه **مش مربوط** بالحصص الجماعية — الحصة الجماعية في PR ده صف `lessons` + `lesson_students` مستقل. وربط المجموعات بالاشتراكات (قرار «الباقة المشتركة») شغل قادم.
 ### PR 3.6 — Scheduling Correctness
 **Goal:** No conflicting booking and no booking at an unavailable time.
 **Tasks:**

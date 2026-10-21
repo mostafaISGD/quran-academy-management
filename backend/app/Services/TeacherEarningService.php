@@ -47,6 +47,21 @@ class TeacherEarningService
      * الأخير للنداءين المتزامنين على نفس الحصة (احدهم بيرجع
      * استثناء بتكرار وإحساس الطلب يفشل والذي كان أول الحالة).
      */
+    /**
+     * ⭐⭐⭐ **PR 3.5 — وضع أجر المعلم في الحصة الجماعية (قرار 7).**
+     *
+     * ⭐ `per_lesson` (الافتراضي): **أجر واحد ثابت للحصة** مهما
+     * كان عدد الطلاب — وده القرار 7. `per_student`: مستحق لكل
+     * طالب.
+     *
+     * ⭐ **ليه الإعداد؟** عشان الأكاديمية تتحكم: حصة 10 طلاب =
+     * أجر واحد ولا 10؟ (قرار الإدارة، مش افتراض الكود).
+     */
+    public const GROUP_PAY_MODE_SETTING = 'lessons.group_teacher_pay_mode';
+
+    /**
+     * ⭐ مستحق واحد (أو مستحق لكل طالب) — idempotent.
+     */
     public function ensureForLesson(Lesson $lesson, ?User $by = null): ?TeacherEarning
     {
         return DB::transaction(function () use ($lesson, $by) {
@@ -87,12 +102,40 @@ class TeacherEarningService
 
             $orgId = (int) ($teacher->organization_id ?? 0);
 
+            /**
+             * ⭐⭐⭐ **PR 3.5 — وضع أجر الحصة الجماعية (قرار 7).**
+             *
+             * `per_lesson` (الافتراضي): مستحق **واحد** بسعر الحصة
+             * — مهما كان عدد الطلاب.
+             *
+             * `per_student`: الأجر = **السعر × عدد الطلاب**، في
+             * **سطر واحد** (لأن `teacher_earnings.lesson_id` فريد —
+             * ضمان «مستحق واحد لكل حصة» من PR 3.4) — والعدد
+             * والتوزيع موثّقين في `notes` و`rate_snapshot`.
+             */
+            $mode = (string) \App\Models\Setting::get(
+                self::GROUP_PAY_MODE_SETTING,
+                'per_lesson',
+                $lesson->organization_id,
+            );
+
+            $students = $lesson->students()->pluck('students.id')->all();
+            $amount = $rate->amount;
+
+            if ($students !== [] && $mode === 'per_student') {
+                $amount = $rate->amount * count($students);
+                $snapshot['pay_mode'] = 'per_student';
+                $snapshot['students_count'] = count($students);
+            } else {
+                $snapshot['pay_mode'] = 'per_lesson';
+            }
+
             $earning = TeacherEarning::create([
                 'teacher_id' => $teacher->id,
                 'lesson_id' => $lesson->id,
                 'contract_id' => $contract->id,
                 'rate_id' => $rate->id,
-                'amount' => $rate->amount,
+                'amount' => $amount,
                 'currency' => $rate->currency,
                 'earning_date' => now()->toDateString(),
                 'status' => 'pending',
