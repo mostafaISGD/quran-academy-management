@@ -178,7 +178,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 
 **Phase 4 — Notifications and Portals**
 
-- [ ] PR 4.1 — Notification infrastructure (queue, channels, templates)
+- [x] PR 4.1 — Notification infrastructure (queue, channels, templates)
 - [ ] PR 4.2 — Scheduled event dispatchers
 - [ ] PR 4.3 — Arabic email template + WhatsApp adapter
 - [ ] PR 4.4 — Teacher portal (Frontend, mobile first)
@@ -1714,6 +1714,17 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - Fix `StudentController::bulkNotify`: it puts notifications in the queue instead of filling `sent_at` immediately, and it respects permissions and the ownership check.
 **Acceptance:** A provider failure leaves `failed` with a reason and is retried; no record has `sent_at` without delivery.
 **Depends on:** 3.12
+
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-24):**
+> - `NotificationService::dispatch(event, recipient, data, ?channels)` البوابة الوحيدة: صف صندوق في `notifications` بـ`sent_at=now()` (الوصول للصندوق نفسه هو تسليم `in_app` وسببه صادق) + صف `notification_deliveries` لكل قناة خارجية بحالة `queued` بلا ساعة — `sent_at` يُكتب فقط بعد نجاح مزود حقيقي في `attemptDelivery` (القبول).
+> - تفضيلات المستخدم (`notification_preferences` — غياب الصف = القناة مفعّلة) + ساعات الهدوء بمفتاحي `notifications.quiet_hours_start`/`end` في سجل الإعدادات (نافذة تعبر منتصف الليل) — التأجيل يبقى `queued` بلا عدّ محاولات.
+> - فشل المزود ⇒ `failed` مع نص السبب (مقتطع إلى 200 حرف — لا رسالات الاستثناء للعميل) + `DeliveryRetryableException` تُرمى **خارج أي معاملة**: الرمي من داخل المعاملة كان يرجّع كتابة الحالة أصلاً — علّة أثبتها اختبار ثم أصلحت بمرحلتين (قفل وحسم بمعاملة، اتصال المزود خارج القفل ثم إتمام بمعاملة قصيرة). سقف 3 محاولات: عامل الطابور (tries/backoff) أو `notifications:retry-queued` كل 5 دقائق.
+> - القنوات: `database` (الصندوق) · `email` عبر `Mail::raw` · `push`/`sms` بلا مزود ⇒ فشل صريح بنصه (بلا نجاح تقريبي) · `whatsapp` مؤجلة بمواصفة المرحلة (تبقى `queued` — واجهتها في 4.3).
+> - تطبيع `notifications.event_type`: إرجاع `subscription_renewed` التي سقطت من آخر كشف enum (PR 3.8) رغم أن `DailySubscriptionService` يستخدمها فعلياً — كل إشعار تجديد اشتراك كان سيفشل إدراجه.
+> - إصلاح `bulkNotify`: العمل عبر الخدمة + عزل المؤسسة (أي طالب خارج نطاق المُرسِل يرفض الطلب كلياً بـ422 — لا إشعار جزئي صامت) + إصلاح `select` حول `full_name` (accessor يحتاج أعمدة الاسم الثلاثة) — الصندوق مشروط بـ`user_id` (قيد NOT NULL): مستلم بلا حساب يحصل على تسليمات قناته الخارجية فقط، بلا صف صندوق يتيم.
+> - 10 اختبارات في `NotificationInfrastructureTest.php` (49 تأكيداً) — طابور مزيف `Queue::fake` في `setUp` حتى لا ينفَّذ الجوب ضمنياً تحت sync؛ مزودات الاختبار مدارة عبر `config()`. Backend: 940 → **950** passed (نفس 1 risky + 3 skipped pgsql).
+> - **ما لم يُتحقق**: عامل Redis/Horizon حقيقي (لا ext-redis محلياً — الإنجاز كله عبر الطابور sync/المزيف وإعداداته جاهزة للهورايزن في 7.1) · مزود whatsapp (4.3) · شاشة عارض للتسليمات في الواجهة (الجداول جاهزة).
 
 ### PR 4.2 — Scheduled event dispatchers
 **Goal:** Reminders and core alerts work.

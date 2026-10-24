@@ -6,12 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Lesson;
-use App\Models\Notification;
 use App\Models\PeriodLock;
 use App\Models\Student;
 use App\Models\StudentLedgerEntry;
 use App\Models\Subscription;
 use App\Models\Teacher;
+use App\Services\NotificationService;
 use App\Services\ParentChildScope;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -567,8 +567,13 @@ class StudentController extends Controller
     }
 
     /**
-     * إرسال إشعار جماعي لمجموعة طلاب.
-     * بيتسجل كـ announcement في جدول الإشعارات (أو في كاش في الإرسال الفعلي).
+     * إرسال إشعار جماعي لمجموعة طلاب (PR 4.1).
+     *
+     * ⭐ يعمل عبر `NotificationService` والإرسال على الطابور —
+     * صفوف التسليمات النهائية لكل قناة خارجية تُدار بمفردة
+     * تسليم حقيقية (`sent_at` لا تُكتب إلا بعد الإرسال الفعلي).
+     * ⭐ الملكية: أي طالب خارج نطاق مؤسسة المُرسل يرفض الطلب
+     * كله — لا إشعارات جزئية صامتة.
      */
     public function bulkNotify(Request $request)
     {
@@ -580,48 +585,59 @@ class StudentController extends Controller
             'channel' => 'nullable|in:in_app,whatsapp,sms,email',
         ]);
 
+        $actor = $request->user();
         $channel = $data['channel'] ?? 'in_app';
         $title = $data['title'] ?? 'إشعار جديد';
         $ids = array_values(array_unique($data['student_ids']));
 
-        $students = Student::whereIn('id', $ids)
-            ->with('phones')
-            ->get(['id', 'user_id', 'full_name']);
+        // ⭐ ملكية الطلاب — كلهم داخل مؤسسة المُرسل (فحص جمعي).
+        $allowedIds = Student::query()
+            ->whereIn('id', $ids)
+            ->where('organization_id', $actor->organization_id)
+            ->pluck('id')
+            ->all();
 
-        $now = now();
-        $rows = [];
+        if (count($allowedIds) !== count($ids)) {
+            $foreign = count($ids) - count($allowedIds);
+
+            return response()->json([
+                'message' => "الإشعار مرفوض: {$foreign} من الطلاب المطلوبين خارج نطاق مؤسستك",
+            ], 422);
+        }
+
+        // قناة الطلب → قنوات الخدمة (in_app = الصندوق فقط).
+        $serviceChannels = match ($channel) {
+            'in_app' => ['database'],
+            'email' => ['email'],
+            'whatsapp' => ['whatsapp'],
+            'sms' => ['sms'],
+        };
+
+        $service = app(NotificationService::class);
+
+        // full_name مُلحَق (accessor) — يلزم أعمدة الاسم الأول والثاني والأخير.
+        $students = Student::query()
+            ->whereIn('id', $allowedIds)
+            ->with('phones')
+            ->get(['id', 'user_id', 'organization_id', 'first_name', 'middle_name', 'last_name']);
 
         foreach ($students as $student) {
             $contact = $student->phones->first(fn ($p) => $p->is_parent) ?? $student->phones->first();
 
-            $rows[] = [
-                'user_id' => $student->user_id,
+            $service->dispatch('announcement', $student, [
+                'title' => $title,
+                'message' => $data['message'],
                 'student_id' => $student->id,
-                'event_type' => 'announcement',
-                'channel' => $channel,
-                'payload' => json_encode([
-                    'title' => $title,
-                    'message' => $data['message'],
-                    'student_id' => $student->id,
-                    'student_name' => $student->full_name,
-                    'contact_phone' => $contact?->phone_number,
-                    'sent_by' => $request->user()->id,
-                    'sent_by_name' => $request->user()->name,
-                ], JSON_UNESCAPED_UNICODE),
-                'sent_at' => $now,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
-        }
-
-        // chunks عشان ما نعملش insert ضخم على SQLite
-        foreach (array_chunk($rows, 100) as $chunk) {
-            Notification::insert($chunk);
+                'student_name' => $student->full_name,
+                'contact_phone' => $contact?->phone_number,
+                'sent_by' => $actor->id,
+                'sent_by_name' => $actor->name,
+            ], $serviceChannels);
         }
 
         return response()->json([
-            'message' => 'تم إرسال الإشعار لـ ' . count($rows) . ' طالب',
-            'sent_count' => count($rows),
+            'message' => 'تم إرسال الإشعار لـ ' . count($students) . ' طالب',
+            'sent_count' => count($students),
             'requested_count' => count($ids),
             'channel' => $channel,
         ]);
