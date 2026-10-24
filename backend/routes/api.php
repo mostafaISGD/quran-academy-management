@@ -609,6 +609,12 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/reports/academic', [ReportController::class, 'academic'])->middleware('permission:reports.view');
     Route::get('/reports/sales', [ReportController::class, 'sales'])->middleware('permission:reports.view');
 
+    // ⭐⭐⭐ PR 3.14 — تقريرا الحضور والاشتراكات (المتحكمان كانا
+    // موجودين بلا مسار). التجميعة كلها SQL aggregates داخل
+    // المتحكما نفسه — والتقريران محكومان بالمؤسسة.
+    Route::get('/reports/attendance', [ReportController::class, 'attendance'])->middleware('permission:reports.view');
+    Route::get('/reports/subscriptions', [ReportController::class, 'subscriptions'])->middleware('permission:reports.view');
+
     // ⭐⭐ PR 2.16 — المتابعة اليومية: أعمار الديون + الأرصدة +
     // التزامات المعلمين + مصادر الإيراد
     Route::get('/reports/aging', [ReportController::class, 'aging'])->middleware('permission:reports.view');

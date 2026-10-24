@@ -393,81 +393,135 @@ class ReportController extends Controller
     {
         $start = $request->filled('from') ? Carbon::parse($request->string('from')) : Carbon::now()->startOfMonth();
         $end = $request->filled('to') ? Carbon::parse($request->string('to')) : Carbon::now()->endOfMonth();
+
+        /**
+         * ⭐⭐⭐ **PR 3.14 — تقارير الحضور مربوطة بالمؤسسة + aggregates.**
+         *
+         * ⭐ **قبل PR ده** الكود كان موجود بلا مسار، وبدون عزل
+         * مؤسسة (حضور أكاديمية تانية كان هيظهر)، والتفصيل
+         * للموظفين كان بيبني من تحميل **كل الصفوف** ثم تجميع في
+         * PHP collections (يا تضخم مع الأرشيف).
+         *
+         * ⭐ **دلوقتي** كل التجميع جوا SQL (`selectRaw` + `groupBy`)
+         * في استعلامات معدودة، وكلها محكومة بـ`organization_id`
+         * للمستخدم الحالي.
+         */
+        $orgId = (int) $request->user()->organization_id;
         $studentId = $request->filled('student_id') ? $request->integer('student_id') : null;
         $teacherId = $request->filled('teacher_id') ? $request->integer('teacher_id') : null;
         $programId = $request->filled('program_id') ? $request->integer('program_id') : null;
 
-        $attendanceQuery = LessonAttendance::query()->whereRange('marked_at', $start, $end);
-        $lessonQuery = Lesson::query()->whereRange('scheduled_start_at', $start, $end);
+        // ⭐ فلترات الأبعاد — مشتركة بين استعلامات الدروس والحضور.
+        $applyLessonFilters = function ($q) use ($orgId, $studentId, $teacherId, $programId) {
+            return $q->where('lessons.organization_id', $orgId)
+                ->when($studentId, fn ($q2) => $q2->where('lessons.student_id', $studentId))
+                ->when($teacherId, fn ($q2) => $q2->where('lessons.teacher_id', $teacherId))
+                ->when($programId, fn ($q2) => $q2->where('lessons.program_id', $programId));
+        };
 
-        if ($studentId) {
-            $attendanceQuery->whereHas('lesson', fn($q) => $q->where('student_id', $studentId));
-            $lessonQuery->where('student_id', $studentId);
-        }
-        if ($teacherId) {
-            $attendanceQuery->whereHas('lesson', fn($q) => $q->where('teacher_id', $teacherId));
-            $lessonQuery->where('teacher_id', $teacherId);
-        }
-        if ($programId) {
-            $attendanceQuery->whereHas('lesson', fn($q) => $q->where('program_id', $programId));
-            $lessonQuery->where('program_id', $programId);
-        }
+        $lessonQuery = Lesson::query()
+            ->whereRange('scheduled_start_at', $start, $end)
+            ->where($applyLessonFilters);
 
-        // Overall stats
+        // ⭐ الحضور — مصدره الدرس المؤسسي (الحضور نفسه بلا عمود مؤسسة).
+        $attendanceScoped = fn () => LessonAttendance::query()
+            ->whereRange('lesson_attendance.marked_at', $start, $end)
+            ->whereHas('lesson', $applyLessonFilters);
+
+        // ─── الملخص: عامليا count/sum في SQL ───
         $totalLessons = (clone $lessonQuery)->count();
         $completedLessons = (clone $lessonQuery)->where('status', 'completed')->count();
         $cancelledLessons = (clone $lessonQuery)->where('status', 'cancelled')->count();
         $studentAbsentLessons = (clone $lessonQuery)->where('status', 'student_absent')->count();
         $teacherAbsentLessons = (clone $lessonQuery)->where('status', 'teacher_absent')->count();
 
-        $totalAttendance = (clone $attendanceQuery)->count();
-        $presentCount = (clone $attendanceQuery)->where('status', 'present')->count();
-        $absentCount = (clone $attendanceQuery)->where('status', 'absent')->count();
-        $lateCount = (clone $attendanceQuery)->where('status', 'late')->count();
+        $overall = $attendanceScoped()
+            ->selectRaw(implode(', ', [
+                'COUNT(*) as total_recs',
+                "SUM(CASE WHEN lesson_attendance.status = 'present' THEN 1 ELSE 0 END) as present_recs",
+                "SUM(CASE WHEN lesson_attendance.status = 'absent' THEN 1 ELSE 0 END) as absent_recs",
+                "SUM(CASE WHEN lesson_attendance.status = 'late' THEN 1 ELSE 0 END) as late_recs",
+            ]))
+            ->first();
+
+        $totalAttendance = (int) ($overall->total_recs ?? 0);
+        $presentCount = (int) ($overall->present_recs ?? 0);
+        $absentCount = (int) ($overall->absent_recs ?? 0);
+        $lateCount = (int) ($overall->late_recs ?? 0);
 
         $attendanceRate = $totalAttendance > 0 ? round(($presentCount / $totalAttendance) * 100, 1) : 0;
 
-        // Per student breakdown
-        $studentStats = LessonAttendance::query()->whereRange('marked_at', $start, $end)
-            ->with('lesson.student:id,first_name,last_name,student_code')
+        // ─── تفصيل الطالبين: تجميعة SQL واحدة (Join + Group) ───
+        // قبل كانت: تحميل كل سجلات الحضور مع الدروس والطلاب ثم
+        // groupBy في collections.
+        $studentStats = LessonAttendance::query()
+            ->join('lessons as rep_l', 'rep_l.id', '=', 'lesson_attendance.lesson_id')
+            ->join('students as rep_s', 'rep_s.id', '=', 'rep_l.student_id')
+            ->whereRange('lesson_attendance.marked_at', $start, $end)
+            ->where('rep_l.organization_id', $orgId)
+            ->when($studentId, fn ($q) => $q->where('rep_l.student_id', $studentId))
+            ->when($teacherId, fn ($q) => $q->where('rep_l.teacher_id', $teacherId))
+            ->when($programId, fn ($q) => $q->where('rep_l.program_id', $programId))
+            ->selectRaw(implode(', ', [
+                'rep_l.student_id as student_id',
+                'rep_s.first_name as first_name',
+                'rep_s.middle_name as middle_name',
+                'rep_s.last_name as last_name',
+                'rep_s.student_code as student_code',
+                'COUNT(*) as total_sessions',
+                "SUM(CASE WHEN lesson_attendance.status = 'present' THEN 1 ELSE 0 END) as present_cnt",
+                "SUM(CASE WHEN lesson_attendance.status = 'absent' THEN 1 ELSE 0 END) as absent_cnt",
+                "SUM(CASE WHEN lesson_attendance.status = 'late' THEN 1 ELSE 0 END) as late_cnt",
+            ]))
+            ->groupBy('rep_l.student_id', 'rep_s.first_name', 'rep_s.middle_name', 'rep_s.last_name', 'rep_s.student_code')
+            ->orderBy('rep_l.student_id')
             ->get()
-            ->groupBy('lesson.student_id')
-            ->map(function ($records, $studentId) {
-                $student = $records->first()->lesson->student ?? null;
-                $total = $records->count();
-                $present = $records->where('status', 'present')->count();
-                $absent = $records->where('status', 'absent')->count();
-                $late = $records->where('status', 'late')->count();
+            ->map(function ($row) {
+                $total = (int) $row->total_sessions;
+                $present = (int) $row->present_cnt;
+
                 return [
-                    'student_id' => $studentId,
-                    'student_name' => $student ? $student->full_name : 'غير معروف',
-                    'student_code' => $student?->student_code ?? '—',
+                    'student_id' => (int) $row->student_id,
+                    // نفس دلالة «full_name» (اسم كامل باربع شعر).
+                    'student_name' => trim(($row->first_name ?? '').' '.($row->middle_name ?? '').' '.($row->last_name ?? '')),
+                    'student_code' => $row->student_code ?? '—',
                     'total_sessions' => $total,
                     'present' => $present,
-                    'absent' => $absent,
-                    'late' => $late,
+                    'absent' => (int) $row->absent_cnt,
+                    'late' => (int) $row->late_cnt,
                     'attendance_rate' => $total > 0 ? round(($present / $total) * 100, 1) : 0,
                 ];
             })
             ->values();
 
-        // Daily breakdown
-        $dailyStats = LessonAttendance::query()->whereRange('marked_at', $start, $end)
-            ->selectRaw('DATE(marked_at) as date, status, COUNT(*) as count')
-            ->groupBy('date', 'status')
-            ->get()
+        // ─── التفصيل اليومي: تجميعة SQL واحدة بلا تجميع لاحق ───
+        $dailyStats = LessonAttendance::query()
+            ->join('lessons as rep_d', 'rep_d.id', '=', 'lesson_attendance.lesson_id')
+            ->whereRange('lesson_attendance.marked_at', $start, $end)
+            ->where('rep_d.organization_id', $orgId)
+            ->when($studentId, fn ($q) => $q->where('rep_d.student_id', $studentId))
+            ->when($teacherId, fn ($q) => $q->where('rep_d.teacher_id', $teacherId))
+            ->when($programId, fn ($q) => $q->where('rep_d.program_id', $programId))
+            ->selectRaw(implode(', ', [
+                'DATE(lesson_attendance.marked_at) as date',
+                'COUNT(*) as total',
+                "SUM(CASE WHEN lesson_attendance.status = 'present' THEN 1 ELSE 0 END) as present",
+                "SUM(CASE WHEN lesson_attendance.status = 'absent' THEN 1 ELSE 0 END) as absent",
+                "SUM(CASE WHEN lesson_attendance.status = 'late' THEN 1 ELSE 0 END) as late",
+            ]))
             ->groupBy('date')
-            ->map(function ($records) {
-                $total = $records->sum('count');
-                $present = $records->where('status', 'present')->sum('count');
-                $absent = $records->where('status', 'absent')->sum('count');
-                $late = $records->where('status', 'late')->sum('count');
+            ->orderBy('date')
+            ->get()
+            ->map(function ($row) {
+                $total = (int) $row->total;
+                $present = (int) $row->present;
+
                 return [
-                    'date' => $records->first()->date,
+                    'date' => $row->date,
                     'total' => $total,
                     'present' => $present,
-                    'absent' => $absent,
-                    'late' => $late,
+                    'absent' => (int) $row->absent,
+                    'late' => (int) $row->late,
                     'rate' => $total > 0 ? round(($present / $total) * 100, 1) : 0,
                 ];
             })
@@ -485,7 +539,7 @@ class ReportController extends Controller
                 'present' => $presentCount,
                 'absent' => $absentCount,
                 'late' => $lateCount,
-                'attendance_rate' => $attendanceRate . '%',
+                'attendance_rate' => $attendanceRate.'%',
             ],
             'by_student' => $studentStats,
             'by_date' => $dailyStats,
@@ -493,95 +547,173 @@ class ReportController extends Controller
     }
 
     // 2. Subscription Status Report - تقرير حالة الاشتراكات
-    public function subscriptions(Request $request)
+        public function subscriptions(Request $request)
     {
         $start = $request->filled('from') ? Carbon::parse($request->string('from')) : Carbon::now()->startOfMonth();
         $end = $request->filled('to') ? Carbon::parse($request->string('to')) : Carbon::now()->endOfMonth();
-        $status = $request->filled('status') ? $request->string('status') : null;
-        $programId = $request->filled('program_id') ? $request->integer('program_id') : null;
-        $teacherId = $request->filled('teacher_id') ? $request->integer('teacher_id') : null;
 
-        $query = Subscription::query()->with(['student:id,first_name,last_name,student_code,status,country_code', 'program:id,name', 'teacher:id,full_name']);
+        /**
+         * ⭐⭐⭐ **PR 3.14 — تقرير الاشتراكات: مسار + عزل مؤسسة +
+         * aggregates.**
+         *
+         * ⭐ **قبل PR ده**: الكود كان بلا مسار، بيجمع كل صفوف
+         * الاشتراك من **كل المؤسسات**، وبني الملخص/الإيراد
+         * للبرامج/المعلمين في collections من الذاكرة.
+         *
+         * ⭐ **دلوقتي**: العدّادات والإيراد كلهم SQL aggregates
+         * (`selectRaw` + `groupBy`)، ومحكومين بالمؤسسة، والإيراد
+         * بيمر عبر `MoneyCast::fromAggregate` (القرش → الوحدة
+         * الكبرى) لأن `sum()` على الـquery بيتعدي على الـcast.
+         */
+        $orgId = (int) $request->user()->organization_id;
 
-        if ($status) $query->where('status', $status);
-        if ($programId) $query->where('program_id', $programId);
-        if ($teacherId) $query->where('teacher_id', $teacherId);
+        $query = Subscription::query()
+            ->where('organization_id', $orgId);
 
-        $subscriptions = $query->get();
+        if ($status = $request->filled('status') ? $request->string('status') : null) {
+            $query->where('status', $status);
+        }
+        if ($programId = $request->filled('program_id') ? $request->integer('program_id') : null) {
+            $query->where('program_id', $programId);
+        }
+        if ($teacherId = $request->filled('teacher_id') ? $request->integer('teacher_id') : null) {
+            $query->where('teacher_id', $teacherId);
+        }
 
-        // Summary counts
-        $total = $subscriptions->count();
-        $active = $subscriptions->where('status', 'active')->count();
-        $expired = $subscriptions->where('status', 'expired')->count();
-        $paused = $subscriptions->where('status', 'paused')->count();
-        $cancelled = $subscriptions->where('status', 'cancelled')->count();
+        // ─── الملخص: عدّاد واحد مجمّع بالحالة ───
+        $statusCounts = (clone $query)
+            ->selectRaw('status, COUNT(*) as cnt')
+            ->groupBy('status')
+            ->pluck('cnt', 'status');
 
-        // Expiring soon (النافذة من مركز الإعدادات — PR 3.12).
-        $expiryWarningDays = (int) settings()->get('subscriptions.expiry_warning_days', (int) $request->user()->organization_id);
-        $expiringSoon = $subscriptions->where('status', 'active')
+        $total = (int) array_sum($statusCounts->all());
+        $active = (int) ($statusCounts['active'] ?? 0);
+        $expired = (int) ($statusCounts['expired'] ?? 0);
+        $paused = (int) ($statusCounts['paused'] ?? 0);
+        $cancelled = (int) ($statusCounts['cancelled'] ?? 0);
+
+        // ⭐ نافذة «هتنتهي قريباً» من مركز الإعدادات (PR 3.12).
+        $expiryWarningDays = (int) settings()->get('subscriptions.expiry_warning_days', $orgId);
+        $expiringSoon = (clone $query)
+            ->where('status', 'active')
             ->whereNotNull('end_date')
-            ->filter(fn($s) => Carbon::parse($s->end_date)->between(Carbon::now(), Carbon::now()->addDays($expiryWarningDays)))
+            ->whereRange('end_date', Carbon::today(), Carbon::today()->copy()->addDays($expiryWarningDays))
             ->count();
 
-        // Revenue by currency
-        $revenueByCurrency = $subscriptions->where('status', 'active')
+        // ─── الإيراد بالعملة: تجميعة SQL واحدة ───
+        // ⭐ `SUM(price)` خام بالقرش — بيمر عبر fromAggregate.
+        $revenueByCurrency = (clone $query)
+            ->whereIn('status', ['active'])
+            ->selectRaw('currency, SUM(price) as total_minor, COUNT(*) as cnt')
             ->groupBy('currency')
-            ->map(fn($group) => ['total' => $group->sum('price'), 'count' => $group->count()]);
-
-        // By program
-        $byProgram = $subscriptions->groupBy('program_id')
-            ->map(function ($group, $programId) {
-                $program = $group->first()->program;
-                return [
-                    'program_id' => (int)$programId,
-                    'program_name' => $program?->name ?? 'غير معروف',
-                    'total' => $group->count(),
-                    'active' => $group->where('status', 'active')->count(),
-                    'expired' => $group->where('status', 'expired')->count(),
-                    'revenue' => $group->where('status', 'active')->sum('price'),
-                ];
-            })
-            ->values();
-
-        // By teacher
-        $byTeacher = $subscriptions->groupBy('teacher_id')
-            ->map(function ($group, $teacherId) {
-                $teacher = $group->first()->teacher;
-                return [
-                    'teacher_id' => (int)$teacherId,
-                    'teacher_name' => $teacher?->full_name ?? 'بدون معلم',
-                    'total_students' => $group->count(),
-                    'active' => $group->where('status', 'active')->count(),
-                    'expired' => $group->where('status', 'expired')->count(),
-                ];
-            })
-            ->values();
-
-        // Detailed list
-        $details = $subscriptions->map(function ($sub) {
-            $daysLeft = $sub->end_date ? Carbon::parse($sub->end_date)->diffInDays(Carbon::now(), false) : null;
-            return [
-                'id' => $sub->id,
-                'student' => [
-                    'id' => $sub->student->id,
-                    'name' => $sub->student->full_name,
-                    'code' => $sub->student->student_code,
-                    'status' => $sub->student->status,
+            ->get()
+            ->mapWithKeys(fn ($row) => [
+                $row->currency => [
+                    'total' => MoneyCast::fromAggregate($row->total_minor, $row->currency),
+                    'count' => (int) $row->cnt,
                 ],
-                'program' => $sub->program?->name ?? '—',
-                'teacher' => $sub->teacher?->full_name ?? '—',
-                'start_date' => $sub->start_date,
-                'end_date' => $sub->end_date,
-                'days_left' => $daysLeft,
-                'is_expiring_soon' => $daysLeft !== null && $daysLeft >= 0 && $daysLeft <= 7,
-                'status' => $sub->status,
-                'billing_type' => $sub->billing_type,
-                'price' => $sub->price,
-                'currency' => $sub->currency,
-                'lessons_included' => $sub->lessons_included,
-                'lesson_duration_minutes' => $sub->lesson_duration_minutes,
-            ];
-        });
+            ]);
+
+        // ─── محور البرنامج: تجميعة SQL واحدة ───
+        $programRows = (clone $query)
+            ->selectRaw(implode(', ', [
+                'program_id',
+                'COUNT(*) as total',
+                "SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_cnt",
+                "SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) as expired_cnt",
+                "SUM(CASE WHEN status = 'active' THEN price ELSE 0 END) as revenue_minor",
+            ]))
+            ->groupBy('program_id')
+            ->orderBy('program_id')
+            ->get();
+
+        $programNames = \App\Models\Program::query()
+            ->whereIn('id', $programRows->pluck('program_id'))
+            ->pluck('name', 'id');
+
+        $byProgram = $programRows
+            ->map(function ($row) use ($programNames) {
+                return [
+                    'program_id' => (int) $row->program_id,
+                    'program_name' => $programNames[$row->program_id] ?? 'غير معروف',
+                    'total' => (int) $row->total,
+                    'active' => (int) $row->active_cnt,
+                    'expired' => (int) $row->expired_cnt,
+                    // ⚠️ سلوك قديم — مجموع العملات معاً داخل البرنامج
+                    // (مسجل بالعملة الافتراضية — الافتراض داخلي في
+                    // MoneyCast). تفكيك كل عملة على حدة = تحسين
+                    // مقترح لاحقاً.
+                    'revenue' => MoneyCast::fromAggregate($row->revenue_minor),
+                ];
+            })
+            ->values();
+
+        // ─── محور المعلم: تجميعة SQL واحدة ───
+        $teacherRows = (clone $query)
+            ->selectRaw(implode(', ', [
+                'teacher_id',
+                'COUNT(*) as total_students',
+                "SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active_cnt",
+                "SUM(CASE WHEN status = 'expired' THEN 1 ELSE 0 END) as expired_cnt",
+            ]))
+            ->groupBy('teacher_id')
+            ->orderBy('teacher_id')
+            ->get();
+
+        $teacherNames = \App\Models\Teacher::query()
+            ->whereIn('id', $teacherRows->pluck('teacher_id')->filter()->all())
+            ->pluck('display_name', 'id');
+
+        $byTeacher = $teacherRows
+            ->map(function ($row) use ($teacherNames) {
+                return [
+                    'teacher_id' => (int) $row->teacher_id,
+                    'teacher_name' => ($row->teacher_id && isset($teacherNames[$row->teacher_id]))
+                        ? $teacherNames[$row->teacher_id]
+                        : 'بدون معلم',
+                    'total_students' => (int) $row->total_students,
+                    'active' => (int) $row->active_cnt,
+                    'expired' => (int) $row->expired_cnt,
+                ];
+            })
+            ->values();
+
+        // ─── التفاصيل: صفوف بمساندة أسمائها (شكل العقد نفسه) ───
+        $details = (clone $query)
+            ->with(['student:id,first_name,last_name,student_code,status', 'program:id,name', 'teacher:id,display_name'])
+            ->orderBy('id')
+            ->get()
+            ->map(function ($sub) use ($expiryWarningDays) {
+                $daysLeft = $sub->end_date
+                    ? (int) Carbon::now()->startOfDay()->diffInDays(Carbon::parse($sub->end_date)->startOfDay())
+                    : null;
+
+                return [
+                    'id' => $sub->id,
+                    'student' => [
+                        'id' => $sub->student->id,
+                        'name' => $sub->student->full_name,
+                        'code' => $sub->student->student_code,
+                        'status' => $sub->student->status,
+                    ],
+                    'program' => $sub->program?->name ?? '—',
+                    'teacher' => $sub->teacher?->full_name ?? '—',
+                    'start_date' => $sub->start_date,
+                    'end_date' => $sub->end_date,
+                    'days_left' => $daysLeft,
+                    // ⭐ الراية بنفس النافذة من مركز الإعدادات (كانت
+                    // الرقم الحبيب 7 — وهي مخالفة للملخص).
+                    'is_expiring_soon' => $daysLeft !== null
+                        && $daysLeft >= 0
+                        && $daysLeft <= $expiryWarningDays,
+                    'status' => $sub->status,
+                    'billing_type' => $sub->billing_type,
+                    'price' => $sub->price,
+                    'currency' => $sub->currency,
+                    'lessons_included' => $sub->lessons_included,
+                    'lesson_duration_minutes' => $sub->lesson_duration_minutes,
+                ];
+            });
 
         return response()->json([
             'period' => ['from' => $start->toDateString(), 'to' => $end->toDateString()],

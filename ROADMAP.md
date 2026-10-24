@@ -174,7 +174,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 3.11 — Lesson Links and Join Tracking
 - [x] PR 3.12 — Settings Center (Backend)
 - [x] PR 3.13 — Validating Memorization and Progress Records
-- [ ] PR 3.14 — Wiring Attendance and Subscription Reports
+- [x] PR 3.14 — Wiring Attendance and Subscription Reports
 
 **Phase 4 — Notifications and Portals**
 
@@ -1689,6 +1689,17 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** The numbers match a manual calculation; the routes are in the permissions matrix.
 **Depends on:** 3.5
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-24):**
+> - **الربط**: `GET /reports/attendance` و `GET /reports/subscriptions` (صلاحية `reports.view`) — المتحكمان كانا موجودين بلا مسارات من أيام phase 2، والواجهة كان عندها دالتين مستهلكتين محددتين (`getAttendanceReport`/`getSubscriptionReport` في `lib/api.ts`) وشكلهما صار مطابقاً الآن.
+> - **العزل بالمؤسسة (قبول إضافي مكتشف)**: التقريران كانا بلا أي فلتر مؤسسة — لو صارا مبحوثين من غير عزل لكانا رجّعوا حضور واشتراكات أكاديميات أخرى. الاختبار العازل بيكتب بيانات مؤسسة ثانية (طالب/حصة/حضور/اشتراك في نفس الفترة) ويتأكد أنها ما تظهرش.
+> - **SQL aggregates**: التفصيل كان بيتجمع من تحميل كل الصفوف في collections — الآن by_student استعلام واحد (join lessons + join students + groupBy)، وby_date استعلام واحد بـ `SUM(CASE)`، والإيراد استعلام مجمّع بالعملة، ومحورو البرامج والمعلمين تجميعة SQL واحدة لكل منهم، والملخص بعدّاد واحد مجمّع بالحالة. الأسماء في محور البرامج/المعلمين تُترجم ببلاش من استعلاماتwhereIn صغيرة.
+> - **المال**: `SUM(price)` خام بالقرش — بيمر عبر `MoneyCast::fromAggregate` (سلوك dashboard). إيراد البرنامج يظل مجمّع العملات معاً كسلوك قديم (مسجل بالعملة الافتراضية) — تفكيكه لكل عملة تحسين لاحق.
+> - **علة قديمة كُشفت**: `with(teacher:id,full_name)` كان يعمل — عمود `teachers` هو `display_name` والـ `full_name` اكسسوار. الكود الميت عمره ما نُفّذ حتى جاء المسار فانهار TypeError — أصلحته بالعمود الحقيقي.
+> - **الراية التفصيلية**: is_expiring_soon كانت تحسب **7 أيام ثابتة** مخالفةً لملخص التقرير نفسه (الذي يستهلك مفتاح الإعدادات منذ PR 3.12) — الآن تتبع المفتاح نفسه، وdays_left بأيام صحيحة كاملة (الحساب على مستوى اليوم عبر startOfDay).
+> - **نافذة الإعدادات (القبول ③)**: اختبار يضبط `subscriptions.expiry_warning_days` = 7 فيتغير both الملخص والراية التفصيلية معاً (1→2 اشتراك).
+> - **واجهة**: لا تغيير — العقد المعلن في `lib/api.ts` مطابق للرد الجديد (الإيراد نص بالوحدة الكبرى `"1050.00"` كسلوك بقية المبالغ).
+> - **ما لم يُتحقق**: Postgres لم يُختبَر محلياً (3 skipped)؛ صلة `DATE(marked_at)` في تجميعة by_date المبحوثة على SQLite فقط؛ إصلاح سلوك «الإيراد المجمّع بعملات البرنامج» تأجل؛ لا صفحة واجهة تستهلك التقريرين بعد (phase 5 يبني الشاشات).
 ---
 
 # Phase 4 — Notifications and Portals
