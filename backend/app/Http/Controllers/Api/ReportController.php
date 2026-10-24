@@ -102,7 +102,7 @@ class ReportController extends Controller
         // ⭐ PR 2.15 — كل العدّادات محكومة بالمنظمة. قبل كده كنت
         // ببص على الجداول كلها — إيراد أكاديمية تانية كان بيدخل
         // لوحة أكاديميتنا (FinancialReportTest duck بيثبته).
-        $orgId = $request->user()->organization_id;
+            $orgId = $request->user()->organization_id;
         $today = Carbon::today();
         $todayLessons = Lesson::query()->where('organization_id', $orgId)
             ->whereDate('scheduled_start_at', $today);
@@ -113,8 +113,11 @@ class ReportController extends Controller
             Payment::query()->where('organization_id', $orgId)
                 ->where('status', 'completed')->whereRange('paid_at', $monthStart, $today)->sum('amount')
         );
+        // ⭐⭐⭐ PR 3.12 — نافذة «هتنتهي قريب» من مركز الإعدادات
+        // (`subscriptions.expiry_warning_days`) بدل الرقم الحبيب 3.
+        $expiryWarningDays = (int) settings()->get('subscriptions.expiry_warning_days', $orgId);
         $expiringSoon = Subscription::query()->where('organization_id', $orgId)
-            ->where('status', 'active')->whereRange('end_date', $today, $today->copy()->addDays(3))->count();
+            ->where('status', 'active')->whereRange('end_date', $today, $today->copy()->addDays($expiryWarningDays))->count();
         $pendingTeacherPayments = \App\Casts\MoneyCast::fromAggregate(
             TeacherPayment::query()->join('teachers as tp_t', 'tp_t.id', '=', 'teacher_payments.teacher_id')
                 ->where('tp_t.organization_id', $orgId)
@@ -513,10 +516,11 @@ class ReportController extends Controller
         $paused = $subscriptions->where('status', 'paused')->count();
         $cancelled = $subscriptions->where('status', 'cancelled')->count();
 
-        // Expiring soon (within 7 days)
+        // Expiring soon (النافذة من مركز الإعدادات — PR 3.12).
+        $expiryWarningDays = (int) settings()->get('subscriptions.expiry_warning_days', (int) $request->user()->organization_id);
         $expiringSoon = $subscriptions->where('status', 'active')
             ->whereNotNull('end_date')
-            ->filter(fn($s) => Carbon::parse($s->end_date)->between(Carbon::now(), Carbon::now()->addDays(7)))
+            ->filter(fn($s) => Carbon::parse($s->end_date)->between(Carbon::now(), Carbon::now()->addDays($expiryWarningDays)))
             ->count();
 
         // Revenue by currency

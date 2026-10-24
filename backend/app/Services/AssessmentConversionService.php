@@ -102,8 +102,11 @@ final class AssessmentConversionService
             // الفاتورة + **حساب الرصيد** + جدولة الحصص.
             $this->activation->actingAs($actor)->activate($subscription, [
                 'weekdays' => $plan->schedule_weekdays ?? [],
-                'start_time' => $plan->schedule_start_time ?? '16:00',
-                'duration_minutes' => $plan->lesson_duration_minutes ?? 30,
+                // ⭐⭐⭐ PR 3.12 — الافتراضي من مركز الإعدادات.
+                'start_time' => $plan->schedule_start_time
+                    ?? settings()->get('lessons.default_start_time', $actor->organization_id),
+                'duration_minutes' => $plan->lesson_duration_minutes
+                    ?? settings()->get('lessons.default_duration_minutes', $actor->organization_id),
             ]);
 
             $invoice = Invoice::where('subscription_id', $subscription->id)

@@ -624,6 +624,8 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     // Settings
     Route::get('/settings', [SettingController::class, 'index'])->middleware('permission:settings.view');
     Route::post('/settings', [SettingController::class, 'store'])->middleware('permission:settings.update');
+    // ⭐⭐⭐ PR 3.12 — الرجوع لنسخة سابقة — نفس صلاحية التعديل.
+    Route::post('/settings/{key}/rollback', [SettingController::class, 'rollback'])->middleware('permission:settings.update');
     Route::delete('/settings/{key}', [SettingController::class, 'destroy'])->middleware('permission:settings.update');
 
     // Employees

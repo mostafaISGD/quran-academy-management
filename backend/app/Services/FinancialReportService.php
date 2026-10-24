@@ -515,7 +515,11 @@ class FinancialReportService
         $expiring = Subscription::query()
             ->where('organization_id', $this->organizationId)
             ->where('status', 'active')
-            ->whereRange('end_date', now()->toDateString(), now()->addDays(7)->toDateString())
+            // ⭐⭐⭐ PR 3.12 — نافذة «وش ينتهي» من مركز الإعدادات
+            // (يَسَّم المعلم `subscriptions.expiry_warning_days`).
+            ->whereRange('end_date', now()->toDateString(), now()
+                ->addDays((int) settings()->get('subscriptions.expiry_warning_days', $this->organizationId))
+                ->toDateString())
             ->count();
 
         $pendingExpenses = \App\Models\Expense::query()

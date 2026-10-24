@@ -107,9 +107,14 @@ class SubscriptionActivationService
                 'student_id' => $subscription->student_id,
                 'subscription_id' => $subscription->id,
                 'invoice_number' => 'INV-' . strtoupper(uniqid()),
-                'currency' => $subscription->currency ?? 'EGP',
+                // ⭐⭐⭐ PR 3.12 — العملة الافتراضية ونافذة الاستحقاق
+                // من مركز الإعدادات (جرب `finance.default_currency`
+                // و`invoices.due_days`).
+                'currency' => $subscription->currency ?? settings()->get('finance.default_currency', $subscription->organization_id),
                 'issue_date' => $issueDate->toDateString(),
-                'due_date' => $issueDate->copy()->addDays(14)->toDateString(),
+                'due_date' => $issueDate->copy()
+                    ->addDays((int) settings()->get('invoices.due_days', $subscription->organization_id))
+                    ->toDateString(),
                 'subtotal' => $amount,
                 'discount' => 0,
                 'tax' => 0,
@@ -205,7 +210,9 @@ class SubscriptionActivationService
     {
         $weekdays = array_values(array_unique(array_map('intval', $slot['weekdays'] ?? [])));
         $startTime = substr($slot['start_time'] ?? '', 0, 5);
-        $duration = (int) ($slot['duration_minutes'] ?? $subscription->lesson_duration_minutes ?? 30);
+        $duration = (int) ($slot['duration_minutes']
+            ?? $subscription->lesson_duration_minutes
+            ?? settings()->get('lessons.default_duration_minutes', $subscription->organization_id));
 
         if (empty($weekdays) || !preg_match('/^\d{2}:\d{2}$/', $startTime)) {
             return 0;
@@ -263,8 +270,13 @@ class SubscriptionActivationService
     {
         return $this->scheduleLessons($subscription, [
             'weekdays' => $subscription->schedule_weekdays ?? [],
-            'start_time' => $subscription->schedule_start_time ?? '16:00',
-            'duration_minutes' => $subscription->lesson_duration_minutes ?? 30,
+            // ⭐⭐⭐ PR 3.12 — الوقت الافتراضي للحصص من مركز الإعدادات
+            // (`lessons.default_start_time`) بدل الحبيب '16:00'.
+            // null بيمرّ للسلسلة جوّه، فافتراضالمفيد بيقوم من
+            // `lessons.default_start_time`/`lessons.default_duration_minutes`.
+            'start_time' => $subscription->schedule_start_time
+                ?? settings()->get('lessons.default_start_time', $subscription->organization_id),
+            'duration_minutes' => $subscription->lesson_duration_minutes,
         ]);
     }
 
@@ -276,8 +288,16 @@ class SubscriptionActivationService
     private function scheduleLessons(Subscription $subscription, array $slot): array
     {
         $weekdays = array_values(array_unique(array_map('intval', $slot['weekdays'])));
-        $startTime = substr($slot['start_time'] ?? '16:00', 0, 5);
-        $duration = (int) ($slot['duration_minutes'] ?? $subscription->lesson_duration_minutes ?? 30);
+        // ⭐⭐⭐ PR 3.12 — الافتراضي من مركز الإعدادات (`lessons.default_start_time`).
+        $startTime = substr(
+            (string) ($slot['start_time']
+                ?? settings()->get('lessons.default_start_time', $subscription->organization_id)),
+            0,
+            5,
+        );
+        $duration = (int) ($slot['duration_minutes']
+            ?? $subscription->lesson_duration_minutes
+            ?? settings()->get('lessons.default_duration_minutes', $subscription->organization_id));
         $limit = (int) ($subscription->lessons_included ?? 0);
 
         if (empty($weekdays) || $limit <= 0) {

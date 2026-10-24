@@ -102,7 +102,11 @@ class LessonPolicy extends Model
                 'makeup_limit' => 4,
                 'makeup_window_days' => 30,
                 'notify_parent' => true,
-                'late_cancel_notice_hours' => 24,
+                // ⭐⭐⭐ PR 3.12 — فترة الإلغاء الشائعة من مركز
+                // الإعدادات (`lessons.cancel_notice_hours`) —
+                // الافتراضي نفسه (24) فمفيش تغيّر سلوك. (defaults()
+                // بعد ما سِف مؤسسة — بتلوت بالافتراضي العام.)
+                'late_cancel_notice_hours' => (int) settings()->get('lessons.cancel_notice_hours'),
                 'makeup_deducts_from_package' => true,
             ],
             'cancelled_late' => [

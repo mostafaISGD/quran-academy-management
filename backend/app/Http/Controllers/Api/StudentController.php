@@ -412,7 +412,11 @@ class StudentController extends Controller
 
         $user = $request->user();
         $issueDate = $data['issue_date'] ?? now()->toDateString();
-        $dueDate = $data['due_date'] ?? now()->addDays(14)->toDateString();
+        // ⭐⭐⭐ PR 3.12 — أيام استحقاق الفاتورة من مركز الإعدادات
+        // (`invoices.due_days`) بدل الـ14 الحبيبة.
+        $dueDate = $data['due_date'] ?? now()
+            ->addDays((int) settings()->get('invoices.due_days', (int) $user->organization_id))
+            ->toDateString();
         $ids = array_values(array_unique($data['student_ids']));
 
         $subs = Subscription::with(['student', 'program', 'plan'])
@@ -479,7 +483,8 @@ class StudentController extends Controller
                         'student_id' => $sub->student_id,
                         'subscription_id' => $sub->id,
                         'invoice_number' => 'INV-' . strtoupper(uniqid()),
-                        'currency' => $sub->currency ?? 'EGP',
+                        // ⭐ PR 3.12 — الافتراضي من مركز الإعدادات.
+                        'currency' => $sub->currency ?? settings()->get('finance.default_currency', (int) $user->organization_id),
                         'issue_date' => $issueDate,
                         'due_date' => $dueDate,
                         'list_amount' => $amount,

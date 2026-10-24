@@ -118,7 +118,9 @@ class GroupEnrollmentService
             // ⚠️ `price` NOT NULL في الجدول — فلو مفيش باقة على
             // المجموعة ولا على البرنامج، من غير ده الحفظ هيفشل.
             'price' => $plan?->price ?? 0,
-            'currency' => $plan?->currency ?? $group->organization?->default_currency ?? 'EGP',
+            'currency' => $plan?->currency
+                ?? $group->organization?->default_currency
+                ?? settings()->get('finance.default_currency', $group->organization_id),
             'lesson_duration_minutes' => $plan?->lesson_duration_minutes,
             'lessons_included' => $plan?->lessons_count,
             'status' => 'active',
@@ -197,9 +199,11 @@ class GroupEnrollmentService
             'student_id' => $subscription->student_id,
             'subscription_id' => $subscription->id,
             'invoice_number' => 'INV-' . strtoupper(uniqid()),
-            'currency' => $subscription->currency ?? 'EGP',
+            'currency' => $subscription->currency ?? settings()->get('finance.default_currency', $subscription->organization_id),
             'issue_date' => $issueDate->toDateString(),
-            'due_date' => $issueDate->copy()->addDays(7)->toDateString(),
+            'due_date' => $issueDate->copy()
+                ->addDays((int) settings()->get('invoices.enrollment_due_days', $subscription->organization_id))
+                ->toDateString(),
             'subtotal' => $amount,
             'discount' => 0,
             'tax' => 0,

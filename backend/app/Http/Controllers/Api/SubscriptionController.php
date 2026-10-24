@@ -78,15 +78,17 @@ class SubscriptionController extends Controller
                 $data['lessons_included'] ??= $plan->lessons_count;
             }
         }
-        $data['currency'] ??= 'EGP';
+        $data['currency'] ??= settings()->get('finance.default_currency', (int) $request->user()->organization_id);
 
         $data['schedule_weekdays'] = $weekdays ?: null;
         $data['schedule_start_time'] = $startTime;
 
         // لو بعت مواعيد + معلم، نتأكد إن المعلم فاضي وإن سعته تكفي
         if ($weekdays && !empty($data['teacher_id'])) {
-            $start = $startTime ?? '16:00';
-            $duration = (int) ($data['lesson_duration_minutes'] ?? 30);
+            // ⭐⭐⭐ PR 3.12 — الافتراضي (الوقت/المدة) من مركز الإعدادات.
+            $start = $startTime ?? settings()->get('lessons.default_start_time', (int) $request->user()->organization_id);
+            $duration = (int) ($data['lesson_duration_minutes']
+                ?? settings()->get('lessons.default_duration_minutes', (int) $request->user()->organization_id));
             $onDate = \Carbon\Carbon::parse($data['start_date']);
 
             $busy = app(\App\Services\TeacherAvailabilityService::class)

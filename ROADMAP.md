@@ -172,7 +172,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 3.9 — Trial Lessons and Assessment Conversion
 - [x] PR 3.10 — Teacher API (Teacher Portal Backend)
 - [x] PR 3.11 — Lesson Links and Join Tracking
-- [ ] PR 3.12 — Settings Center (Backend)
+- [x] PR 3.12 — Settings Center (Backend)
 - [ ] PR 3.13 — Validating Memorization and Progress Records
 - [ ] PR 3.14 — Wiring Attendance and Subscription Reports
 
@@ -1646,6 +1646,24 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - Migrate hard-coded values: the `EGP` currency (`SubscriptionController` and the price export), `EXPIRY_WARNING_DAYS` and `addDays(3)` in the dashboard, the default time `16:00`, the default duration and its minimum limit, the generation window and its cap, invoice due days (7 and 14), the cancellation notice period.
 **Acceptance:** Changing `subscriptions.expiry_warning_days` changes the alert and dashboard behavior; a `grep` test prevents hard-coded numbers for business rules from returning in services.
 **Depends on:** 3.2
+
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-24):**
+> - **السجل**: `Support\SettingsRegistry` — كل مفتاح معرّف بنوعه (`int`/`string`/`bool`/`list`) وافتراضيه وحدوده (`min/max`) وقسمه وتسميته العربية.
+> - **المفاتيح المسجلة**: نافذة تنبيه نهاية الاشتراك (3 أيام)، وقت الحصة الافتراضي (16:00)، مدة الحصة الافتراضية (30) والحد الأدنى (15)، فترة الإلغاء (24 ساعة — يقرأها `LessonPolicy::defaults()` بنفس القيمة القديمة فلا تغيير في السلوك)، العملة الافتراضية (`finance.default_currency` = EGP)، استحقاق الفواتير (14 يوماً للعادية و7 لفاتورة التسجيل والتجديد اليومي)، حد موافقة الاسترداد، اعتماد أرباح المعلم آلياً، إظهار هاتف والد الطالب في البوابة، مضيفو روابط الاجتماعات (القائمة التي يقرأها إعداد PR 3.11)، ونافذة التوليد وسقفه (كانا مستهلكين سابقاً وأُضيلا إلى السجل).
+> - **القراءة**: مُساعد `settings()->get(key, org)` في `Support/helpers.php`، وسُجّل في `composer.json` بقسم autoload files ثم `composer dump-autoload` — الافتراضي مصدره السجل، والقيمة تُحوَّل حسب النوع، وcache لكل (مفتاح، مؤسسة) يُلغى عند أي كتابة، والقيمة `null` بعد الرجوع تعود إلى الافتراضية.
+> - **الكتابة**: `Setting::set(key, value, org, actor, log)` داخل `DB::transaction`، وكل تعديل فعلي يسجّل نسخة (قديم/جديد/فاعِل) في `setting_versions`، وإعادة كتابة نفس القيمة لا تُسجّل، والكتابة تحتاج مؤسسة لأن الجدول مؤسسي بالكامل. والحذف عبر `Setting::forget(key, org)` يمسح صف المؤسسة فقط — قبله كان يمسح صفوف كل المؤسسات للمفتاح.
+> - **قيم القراءة**: كاست جديد `App\Casts\SettingValue` — الكاست القديم كان `array` ويقرأ أي قيمة نصية مثل `EGP` كـ null لأن `json_decode` يفشل على النص. الآن: النص نص، والرقم رقم، والمصفوفة مصفوفة.
+> - **SettingController**: تحقق النوع والحدود من السجل (مفتاح غير معرّف = 422)، قراءة المفتاح المفرد عبر `?key=`، القراءة والحذف مؤسسيان، القائمة تُبنى من السجل (`{key: {value, type, group, label, default, min, max}}`)، والرجوع عبر `POST /settings/{key}/rollback` — الرجوع نفسه لا يضيف نسخة لتبقى سلسلة النسخ أصلية.
+> - **نزح القيم الثابتة** (القبول الثاني): اختبار `SettingsGrepTest` يمسح الخدمات والأوامر و4 متحكمات، ويتجاهل أسطر التعليقات وكود `@deprecated`:
+>   * `EGP` من `SubscriptionController` و`StudentController` و`DailySubscriptionService` و`GroupEnrollmentService` و`SubscriptionActivationService`، وتسمية العملة في `PricingController::export` عبر `Support/CurrencyNames`.
+>   * `addDays(3)` من لوحة المؤشرات (`ReportController::dashboardSummary`).
+>   * `addDays(7)` من فاتورة التجديد اليومي وتسجيل المجموعات، ومن نافذة «وشيك على الانتهاء» في `FinancialReportService` (تغيير سلوك معلوم: كانت 7 أيام ثابتة وصارت قيمة المفتاح).
+>   * `addDays(14)` من فاتورة التفعيل وفاتورة الطالب اليدوية.
+>   * `addDays(7)` الأسبوعية في `TeacherAvailabilityService` ليست قاعدة تجارية — استُبدلت بـ `addWeek()`.
+>   * `16:00` من `SubscriptionActivationService` و`AssessmentConversionService` و`SubscriptionController`، والمدة الافتراضية `?? 30` من مواضع الجدولة نفسها.
+> - **الواجهة** (قاعدة 17): شكل `GET /api/settings` تغيّر من مسطح `{key: value}` إلى `{key: {value, type, group, label, default, min, max}}` — أُعيدت بنية صفحة `settings/page.tsx` (تجميع بالقسم وزر «رجوع» وقيمة تُحوَّل حسب النوع)، وأُضيف `rollbackSetting` في `lib/api.ts`.
+> - **ما لم يُتحقق**: Postgres لم يُختبر محلياً (3 skipped). تقرير `/reports/subscriptions` لا يستبعد مؤسسات أخرى (خطأ قديم خارج نطاق هذا الـPR). الأمر المهمل `CheckSubscriptionExpiry` لم يُنزح كوده الميت (مسحة grep تستثنيه لوجود `@deprecated`). مسار Redis في الإنتاج غير مُتحقق (محلياً array). إعادة تصميم صفحة الإعدادات كاملة للمرحلة 5.
 
 ### PR 3.13 — Validating Memorization and Progress Records
 **Goal:** Reliable memorization data.

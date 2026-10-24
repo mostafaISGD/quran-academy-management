@@ -4703,8 +4703,18 @@ export function getSubscriptionReport(params?: { from?: string; to?: string; sta
   }>(`/reports/subscriptions?${search.toString()}`);
 }
 
+export interface SettingEntry {
+  value: unknown;
+  type: string;
+  group: string;
+  label: string;
+  default?: unknown;
+  min?: number | null;
+  max?: number | null;
+}
+
 export function getSettings() {
-  return apiFetch<Record<string, unknown>>("/settings");
+  return apiFetch<Record<string, SettingEntry>>("/settings");
 }
 
 export function saveSetting(key: string, value: unknown) {
@@ -4712,6 +4722,17 @@ export function saveSetting(key: string, value: unknown) {
     method: "POST",
     body: JSON.stringify({ key, value }),
   });
+}
+
+/**
+ * ⭐⭐⭐ **PR 3.12 — الرجوع لنسخة سابقة** (`POST /settings/{key}/rollback`)
+ * — الـBackend بيرجع القيمة اللي قبل آخر تعديل (أو الافتراضي).
+ */
+export function rollbackSetting(key: string) {
+  return apiFetch<{ key: string; value: unknown }>(
+    `/settings/${encodeURIComponent(key)}/rollback`,
+    { method: "POST" },
+  );
 }
 
 export function deleteSetting(key: string) {

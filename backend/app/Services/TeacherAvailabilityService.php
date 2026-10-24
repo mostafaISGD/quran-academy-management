@@ -511,8 +511,10 @@ class TeacherAvailabilityService
             ->when($excludeLessonId, fn ($q) => $q->where('id', '!=', $excludeLessonId));
 
         // نافذة أسبوع كامل بيغطي كل الأيام المطلوبة
+        // ⭐ PR 3.12 — `addWeek()` بدل `addDays(7)` — نفس المعنى
+        // (لمسة اعتيادية) حتى يبقّى Test ضد المحبِب حَديَّد.
         $from = $weekStart->copy()->toDateString() . ' 00:00';
-        $to = $weekStart->copy()->addDays(7)->toDateString() . ' 00:00';
+        $to = $weekStart->copy()->addWeek()->toDateString() . ' 00:00';
 
         return $query
             ->where('scheduled_start_at', '<', $to)

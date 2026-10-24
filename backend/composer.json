@@ -20,13 +20,16 @@
         "spatie/laravel-ignition": "^2.12",
         "laravel/sail": "^1.68"
     },
-"autoload": {
-    "psr-4": {
-        "App\\": "app/",
-        "Database\\Factories\\": "database/factories/",
-        "Database\\Seeders\\": "database/seeders/"
-    }
-},
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/",
+            "Database\\Factories\\": "database/factories/",
+            "Database\\Seeders\\": "database/seeders/"
+        },
+        "files": [
+            "app/Support/helpers.php"
+        ]
+    },
     "autoload-dev": {
         "psr-4": {
             "Tests\\": "tests/"

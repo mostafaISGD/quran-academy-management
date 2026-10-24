@@ -89,7 +89,13 @@ class PricingController extends Controller
             ->displayOrder()
             ->get();
 
-        $rows = [['الفئة', 'مدة الحصة (دقيقة)', 'عدد الحصص', 'السعر (ج.م)']];
+        // ⭐⭐⭐ PR 3.12 — تسمية العملة من مركز الإعدادات
+        // (`finance.default_currency`) بدل «ج.م» الحبيبة.
+        $currency = (string) settings()->get(
+            'finance.default_currency',
+            (int) $request->user()->organization_id,
+        );
+        $rows = [['الفئة', 'مدة الحصة (دقيقة)', 'عدد الحصص', 'السعر (' . \App\Support\CurrencyNames::arabic($currency) . ')']];
 
         foreach ($plans as $p) {
             $rows[] = [

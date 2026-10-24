@@ -31,9 +31,6 @@ use Illuminate\Support\Facades\DB;
  */
 class DailySubscriptionService
 {
-    /** كام يوم قبل الانتهاء نبعت إشعار */
-    public const EXPIRY_WARNING_DAYS = 3;
-
     public function __construct(
         private SubscriptionActivationService $activation,
     ) {}
@@ -251,9 +248,11 @@ class DailySubscriptionService
                 'student_id' => $subscription->student_id,
                 'subscription_id' => $subscription->id,
                 'invoice_number' => 'INV-' . strtoupper(uniqid()),
-                'currency' => $subscription->currency ?? 'EGP',
+                'currency' => $subscription->currency ?? settings()->get('finance.default_currency', $subscription->organization_id),
                 'issue_date' => $issueDate->toDateString(),
-                'due_date' => $issueDate->copy()->addDays(7)->toDateString(),
+                'due_date' => $issueDate->copy()
+                    ->addDays((int) settings()->get('invoices.enrollment_due_days', $subscription->organization_id))
+                    ->toDateString(),
                 'subtotal' => $amount,
                 'discount' => 0,
                 'tax' => 0,
@@ -347,9 +346,35 @@ class DailySubscriptionService
     /** @param array<string, mixed> $result */
     private function notifyExpiring(array &$result, Carbon $today): void
     {
-        $warningEnd = $today->copy()->addDays(self::EXPIRY_WARNING_DAYS);
+        /**
+         * ⭐⭐⭐ **PR 3.12 — نافذة التحذير من مركز الإعدادات، لكل
+         * مؤسسة.**
+         *
+         * ⭐ قبل كده كان الثابت `EXPIRY_WARNING_DAYS = 3` حبيب
+         * في الكود — كل المؤسسات كان عليها نفس الرقم. دلوقتي
+         * `subscriptions.expiry_warning_days` لكل مؤسسة (سجل
+         * الإعدادات).
+         */
+        $orgIds = Subscription::query()
+            ->where('status', 'active')
+            ->whereNotNull('end_date')
+            ->distinct()
+            ->pluck('organization_id');
+
+        foreach ($orgIds as $orgId) {
+            $this->notifyExpiringForOrg((int) $orgId, $result, $today);
+        }
+    }
+
+    /** @param array<string, mixed> $result */
+    private function notifyExpiringForOrg(int $organizationId, array &$result, Carbon $today): void
+    {
+        $warningDays = (int) settings()->get('subscriptions.expiry_warning_days', $organizationId);
+
+        $warningEnd = $today->copy()->addDays($warningDays);
 
         $expiring = Subscription::query()
+            ->where('organization_id', $organizationId)
             ->where('status', 'active')
             ->whereNotNull('end_date')
             ->whereDate('end_date', '>=', $today->toDateString())
