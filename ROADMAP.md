@@ -171,7 +171,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 3.8 — Pausing and Resuming a Subscription
 - [x] PR 3.9 — Trial Lessons and Assessment Conversion
 - [x] PR 3.10 — Teacher API (Teacher Portal Backend)
-- [ ] PR 3.11 — Lesson Links and Join Tracking
+- [x] PR 3.11 — Lesson Links and Join Tracking
 - [ ] PR 3.12 — Settings Center (Backend)
 - [ ] PR 3.13 — Validating Memorization and Progress Records
 - [ ] PR 3.14 — Wiring Attendance and Subscription Reports
@@ -1628,6 +1628,15 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - An intermediary join link `/join/{token}` that records the join time in `lesson_participants` and then redirects to the real link (feeds the attendance suggestion, and for children under 13 it uses the token from PR 1.12).
 **Acceptance:** A disallowed link is rejected; the join is recorded once per participant; an expired token = 410.
 **Depends on:** 3.10 · 1.12
+
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-24):**
+> - **التحقق من المزود**: قاعدة `MeetingLinkRule` (مضيف مسموح suffix-match) على `store` و`storeRecurring` و`update` — الافتراضي ثابت في `Support\MeetingLinks::DEFAULT_HOSTS` مع إعداد لكل مؤسسة (`meetings.allowed_domains`). الفارغ مسموح (بيتعبى من الرابط الافتراضي للمعلم).
+> - **الرابط الافتراضي**: `teachers.default_meeting_url` (ميجريشن) — يُستعمل تلقائيًا في `LessonScheduler::createLesson` **والسلسلة المتكررة** (حصة بلا رابط تاخد رابط معلمها)، والمزوّد (zoom/google_meet/other) محسوب من المضيف.
+> - **`/join/{token}`** (`routes/web.php` — عام بلا مصادقة، والأمان في قيود الرمز نفسه): رمز PR 1.12 ⇒ **سجل مرة واحدة** في `lesson_participants` (قيد فريد حصة×مشارك) + الرمز يستهلك مرة واحدة ⇒ **تحويل 302** للرابط الحقيقي. منتهي = **410**، مش موجود = 404، حصة بلا رابط = 422. المسار داخل مصفوفة الحماية تلقائيًا (غير مصادق).
+> - **سجل الدخول يغذّي اقتراح الحضور** عبر `GET /api/lessons/{lesson}/participants` (حصته أو حصة ابنه، ملكية من `LessonPolicy`) — البوابة تملّي «الحاضرين = اللي دخلوا».
+> - ⭐ **علة مكتشفة**: `teachers.default_meeting_url` ما كانتش في `fillable` لموديل `Teacher` ⇒ القيمة بكانت null صامتة — أصلحتها بتضمينها في `fillable`.
+> - **ما لم يُتحقق:** Postgres لم يُختبر محليًا (3 skipped)؛ صفحات الواجهة اللي بتستخدم الرابط وسجل الدخول جاية في PR 4.4 (بوابة المعلم — واجهة)؛ إشعار التذكير قبل الحصة بالرابط ليس جزءًا من هذا الـPR.
 
 ### PR 3.12 — Settings Center (Backend)
 **Goal:** Turn `settings` from a nominal table into the source of business rules.

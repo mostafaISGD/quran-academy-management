@@ -480,6 +480,9 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::post('/lessons/{lesson}/correct', [LessonController::class, 'correct'])->middleware('permission:lessons.update');
     Route::post('/lessons/{lesson}/attendance', [LessonController::class, 'attendance'])->middleware('permission:lessons.update');
     Route::post('/lessons/{lesson}/memorization', [LessonController::class, 'memorization'])->middleware('permission:lessons.update');
+    // ⭐⭐⭐ PR 3.11 — سجل الدخول يغذّي اقتراح الحضور (المادة
+    // protected بالـpolicy view — حصة لمعلم تاني = 403).
+    Route::get('/lessons/{lesson}/participants', [LessonController::class, 'participants'])->middleware('permission:lessons.view');
 
     // ═════════════════════════════════════════════════════════════
     // ⭐⭐⭐ PR 3.10 — بوابة المعلم (`/teacher/*`)

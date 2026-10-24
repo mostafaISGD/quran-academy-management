@@ -9,9 +9,12 @@ use App\Exceptions\TeacherUnavailable;
 use App\Http\Controllers\Controller;
 use App\Models\Lesson;
 use App\Models\LessonAttendance;
+use App\Models\LessonJoinToken;
+use App\Models\LessonParticipant;
 use App\Models\LessonReschedule;
 use App\Models\MemorizationRecord;
 use App\Models\ProgressRecord;
+use App\Rules\MeetingLinkRule;
 use App\Services\LessonScheduler;
 use App\Services\LessonService;
 use Carbon\Carbon;
@@ -78,7 +81,8 @@ class LessonController extends Controller
             'scheduled_start' => 'required|date',
             'duration_minutes' => 'required|integer|min:15',
             'meeting_provider' => 'nullable|in:zoom,google_meet,other',
-            'meeting_url' => 'nullable|string',
+            // ⭐⭐⭐ **PR 3.11 — الرابط من مزود مسموح** (Zoom/Meet/Teams).
+            'meeting_url' => ['nullable', 'string', 'max:2048', new MeetingLinkRule((int) $request->user()->organization_id)],
             'notes' => 'nullable|string',
         ]);
 
@@ -169,6 +173,14 @@ class LessonController extends Controller
             'scheduled_start' => 'sometimes|date',
             'duration_minutes' => 'sometimes|integer|min:15',
             'notes' => 'nullable|string',
+
+            /**
+             * ⭐⭐⭐ **PR 3.11 — الرابط بيتعدّل من هنا** — والفحص
+             * بقاعدة «مزود مسموح»، والفارغ بيرجع افتراضي المعلم
+             * (الخدمة بتندهالنا جوه الحجز/التعديل).
+             */
+            'meeting_url' => ['sometimes', 'string', 'max:2048', new MeetingLinkRule((int) $lesson->organization_id)],
+            'meeting_provider' => ['sometimes', 'in:zoom,google_meet,other'],
         ]);
 
         if (isset($data['scheduled_start']) || isset($data['duration_minutes'])) {
@@ -346,6 +358,29 @@ class LessonController extends Controller
         );
 
         return response()->json($updated);
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 3.11 — سجل الدخول** (يغذّي اقتراح الحضور).
+     *
+     * `lesson_participants` — سطر لكل مشارك دخل الحصة
+     * (من `/join/{token}`). الوقّف يقرا السجل ويملّي الحضور
+     * بقاعدة «اللي دخل = مقترح حاضر».
+     */
+    public function participants(Request $request, Lesson $lesson)
+    {
+        Gate::authorize('view', $lesson);
+
+        $participants = LessonParticipant::query()
+            ->where('lesson_id', $lesson->id)
+            ->with('student:id,first_name,last_name')
+            ->orderBy('id')
+            ->get();
+
+        return response()->json([
+            'lesson_id' => $lesson->id,
+            'participants' => $participants,
+        ]);
     }
 
     public function complete(Request $request, Lesson $lesson)

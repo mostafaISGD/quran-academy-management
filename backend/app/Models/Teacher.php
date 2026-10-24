@@ -16,6 +16,8 @@ class Teacher extends Model
         'avatar_url', 'phone', 'email', 'country_code', 'timezone', 'specialization',
         'qualifications', 'years_of_experience', 'languages', 'bio',
         'status', 'joined_at', 'notes',
+        // ⭐ PR 3.11 — الرابط الافتراضي لجلسات هذا المعلم.
+        'default_meeting_url',
     ];
 
     protected function casts(): array

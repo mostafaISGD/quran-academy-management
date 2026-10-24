@@ -9,7 +9,9 @@ use App\Models\Holiday;
 use App\Models\Lesson;
 use App\Models\LessonReschedule;
 use App\Models\Setting;
+use App\Models\Teacher;
 use App\Models\TeacherSchedule;
+use App\Support\MeetingLinks;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Str;
@@ -186,7 +188,47 @@ class LessonScheduler
         $attributes['scheduled_start_at'] = $start->copy()->setTimezone('UTC');
         $attributes['scheduled_end_at'] = $end->copy()->setTimezone('UTC');
 
+        // ⭐⭐⭐ **PR 3.11 — الرابط الافتراضي للمعلم.**
+        //
+        // حصة اتحجزت **من غير رابط** بتاخد الرابط الافتراضي بتاع
+        // معلمها (إعداد على `teachers.default_meeting_url`) —
+        // فالدرس دايمًا ليه رابط يتبعت للطالب.
+        $this->fillDefaultMeetingUrl($attributes);
+
         return Lesson::create($attributes);
+    }
+
+    /**
+     * ⭐ **PR 3.11** — لو الحصة مالهاش رابط، بنجيب رابط المعلم
+     * الافتراضي ونحدّد المزوّد من المضيف.
+     */
+    private function fillDefaultMeetingUrl(array &$attributes): void
+    {
+        $url = trim((string) ($attributes['meeting_url'] ?? ''));
+
+        if ($url !== '' && ! MeetingLinks::allowed(
+            $attributes['organization_id'] ?? null,
+            $attributes['meeting_url'],
+        )) {
+            // ⭐ الفحص هنا تانية (دفاع في العمق بعد فحص الـrule في
+            // الـAPI) — إنشاء مباشر من الخدمة مش بيتجاوز القائمة.
+            throw new \InvalidArgumentException(
+                'رابط الاجتماع غير مسموح — الروابط بتقبل من Zoom أو Google Meet أو Microsoft Teams بس',
+            );
+        }
+
+        if ($url !== '') {
+            return;
+        }
+
+        $teacherId = (int) ($attributes['teacher_id'] ?? 0);
+
+        $attributes['meeting_url'] = $teacherId > 0
+            ? Teacher::query()->find($teacherId)?->default_meeting_url
+            : null;
+
+        $attributes['meeting_provider'] = $attributes['meeting_provider']
+            ?? MeetingLinks::providerFromUrl($attributes['meeting_url']);
     }
 
     /**
@@ -262,7 +304,9 @@ class LessonScheduler
                         'reason' => "تعارض مع حصة رقم {$conflict->id}",
                     ];
                 } else {
-                    $created[] = Lesson::create([
+                    // ⭐⭐⭐ **PR 3.11 — السلسلة كمان بتاخد الرابط الافتراضي**
+                    // للمعلم كل حصة حصة (نفس معمل createLesson).
+                    $lessonAttributes = [
                         'organization_id' => $data['organization_id'],
                         'student_id' => $data['student_id'],
                         'teacher_id' => $data['teacher_id'],
@@ -277,7 +321,10 @@ class LessonScheduler
                         'timezone' => $timezone,
                         'local_start_time' => $start->format('H:i:s'),
                         'status' => 'scheduled',
-                    ]);
+                    ];
+                    $this->fillDefaultMeetingUrl($lessonAttributes);
+
+                    $created[] = Lesson::create($lessonAttributes);
                 }
                 }
             }
