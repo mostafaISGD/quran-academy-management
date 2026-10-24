@@ -173,7 +173,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 3.10 — Teacher API (Teacher Portal Backend)
 - [x] PR 3.11 — Lesson Links and Join Tracking
 - [x] PR 3.12 — Settings Center (Backend)
-- [ ] PR 3.13 — Validating Memorization and Progress Records
+- [x] PR 3.13 — Validating Memorization and Progress Records
 - [ ] PR 3.14 — Wiring Attendance and Subscription Reports
 
 **Phase 4 — Notifications and Portals**
@@ -1671,6 +1671,16 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - `LessonController::memorization`: validate the surah number and the verses against `QuranSurah.ayah_count`, prevent duplication (unique key: student + lesson + segment), and enable the other progress categories (tajweed, reading, review) that the table supports but the API does not write.
 **Acceptance:** A verse out of range = 422; resubmission does not duplicate the record.
 **Depends on:** 3.10
+
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-24):**
+> - **تحقق النطاق (القبول ①)**: قاعدة على `to_ayah` في `LessonController::memorization` تقارن بالسورة نفسها — الآية أكبر من `QuranSurah.ayah_count` = 422 برسالة عربية باسم السورة وعدد آياتها، وبلا أي كتابة. مسار الحفظ فقط هو المشمول (`required_if:category,memorization`).
+> - **منع التكرار (القبول ②)**: عملية upsert على المفتاح (الطالب + الحصة + السورة + نطاق الآيات)، وميجريشن `2026_10_24_000003_memorization_segment_unique` يضيف فهرساً فريداً بنفس المفتاح (دفاع على مستوى القاعدة ضد السباقات). إعادة الإرسال تدوّن القيمة الأخيرة في الصف نفسه: 201 عند الإنشاء و200 عند التحديث. ملاحظة: `lesson_id` قابل للـnull — الفهارس الفريدة لا تحسب NULL في MySQL/SQLite فصفوف بلا حصة لا تتعارض.
+> - **فئات التقدم**: عمود `progress_records.category` يمسك قيماً أكثر من المكتوبة — الآن الـAPI يكتبها كلها: `memorization` (الافتراضي، بجدول الحفظ) و`tajweed` و`pronunciation` و`reading` و`fluency` و`revision` (تسجل في `progress_records` فقط بupsert على الطالب+الحصة+الفئة). الفئة غير المعرّفة = 422. **انحراف خارطة الطريق**: المواصفة ذكرت "review" والقيم الفعلية في الجدول `revision`.
+> - **قبل. بعد**: إعادة الإرسال كانت تضيف صفاً مكرراً في الحفظ والتقدم معاً — الآن صف واحد لكل (الطالب، الحصة، الجزء) وصف تقدم واحد لكل (الطالب، الحصة، الفئة).
+> - **نطاق التكرار الفريد**: نفس الجزء في حصة أخرى يبقى سجلاً مستقلاً (المفتاح الفريد يضم الحصة ضمنيًا).
+> - **واجهة**: لا تغيير في العقد — `POST /lessons/{lesson}/memorization` نفس الحقول والقيم، فئة إضافية اختيارية (additive).
+> - **ما لم يُتحقق**: Postgres لم يُختبَر محلياً (3 skipped)؛ السباق المتوازي على نفس الجزء يحميه الفهرس الفريد، لكن تعارضه يعود 500 من `QueryException` (بدل 409 محكمة) — يحتاج اختبار `#[Group("pgsql")]`؛ الفئات الجديدة غير مرئية في واجهة المعلم بعد (لا يوجد زر كتابة tajweed/reading في البوابة) — يتكمل في PR 4.4 (بوابة المعلم).
 
 ### PR 3.14 — Wiring Attendance and Subscription Reports
 **Goal:** Reports that exist without a route.

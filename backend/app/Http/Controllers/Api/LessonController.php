@@ -474,33 +474,143 @@ class LessonController extends Controller
     {
         Gate::authorize('update', $lesson);
 
+        /**
+         * ⭐⭐⭐ **PR 3.13 — تحقق نطاق الآيات + منع تكرار الجزء + فئات
+         * التقدم.**
+         *
+         * ⭐ **قبل PR ده**:
+         *
+         * - أي `to_ayah` بيتقبل حتى لو تجاوز عدد آيات السورة
+         *   (الفاتحة 7 آيات وتقدر تبعث 300!): التحقق الوحيد
+         *   كان exists بدون حصر بالنطاق.
+         * - إعادة إرسال نفس الجزء كانت تضيف صفاً مكرراً كل مرة.
+         * - الفئات الأخرى للتقدم (`tajweed`/`reading`/`revision`…)
+         *   موجودة في عمود `progress_records.category` لكن الـAPI
+         *   ما كان يكتبهاش — كان يكتب `memorization` فقط.
+         *
+         * ⭐ **دلوقتي**:
+         *
+         * - التحقق: الآية لا تتجاوز عدد آيات السورة
+         *   (قاعدة إضافية بالسورة القرآنية).
+         * - الفئة الافتراضية `memorization` تُكتب في `memorization_records`
+         *   بعملية upsert على المفتاح (الطالب + الحصة + السورة
+         *   + نطاق الآيات) حتى ما يتكرر شيئاً — والقيمة الأخيرة
+         *   تُدوَّن في الصف نفسه.
+         * - الفئات الأخرى تُكتب في `progress_records` فقط (upsert
+         *   على الطالب + الحصة + الفئة).
+         * - في **كل الحالات** يبقى التقدم مربوط بالحصة، و201
+         *   عند الإنشاء و200 عند التدوين التحديثي (بدون نسخ).
+         */
+
+        // ⭐ الفئة الافتراضية `memorization` حاضرة في الحقل حتى
+        // القواعد الاعتمادية تشوفها (بعد ذلك البيانات تجي بدونها).
+        if (! $request->filled('category')) {
+            $request->merge(['category' => 'memorization']);
+        }
+
+        /** @var array{category: string, surah_id?: int, from_ayah?: int, to_ayah?: int, quality?: int, notes?: string} $data */
         $data = $request->validate([
-            'surah_id' => 'required|exists:quran_surahs,id',
-            'from_ayah' => 'required|integer|min:1',
-            'to_ayah' => 'required|integer|min:1|gte:from_ayah',
+            'category' => [
+                'required',
+                \Illuminate\Validation\Rule::in([
+                    'memorization', 'tajweed', 'pronunciation', 'reading', 'fluency', 'revision',
+                ]),
+            ],
+
+            // ⭐ حقول الحفظ — إجبارية لحساب `memorization` فقط
+            // (الفئات الأخرى قيم تقدم خالصة، بلا آيات).
+            'surah_id' => [
+                'required_if:category,memorization',
+                'integer',
+                'exists:quran_surahs,id',
+            ],
+            'from_ayah' => [
+                'required_if:category,memorization',
+                'integer',
+                'min:1',
+            ],
+            'to_ayah' => [
+                'required_if:category,memorization',
+                'integer',
+                'min:1',
+                'gte:from_ayah',
+
+                // ⭐⭐ **القبول ①**: الآية بلا تجاوز عدد آيات السورة.
+                function (string $attribute, mixed $value, \Closure $fail) use ($request) {
+                    if ($request->input('category') !== 'memorization') {
+                        return;
+                    }
+
+                    /** @var \App\Models\QuranSurah|null $surah */
+                    $surah = \App\Models\QuranSurah::find($request->input('surah_id'));
+
+                    if ($surah === null) {
+                        return;
+                    }
+
+                    if ((int) $value > (int) $surah->ayah_count) {
+                        $fail('لا يمكن تجاوز عدد آيات السورة — '
+                            .($surah->name_ar ?? ('سورة #'.$surah->id)).' عدد آياتها '
+                            .$surah->ayah_count.'، وطلبك الآن '.$value.'.');
+                    }
+                },
+            ],
+
             'quality' => 'nullable|integer|min:1|max:5',
             'notes' => 'nullable|string',
         ]);
 
-        $record = MemorizationRecord::create([
-            'student_id' => $lesson->student_id,
-            'lesson_id' => $lesson->id,
-            'teacher_id' => $lesson->teacher_id,
-            ...$data,
-            'recorded_at' => now(),
-        ]);
+        $category = $data['category'];
 
-        ProgressRecord::create([
-            'student_id' => $lesson->student_id,
-            'lesson_id' => $lesson->id,
-            'teacher_id' => $lesson->teacher_id,
-            'program_id' => $lesson->program_id,
-            'level_id' => $lesson->level_id,
-            'category' => 'memorization',
-            'score' => $data['quality'] ?? null,
-            'recorded_at' => now(),
-        ]);
+        if ($category !== 'memorization') {
+            // ⭐ الفئات الأخرى — تسجيل تقدّم فقط، بلا صف حفظ.
+            $progress = ProgressRecord::updateOrCreate(
+                ['student_id' => $lesson->student_id, 'lesson_id' => $lesson->id, 'category' => $category],
+                [
+                    'teacher_id' => $lesson->teacher_id,
+                    'program_id' => $lesson->program_id,
+                    'level_id' => $lesson->level_id,
+                    'score' => $data['quality'] ?? null,
+                    'notes' => $data['notes'] ?? null,
+                    'recorded_at' => now(),
+                ],
+            );
 
-        return response()->json($record, 201);
+            return response()->json($progress, $progress->wasRecentlyCreated ? 201 : 200);
+        }
+
+        // ⭐⭐ **منع تكرار الجزء + تدوين القيمة الأخيرة**: upsert على
+        // المفتاح (الطالب + الحصة + السورة + نطاق الآيات)،
+        // ويحرسه أيضاً فهرس فريد في القاعدة
+        // (memorization_segment_unique) ضد أي سباق كتابة.
+        $record = MemorizationRecord::updateOrCreate(
+            [
+                'student_id' => $lesson->student_id,
+                'lesson_id' => $lesson->id,
+                'surah_id' => $data['surah_id'],
+                'from_ayah' => $data['from_ayah'],
+                'to_ayah' => $data['to_ayah'],
+            ],
+            [
+                'teacher_id' => $lesson->teacher_id,
+                'quality' => $data['quality'] ?? null,
+                'notes' => $data['notes'] ?? null,
+                'recorded_at' => now(),
+            ],
+        );
+
+        ProgressRecord::updateOrCreate(
+            ['student_id' => $lesson->student_id, 'lesson_id' => $lesson->id, 'category' => 'memorization'],
+            [
+                'teacher_id' => $lesson->teacher_id,
+                'program_id' => $lesson->program_id,
+                'level_id' => $lesson->level_id,
+                'score' => $data['quality'] ?? null,
+                'notes' => $data['notes'] ?? null,
+                'recorded_at' => now(),
+            ],
+        );
+
+        return response()->json($record, $record->wasRecentlyCreated ? 201 : 200);
     }
 }
