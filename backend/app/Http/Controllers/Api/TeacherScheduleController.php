@@ -11,6 +11,64 @@ class TeacherScheduleController extends Controller
 {
     public function __construct(private TeacherAvailabilityService $availability) {}
 
+    // ═══════════════════════════════════════════════════════════════
+    // ⭐⭐⭐ **PR 3.10 — مسارات البوابة (`/teacher/*`).**
+    //
+    // نفس منطق المسارات الإدارية بس **الهوية من المستخدم** بدل
+    // `teacherId` في المسار — المعلم يقرا/يعدّل جدوله هو فقط:
+    // حد عايز جدول غيره = 403 (نفس قاعدة `authorizeOwnership`).
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * ⭐ معرّف معلم المستخدم — بلا بروفايل = 403 (مش استعلام).
+     */
+    private function ownTeacherId(Request $request): int
+    {
+        $teacher = $request->user()->teacher()->first();
+
+        if ($teacher === null) {
+            abort(403, 'المستخدم الحالي ليس معلماً — البوابة للمعلمين فقط');
+        }
+
+        return (int) $teacher->id;
+    }
+
+    /** GET /teacher/availability — جدولي. */
+    public function indexMine(Request $request)
+    {
+        return $this->index($request, $this->ownTeacherId($request));
+    }
+
+    /** POST /teacher/availability — أضيف فترة. */
+    public function storeMine(Request $request)
+    {
+        return $this->store($request, $this->ownTeacherId($request));
+    }
+
+    /** PUT /teacher/availability/{block} — أعدّل فترة، تخصني أو مرفوض. */
+    public function updateMine(Request $request, TeacherSchedule $block)
+    {
+        $own = $this->ownTeacherId($request);
+
+        if ((int) $block->teacher_id !== $own) {
+            abort(403, 'تقدر تدير جدولك بس');
+        }
+
+        return $this->update($request, $own, $block);
+    }
+
+    /** DELETE /teacher/availability/{block} — أحذف فترة، تخصني أو مرفوض. */
+    public function destroyMine(Request $request, TeacherSchedule $block)
+    {
+        $own = $this->ownTeacherId($request);
+
+        if ((int) $block->teacher_id !== $own) {
+            abort(403, 'تقدر تدير جدولك بس');
+        }
+
+        return $this->destroy($own, $block);
+    }
+
     /**
      * كل معلم بيتحكم بجدوله هو — فممنوع يعدّل جدول غيره.
      * الأدمن (أو أي حد عنده صلاحية إدارة المعلمين) يعدّل أي حد.

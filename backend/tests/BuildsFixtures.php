@@ -595,6 +595,56 @@ trait BuildsFixtures
      *
      * `makeContract($teacher)` أو `makeContract($teacher, ['contract_type' => 'monthly'])`.
      */
+    /**
+     * ⭐⭐⭐ **PR 3.10 — حصة جاهزة للإتمام (سلة البوابة).**
+     *
+     * تجميعة خط إتمام الحصة: معلم متعاقد عليه بسعر، اشتراك
+     * برصيد 8 حصص (حساب + حركة افتتاحية)، وحصة `scheduled`
+     * مربوطة بالاشتراك.
+     *
+     * `makeCompletableLesson(['status' => 'in_progress'])` لو
+     * محتاج تبدأ من منتصف الجري.
+     *
+     * @return array{0: Lesson, 1: Teacher, 2: Subscription}
+     */
+    protected function makeCompletableLesson(array $lessonAttrs = [], ?Teacher $teacher = null): array
+    {
+        $student = $this->makeStudent();
+        $subscription = $this->makeSubscription($this->makeProgram(), $student);
+
+        $account = \App\Models\LessonCreditAccount::create([
+            'student_id' => $student->id,
+            'subscription_id' => $subscription->id,
+            'credit_type' => 'regular',
+            'current_balance' => 8,
+            'status' => 'active',
+        ]);
+
+        \App\Models\LessonCreditTransaction::create([
+            'credit_account_id' => $account->id,
+            'student_id' => $student->id,
+            'subscription_id' => $subscription->id,
+            'type' => 'initial',
+            'quantity' => 8,
+            'balance_after' => 8,
+            'reason' => 'رصيد الباقة',
+            'created_at' => now(),
+        ]);
+
+        $teacher = $teacher ?? $this->makeActiveTeacher();
+        $this->makeContract($teacher);
+        $this->makeRate($teacher, ['amount' => 50]);
+
+        $lesson = $this->makeLesson(
+            $this->makeProgram(),
+            $student,
+            $teacher,
+            array_merge(['subscription_id' => $subscription->id], $lessonAttrs),
+        );
+
+        return [$lesson, $teacher, $subscription];
+    }
+
     protected function makeContract(Teacher $teacher, array $attrs = []): \App\Models\TeacherContract
     {
         return \App\Models\TeacherContract::create(array_merge([

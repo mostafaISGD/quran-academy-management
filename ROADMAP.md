@@ -170,7 +170,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 3.7 — Time Zones
 - [x] PR 3.8 — Pausing and Resuming a Subscription
 - [x] PR 3.9 — Trial Lessons and Assessment Conversion
-- [ ] PR 3.10 — Teacher API (Teacher Portal Backend)
+- [x] PR 3.10 — Teacher API (Teacher Portal Backend)
 - [ ] PR 3.11 — Lesson Links and Join Tracking
 - [ ] PR 3.12 — Settings Center (Backend)
 - [ ] PR 3.13 — Validating Memorization and Progress Records
@@ -1612,6 +1612,15 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** A teacher completes only their own lessons; an attempt on another teacher's lesson = 403; all routes are in the route matrix.
 **Depends on:** 3.4 · 1.8
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-24):**
+> - **المسارات `/teacher/*`** (الكل بصلاحية `teacher.portal` — في مصفوفة الحماية تلقائيًا): `today` و`week` و`lessons` و`earnings` و`availability` (قراءة/إضافة/تعديل/حذف) و`lessons/{lesson}/start` و`complete` و`attendance` و`memorization`.
+> - **الملكية في `LessonPolicy` (PR 1.8) مش مكررة في controller**: البداية والإتمام والحضور والحفظ بيستعملوا نفس أفعال `LessonController` — معلم تانٍ = **403** وبلا أي أثر (اختبار).
+> - **هاتف ولي الأمر مخفي افتراضيًا**: إعداد `teacher_portal.expose_parent_phone` (false) — يظهر بس لما المؤسسة تفعّله. الليستات مشفّلة على `teacher_id` صاحبها، و`«اليوم»/«الأسبوع»` بيتحسبوا في منطقة المستخدم الزمنية (PR 3.7).
+> - ⭐ **بِغ مكتشف (دبل-خصم!): `LessonPolicy::defaults()` ما كانش فيه صفوف للحالات الانتقالية** (`confirmed`/`in_progress`/`rescheduled`) ⇒ `LessonPolicyService::resolve()` كان بيرجع افتراضي «completed» (`deduct_credit = true`) لأي نتيجة مش موجودة ⇒ **بداية الدرس كانت بتخصم رصيد** والإتمام بتخصم تاني (سطران `lesson_used` لكل حصة من بدأها). أتصلّح: صفوف انتقالية صفرية الأثر في الكتالوج — الاختبار «بداية ثم إتمام» هو اللي كشفها.
+> - **كشف الحساب بقى خدمة**: `TeacherLedgerService::statementFor()` — المسار الإداري `/teachers/{id}/statement` والبوابة `/teacher/earnings` من نفس المصدر (كود مكرر اتولّد استخراجاً).
+> - **دور `teacher`** بقى معاه `teacher.portal` (تحوّل تلقائي في `grantDerivedRoles` لأي مستخدم له بروفايل معلم وبلا دور آخر).
+> - **ما لم يُتحقق:** تجربة Postgres (3 skipped pgsql — لا ميجريشن في هذا الـPR فلن تتغير الـschema)؛ ربط صفحة معلم في الواجهة (المواصفة backend فقط) — `api.ts` ما اتغيّرش (لا مسار موجود اتغير)؛ سلسلة `notify` للحصة من البوابة تمرّ عبر نفس الخدمة (PR 3.4) بدون تكامل إضافي.
 ### PR 3.11 — Lesson Links and Join Tracking
 **Goal:** A link for each lesson, and a join log that feeds attendance.
 **Tasks:**

@@ -195,6 +195,10 @@ class SeedRolesPermissions extends Seeder
          */
         'teacher' => [
             'programs.view',
+            // ⭐⭐⭐ **PR 3.10 — بوابة المعلم**: المعلم يشتغل من
+            // بوابة له صلاحيتها (`teacher.portal`)، حصصه هو فقط —
+            // الملكية في `LessonPolicy` (PR 1.8) مش في الصلاحية.
+            'teacher.portal',
         ],
 
         /**

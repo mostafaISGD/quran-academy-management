@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\StudentPhoneController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\TeacherController;
 use App\Http\Controllers\Api\TeacherScheduleController;
+use App\Http\Controllers\Api\TeacherPortalController;
 use App\Http\Controllers\Api\TeacherEarningController;
 use App\Http\Controllers\Api\TeacherLedgerController;
 use App\Http\Controllers\Api\TeacherPaymentController;
@@ -479,6 +480,30 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::post('/lessons/{lesson}/correct', [LessonController::class, 'correct'])->middleware('permission:lessons.update');
     Route::post('/lessons/{lesson}/attendance', [LessonController::class, 'attendance'])->middleware('permission:lessons.update');
     Route::post('/lessons/{lesson}/memorization', [LessonController::class, 'memorization'])->middleware('permission:lessons.update');
+
+    // ═════════════════════════════════════════════════════════════
+    // ⭐⭐⭐ PR 3.10 — بوابة المعلم (`/teacher/*`)
+    //
+    // صلاحية واحدة (`teacher.portal`) + **ملكية** محكومة بـ
+    // `LessonPolicy` (PR 1.8): معلم على حصة معلم تاني = 403.
+    // القراءات مشفّلة على `teacher_id` بتاعه من جوّه
+    // `TeacherPortalController`، والإضافة/التعديل/الحذف على
+    // جدول التواجد من `mine*` في `TeacherScheduleController`.
+    // ═════════════════════════════════════════════════════════════
+    Route::prefix('teacher')->middleware('permission:teacher.portal')->group(function () {
+        Route::get('/today', [TeacherPortalController::class, 'today']);
+        Route::get('/week', [TeacherPortalController::class, 'week']);
+        Route::get('/lessons', [TeacherPortalController::class, 'lessons']);
+        Route::post('/lessons/{lesson}/start', [LessonController::class, 'start']);
+        Route::post('/lessons/{lesson}/complete', [LessonController::class, 'complete']);
+        Route::post('/lessons/{lesson}/attendance', [LessonController::class, 'attendance']);
+        Route::post('/lessons/{lesson}/memorization', [LessonController::class, 'memorization']);
+        Route::get('/earnings', [TeacherPortalController::class, 'earnings']);
+        Route::get('/availability', [TeacherScheduleController::class, 'indexMine']);
+        Route::post('/availability', [TeacherScheduleController::class, 'storeMine']);
+        Route::put('/availability/{block}', [TeacherScheduleController::class, 'updateMine']);
+        Route::delete('/availability/{block}', [TeacherScheduleController::class, 'destroyMine']);
+    });
 
     // Invoices
     Route::get('/invoices', [InvoiceController::class, 'index'])->middleware('permission:finance.payments.view');

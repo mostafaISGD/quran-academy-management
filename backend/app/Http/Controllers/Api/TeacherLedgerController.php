@@ -34,35 +34,12 @@ class TeacherLedgerController extends Controller
     {
         Gate::authorize('view', $teacher);
 
-        $entries = $teacher->ledgerEntries()
-            ->with(['earning:id,lesson_id,earning_date', 'payment:id,paid_at'])
-            ->orderBy('id')
-            ->get();
-
-        $currencies = [];
-
-        foreach ($entries as $entry) {
-            $currency = $entry->currency;
-
-            if (! isset($currencies[$currency])) {
-                $currencies[$currency] = [
-                    'balance' => 0.0,
-                    'total_debit' => 0.0,
-                    'total_credit' => 0.0,
-                ];
-            }
-
-            $currencies[$currency]['total_debit'] += (float) $entry->debit;
-            $currencies[$currency]['total_credit'] += (float) $entry->credit;
-            // ⭐ مباشرة على العنصر (نسخة الـmap = انظر PR 2.9)
-            $currencies[$currency]['balance'] = (float) $entry->balance_after;
-        }
-
-        return response()->json([
-            'teacher_id' => $teacher->id,
-            'currencies' => $currencies,
-            'entries' => $entries,
-        ]);
+        // ⭐⭐⭐ **PR 3.10 — الكشف بقى خدمة** (`TeacherLedgerService::
+        // statementFor`) — بوابة المعلم بتستعمل نفس الخدمة، فشكل
+        // الكشف موحّد ومفيش نسخة تانية بتشتغل خطأ.
+        return response()->json(
+            app(TeacherLedgerService::class)->statementFor($teacher),
+        );
     }
 
     public function bonus(Request $request, Teacher $teacher): JsonResponse

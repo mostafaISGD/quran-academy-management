@@ -325,6 +325,29 @@ class LessonController extends Controller
         return response()->json($makeup, 201);
     }
 
+    /**
+     * ⭐⭐⭐ **PR 3.10 — «بداية الدرس» في بوابة المعلم.**
+     *
+     * ⭐ مش إداري جديد: البوابة بتستعمل المسار ده (`/teacher/*`)
+     * والملكية محكومة بـ`Gate::authorize('update', ...)` —
+     * معلم تانٍ = 403 (كانت القيمة اللي بتتحقق في الاختبارات).
+     *
+     * التحويل نفسه من **آلة الحالات** (PR 3.1): `scheduled`
+     * أو `confirmed` ⇒ `in_progress`.
+     */
+    public function start(Request $request, Lesson $lesson)
+    {
+        Gate::authorize('update', $lesson);
+
+        $updated = app(LessonService::class)->transition(
+            $lesson,
+            LessonStatus::InProgress,
+            $request->user(),
+        );
+
+        return response()->json($updated);
+    }
+
     public function complete(Request $request, Lesson $lesson)
     {
         Gate::authorize('update', $lesson);

@@ -115,6 +115,52 @@ class LessonPolicy extends Model
                 'late_cancel_notice_hours' => 0,
                 'makeup_deducts_from_package' => true,
             ],
+
+            /**
+             * ⭐⭐⭐ **PR 3.10 — الحالات الانتقالية: بلا أثر مالي.**
+             *
+             * ⭐ **قبل PR ده الكتالوج ما كانش فيه صفوف للحالات
+             * الانتقالية** (`confirmed`/`in_progress`/`rescheduled`)
+             * — و`LessonPolicyService::resolve()` كان بيرجع
+             * **افتراضي «completed»** لأي نتيجة مش موجودة
+             * (`deduct_credit = true`) ⇒ **بداية الدرس كانت بتخصم
+             * رصيد** — والإتمام بتخصم تاني (دبل-خصم!). بِغ اكتشفه
+             * اختبار البوابة «بداية ثم إتمام».
+             *
+             * ⭐ الصفوف الانتقالية بتتصفّر كل الآثار: بلا خصم
+             * رصيد، بلا أجر معلم، بلا إشعار ولي أمر (الإشعار جاي
+             * مع النتيجة النهائية: اكتمل الحصة أو الغى).
+             */
+            'confirmed' => [
+                'deduct_credit' => false,
+                'pay_teacher' => false,
+                'allow_makeup' => false,
+                'makeup_limit' => 0,
+                'makeup_window_days' => 0,
+                'notify_parent' => false,
+                'late_cancel_notice_hours' => 0,
+                'makeup_deducts_from_package' => true,
+            ],
+            'in_progress' => [
+                'deduct_credit' => false,
+                'pay_teacher' => false,
+                'allow_makeup' => false,
+                'makeup_limit' => 0,
+                'makeup_window_days' => 0,
+                'notify_parent' => false,
+                'late_cancel_notice_hours' => 0,
+                'makeup_deducts_from_package' => true,
+            ],
+            'rescheduled' => [
+                'deduct_credit' => false,
+                'pay_teacher' => false,
+                'allow_makeup' => false,
+                'makeup_limit' => 0,
+                'makeup_window_days' => 0,
+                'notify_parent' => false,
+                'late_cancel_notice_hours' => 0,
+                'makeup_deducts_from_package' => true,
+            ],
         ];
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Teacher;
 use App\Models\TeacherLedgerEntry;
 use Illuminate\Support\Facades\DB;
 
@@ -75,5 +76,50 @@ class TeacherLedgerService
         $last = $query->orderByDesc('id')->first();
 
         return $last ? (float) $last->balance_after : 0.0;
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 3.10 — كشف الحساب خدمةً مش `controller`.**
+     *
+     * كان مكتوب جوّه `TeacherLedgerController::statement()` —
+     * وبوابة المعلم (`/teacher/earnings`) محتاجة نفس الشكل
+     * بالظبط (`currencies` + `entries`). فبقى واحد في المشي:
+     * الـcontroller الإداري والبوابة الاتنين بندوّوا هنا.
+     *
+     * نفس شكل كشف الطالب (PR 2.9): `currencies` و `entries`.
+     *
+     * @return array{teacher_id: int, currencies: array<string, array{balance: float, total_debit: float, total_credit: float}>, entries: \Illuminate\Support\Collection}
+     */
+    public function statementFor(Teacher $teacher): array
+    {
+        $entries = $teacher->ledgerEntries()
+            ->with(['earning:id,lesson_id,earning_date', 'payment:id,paid_at'])
+            ->orderBy('id')
+            ->get();
+
+        $currencies = [];
+
+        foreach ($entries as $entry) {
+            $currency = $entry->currency;
+
+            if (! isset($currencies[$currency])) {
+                $currencies[$currency] = [
+                    'balance' => 0.0,
+                    'total_debit' => 0.0,
+                    'total_credit' => 0.0,
+                ];
+            }
+
+            $currencies[$currency]['total_debit'] += (float) $entry->debit;
+            $currencies[$currency]['total_credit'] += (float) $entry->credit;
+            // ⭐ مباشرة على العنصر (نسخة الـmap = انظر PR 2.9)
+            $currencies[$currency]['balance'] = (float) $entry->balance_after;
+        }
+
+        return [
+            'teacher_id' => $teacher->id,
+            'currencies' => $currencies,
+            'entries' => $entries,
+        ];
     }
 }
