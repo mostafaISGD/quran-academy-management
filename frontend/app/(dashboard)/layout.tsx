@@ -38,6 +38,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/teachers", label: "المعلمين", icon: "👨‍🏫", permission: "teachers.view" },
       { href: "/employees", label: "الموظفين", icon: "👤", permission: "students.view" },
       { href: "/parents", label: "أولياء الأمور", icon: "👨‍👩‍👧", permission: "parents.view" },
+      // ⭐ PR 4.5 — صندوق طلبات أولياء الأمور (إلغاء/تأجيل/تعليق)
+      { href: "/student-requests", label: "طلبات أولياء الأمور", icon: "📨", permission: "student_requests.view" },
       { href: "/waitlist", label: "قائمة الانتظار", icon: "⏳", permission: "groups.manage" },
       { href: "/groups", label: "إدارة المجموعات", icon: "👥", permission: "groups.manage" },
     ],

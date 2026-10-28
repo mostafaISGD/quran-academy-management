@@ -182,7 +182,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [ ] PR 4.2 — Scheduled event dispatchers
 - [ ] PR 4.3 — Arabic email template + WhatsApp adapter
 - [x] PR 4.4 — Teacher portal (Frontend, mobile first)
-- [ ] PR 4.5 — Parent portal v2
+- [x] PR 4.5 — Parent portal v2
 - [ ] PR 4.6 — Student portal
 - [ ] PR 4.7 — Employee portal
 - [ ] PR 4.8 — Online payment (Stripe) and webhooks
@@ -1759,6 +1759,16 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - All data goes through `ParentChildScope` (PR 1.8).
 **Acceptance:** A parent does not see their child's finances if `can_view_finance=false`; a cancellation request appears in the administration inbox.
 **Depends on:** 1.8 · 3.8 · 4.1
+
+> **حالة التنفيذ (PR 4.5):**
+> - **الباكإند**: جدول `student_requests` (+ توسيع `notification_event_types` لـ`student_request_created/approved/rejected`)، `StudentRequestType`/`StudentRequestStatus`، و`StudentRequestService` (إنشاء/سحب/قرار + إشعار + `audit_logs` داخل معاملة واحدة). الولي بيقدّم/يسحب من `ParentRequestController`، والإدارة بتراجع من `StudentRequestController` — صلاحيتان منفصلتان: `student_requests.view` للصندوق و`student_requests.manage` للقرار.
+> - **كل البيانات عبر `ParentChildScope`**: `GET /parent/children/{student}` + attendance/progress/lessons/invoices/payments، والحراسة `parent.only` + `ResolvesParentChild` (parentOrFail/childOrFail/requireProgress/requireFinance/requireRequestChanges). الابن غير المؤكَّد أو ابن عائلة تانية = 404، والمال بـ`can_view_finance=false` = 403.
+> - **البوابة (الواجهة)**: شاشة واحدة بستة تبويبات (نظرة عامة/الحضور/التقدم/الحصص/الفواتير/طلباتي) وشريط تنقّل سفلي ثابت. التبويبات **أزرار لا روابط**، وتُشتق من أعلام الرابط (`visibleParentTabs`/`resolveParentTab`)، والتبديل بين الأبناء فوري (`nextChildId`). أُزيل زر الخروج القديم (كان يوجّه إلى `/login` المحذوف).
+> - **صندوق الإدارة** `/student-requests`: فلتر حالة + عدّادات، موافقة/رفض عبر `useUI().prompt`، وقرار الرفض يستلزم سبباً. **الموافقة قرار مسجّل + إشعار فقط — لا تُطبَّق تلقائياً على الحصة/الاشتراك**؛ التطبيق خطوة منفصلة لاحقة.
+> - **أخطاء أُصلحت أثناء التنفيذ**: `outstanding.total` كان يخلط القرش بالجنيه (١٠٠×) — صار عبر `MoneyCast::fromAggregate`؛ و`PermissionCatalogTest` كان يقرأ `student` من `student_requests.view` (regex توقف عند `_`)؛ و`SettingsGrepTest` رفض `'EGP'` المحبوس — صار `config('currencies.default')`.
+> - **تغيير fixture مطلوب**: `RoleIsolationTest::parentProfileFor` أضاف `'status' => 'verified'` — فلتر PR 1.11 بيرجّع المؤكَّد فقط، والاختبار كان بيفترض غير كده. ده تغيير سلوك مقصود، مش إصلاح اختبار.
+> - **الاختبارات**: باكإند **960 passed · 1 risky (قائم) · 3 skipped** — منهم `ParentPortalV2Test` (8) و`StudentRequestTest` (10). واجهة **217 passed / 18 ملف** — منهم `tests/parent-portal.test.ts` (21). `tsc` و`npm run build` نضيفان، و`lint` = خط الأساس (10 errors + 1 warning).
+> - **ما لم يُتحقق**: Playwright غير مثبّت، فقبول «ولي أمر يتنقّل بين ابنين ويقدّم طلباً من 390px» لم يُنفَّذ آلياً — البديل دوال منطق خالصة + فحص يدوي. **جلسة ولي أمر-فقط لم تُفحص بصرياً**: قاعدة التطوير لا تحتوي سجلات أولياء أمور، ولم يُشغَّل `RealisticDataSeeder` بلا موافقة. تنفيذ الطلب الموافَق عليه على الحصة/الاشتراك خارج نطاق هذا الـPR.
 
 ### PR 4.6 — Student portal
 **Goal:** A simplified interface for the student.

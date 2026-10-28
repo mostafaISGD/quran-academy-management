@@ -172,6 +172,7 @@ describe("decideRoute — no session", () => {
       "/reports",
       "/promo-codes",
       "/student-credits",
+      "/student-requests",
       "/lesson-policy",
       "/reminder-settings",
       "/notifications",

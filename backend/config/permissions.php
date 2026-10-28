@@ -181,6 +181,21 @@ return [
             'description' => 'إنشاء ملف ولي أمر أو ربطه بطلاب',
         ],
 
+        // ═══════════ طلبات أولياء الأمور (PR 4.5) ═══════════
+        //
+        // ⭐ العرض والقرار منفصلين: الاستقبال بيشوف الطلب عشان يرد
+        // على التليفون، بس الموافقة/الرفض قرار مشرف أو إدارة.
+        'student_requests.view' => [
+            'module' => 'student_requests',
+            'group' => 'أولياء الأمور',
+            'description' => 'شوف طلبات أولياء الأمور (إلغاء/تأجيل/تعليق)',
+        ],
+        'student_requests.manage' => [
+            'module' => 'student_requests',
+            'group' => 'أولياء الأمور',
+            'description' => 'مراجعة طلبات أولياء الأمور والموافقة أو الرفض',
+        ],
+
         // ═══════════ الحضور ═══════════
         'attendance.view' => [
             'module' => 'attendance',
@@ -595,7 +610,7 @@ return [
     // ═══════════════════════════════════════════════════════════
 
     'groups' => [
-        'الطلاب' => ['students', 'parents', 'leads'],
+        'الطلاب' => ['students', 'parents', 'student_requests', 'leads'],
         'التعليم' => ['teachers', 'lessons', 'programs', 'groups'],
         'المالية' => ['finance', 'payroll', 'pricing'],
         'الإدارة' => ['attendance', 'reports', 'settings', 'roles', 'audit', 'users'],

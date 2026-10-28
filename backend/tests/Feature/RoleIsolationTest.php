@@ -865,6 +865,10 @@ class RoleIsolationTest extends TestCase
         $child->parents()->attach($parent->id, [
             'relationship' => 'father',
             'is_primary' => true,
+            // ⭐ PR 4.5: الرابط بلا `status` بقى `pending_verification`
+            // (PR 1.11) — والبوابة بقت تفلتر المؤكد بس. الـfixture هنا
+            // بيمثّل ربط **موظف أكّده**، زي باقي الاختبارات.
+            'status' => 'verified',
         ]);
 
         return $parent->fresh();

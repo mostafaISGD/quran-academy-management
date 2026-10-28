@@ -19,7 +19,9 @@ use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\LessonController;
 use App\Http\Controllers\Api\NotificationController;
 use App\Http\Controllers\Api\ParentController;
+use App\Http\Controllers\Api\ParentChildController;
 use App\Http\Controllers\Api\ParentPortalController;
+use App\Http\Controllers\Api\ParentRequestController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ProgramController;
 use App\Http\Controllers\Api\ReportController;
@@ -28,6 +30,7 @@ use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\FinancialAccountController;
 use App\Http\Controllers\Api\StudentController;
 use App\Http\Controllers\Api\StudentPhoneController;
+use App\Http\Controllers\Api\StudentRequestController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\TeacherController;
 use App\Http\Controllers\Api\TeacherScheduleController;
@@ -461,8 +464,35 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     // ===== واجهة ولي الأمر =====
     // البراوت يضمن إن الحساب ده ولي أمر فعلاً. وكمان الـ controller
     // بيتأكد من إن كل ابن مرتبط بيه — عشوائياً لا يكفي.
-    Route::get('/parent/children', [ParentPortalController::class, 'children'])
-        ->middleware('parent.only');
+    Route::prefix('parent')->middleware('parent.only')->group(function () {
+        Route::get('/children', [ParentPortalController::class, 'children']);
+
+        // ⭐ PR 4.5 — صفحة الابن الواحدة: ملف، حضور، تقدم، حصص،
+        // فواتير ومدفوعات. كلها بتنادي `ParentChildScope` جوه
+        // الـcontroller (`ResolvesParentChild`).
+        Route::get('/children/{student}', [ParentChildController::class, 'show']);
+        Route::get('/children/{student}/attendance', [ParentChildController::class, 'attendance']);
+        Route::get('/children/{student}/progress', [ParentChildController::class, 'progress']);
+        Route::get('/children/{student}/lessons', [ParentChildController::class, 'lessons']);
+        Route::get('/children/{student}/invoices', [ParentChildController::class, 'invoices']);
+        Route::get('/children/{student}/payments', [ParentChildController::class, 'payments']);
+
+        // ⭐ طلبات الولي (إلغاء/تأجيل/تعليق) — `can_request_changes`.
+        Route::get('/requests', [ParentRequestController::class, 'index']);
+        Route::post('/children/{student}/requests', [ParentRequestController::class, 'store']);
+        Route::post('/requests/{studentRequest}/withdraw', [ParentRequestController::class, 'withdraw']);
+    });
+
+    // ===== صندوق طلبات أولياء الأمور — الإدارة (PR 4.5) =====
+    //
+    // ⭐ العرض والقرر صلاحيتين منفصلتين: الاستقبال بيشوف عشان يرد،
+    // والقرار (موافقة/رفض) للمشرف/الإدارة.
+    Route::get('/student-requests', [StudentRequestController::class, 'index'])
+        ->middleware('permission:student_requests.view');
+    Route::post('/student-requests/{studentRequest}/approve', [StudentRequestController::class, 'approve'])
+        ->middleware('permission:student_requests.manage');
+    Route::post('/student-requests/{studentRequest}/reject', [StudentRequestController::class, 'reject'])
+        ->middleware('permission:student_requests.manage');
 
     // Schedule / Lessons
     Route::get('/schedule', [LessonController::class, 'schedule'])->middleware('permission:lessons.view');

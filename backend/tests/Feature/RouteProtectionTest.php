@@ -94,6 +94,22 @@ class RouteProtectionTest extends TestCase
         // في كتالوج الصلاحيات أصلاً.
         'GET api/parent/children' => 'محمي بـ parent.only middleware (مش permission) — وده الوضع الصح لولي الأمر',
 
+        // ⭐ PR 4.5 — صفحة الابن الواحدة وطلبات الولي. نفس المنطق،
+        // والحماية الحقيقية في `ResolvesParentChild` جوه الـcontroller:
+        // الطالب لازم يكون **ابن مؤكَّد** (ParentChildScope) والأعلام
+        // (can_view_finance / can_view_progress / can_request_changes)
+        // بتقفل الأقسام. اختباراته في ParentPortalV2Test +
+        // StudentRequestTest.
+        'GET api/parent/children/{student}' => 'parent.only + ParentChildScope::allowedStudentIds جوه الـcontroller',
+        'GET api/parent/children/{student}/attendance' => 'parent.only + الربط المؤكد + can_view_progress',
+        'GET api/parent/children/{student}/progress' => 'parent.only + الربط المؤكد + can_view_progress',
+        'GET api/parent/children/{student}/lessons' => 'parent.only + الربط المؤكد + can_view_progress',
+        'GET api/parent/children/{student}/invoices' => 'parent.only + الربط المؤكد + can_view_finance',
+        'GET api/parent/children/{student}/payments' => 'parent.only + الربط المؤكد + can_view_finance',
+        'GET api/parent/requests' => 'parent.only + فلترة parent_id جوه الخدمة',
+        'POST api/parent/children/{student}/requests' => 'parent.only + الربط المؤكد + can_request_changes',
+        'POST api/parent/requests/{studentRequest}/withdraw' => 'parent.only + فحص ملكية الطلب جوه الخدمة',
+
         // ===== مستندات PDF (PR 2.17) =====
         //
         // الفاتورة/الإيصال PDF عائليان قبلهما: ولي الأمر مالوش
