@@ -502,6 +502,8 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
         Route::post('/lessons/{lesson}/attendance', [LessonController::class, 'attendance']);
         Route::post('/lessons/{lesson}/memorization', [LessonController::class, 'memorization']);
         Route::get('/earnings', [TeacherPortalController::class, 'earnings']);
+        // ⭐ PR 4.4 — قائمة السور لنموذج الحفظ في البوابة.
+        Route::get('/surahs', [TeacherPortalController::class, 'surahs']);
         Route::get('/availability', [TeacherScheduleController::class, 'indexMine']);
         Route::post('/availability', [TeacherScheduleController::class, 'storeMine']);
         Route::put('/availability/{block}', [TeacherScheduleController::class, 'updateMine']);

@@ -290,6 +290,56 @@ export function date(
 }
 
 /**
+ * ⭐⭐⭐ **مفتاح يوم محلي (`YYYY-MM-DD`) بمنطقة زمنية صريحة.**
+ *
+ * ⚠️ ليه مش `d.getDate()`؟ لأن ده بيستخدم **منطقة المتصفح**.
+ * حصة الساعة 22:30 UTC يوم 27 هي **يوم 28** في القاهرة — ولو
+ * جمّعنا بمنطقة المتصفح، بوابة معلم مصرية بتعرضها «امبارح».
+ *
+ * @example
+ * dayKey("2026-10-27T22:30:00Z", "Africa/Cairo") // "2026-10-28"
+ */
+export function dayKey(
+  value: string | Date | null | undefined,
+  timeZone: string,
+): string {
+  const d = toDate(value);
+  if (!d) return "";
+
+  return d.toLocaleDateString("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+}
+
+/**
+ * ⭐ تنسيق مفتاح يوم محلي **بلا تحويل منطقة تاني**.
+ *
+ * المفتاح نفسه اتحسب بالفعل بمنطقة المعلم في `dayKey()`، فأي
+ * تحويل هنا هيغيّر اليوم. بنقراه عند الظهر UTC وننسّقه على UTC.
+ */
+function formatDayKey(key: string, options: Intl.DateTimeFormatOptions): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return "—";
+
+  const d = new Date(`${key}T12:00:00Z`);
+  if (Number.isNaN(d.getTime())) return "—";
+
+  return d.toLocaleDateString(LOCALE, { ...options, timeZone: "UTC" });
+}
+
+/** ⭐ اسم يوم الأسبوع من مفتاح يوم: `الأربعاء` */
+export function dayKeyWeekday(key: string): string {
+  return formatDayKey(key, { weekday: "long" });
+}
+
+/** ⭐ يوم وشهر من مفتاح يوم: `28 أكتوبر` */
+export function dayKeyDate(key: string): string {
+  return formatDayKey(key, { day: "numeric", month: "long" });
+}
+
+/**
  * تاريخ بس **من غير السنة**: `7 أكتوبر`
  *
  * للمكان اللي محتاج تاريخ مختصر — لو الحصة يوم ٧ في نفس

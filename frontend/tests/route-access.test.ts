@@ -91,7 +91,11 @@ describe("homeFor", () => {
   });
 
   it("a teacher lands on their schedule", () => {
-    expect(homeFor(teacher())).toBe(ROLE_HOME.teacher);
+    // ⭐⭐ PR 4.4 — بيت المعلم بقى البوابة `/teacher` (بدل
+    // `/my-schedule`) لأنها اللي فيها اليوم والحضور والمستحقات
+    // والتوفر في شاشة واحدة.
+    expect(ROLE_HOME.teacher).toBe("/teacher");
+    expect(homeFor(teacher())).toBe("/teacher");
   });
 
   it("a parent lands on their children", () => {
@@ -218,7 +222,7 @@ describe("decideRoute — with a session", () => {
   it("a teacher away from their home is sent to it", () => {
     expect(decideRoute("/students", { hasSession: true, user: teacher() })).toEqual({
       kind: "redirect",
-      to: "/my-schedule",
+      to: "/teacher",
     });
   });
 

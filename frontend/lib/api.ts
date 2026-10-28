@@ -1,3 +1,8 @@
+import type {
+  AttendanceStatus as LessonAttendanceStatus,
+  ProgressCategory,
+} from "@/lib/teacher-portal";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
 const CSRF_COOKIE_URL = `${API_ORIGIN}/sanctum/csrf-cookie`;
@@ -820,6 +825,207 @@ export function deleteScheduleBlock(teacherId: number, blockId: number) {
   return apiFetch<{ message: string }>(
     `/teachers/${teacherId}/availability/${blockId}`,
     { method: "DELETE" },
+  );
+}
+
+/* ============================================================
+   بوابة المعلّم (PR 4.4) — `/teacher/*`
+   ⭐ كلها بصلاحية `teacher.portal` والملكية محكومة في السيرفر
+   (`LessonPolicy`)، فمافيش `teacher_id` في أي مسار هنا.
+   ========================================================== */
+
+/** ⭐ سطر حصة زي ما البوابة بترجّعه (PR 3.10 + رابط الحصة في 4.4). */
+export type TeacherPortalLesson = {
+  id: number;
+  status: Lesson["status"];
+  lesson_type: Lesson["lesson_type"];
+  scheduled_start_at: string;
+  scheduled_end_at: string;
+  duration_minutes: number;
+  timezone: string | null;
+  local_start_time: string | null;
+  meeting_provider: Lesson["meeting_provider"];
+  meeting_url: string | null;
+  subscription_id: number | null;
+  student: { id: number; name: string } | null;
+  parent: { name: string; phone: string | null } | null;
+};
+
+export type TeacherPortalDay = {
+  teacher_id: number;
+  label: string;
+  from: string;
+  to: string;
+  timezone: string;
+  lessons: TeacherPortalLesson[];
+};
+
+export type TeacherPortalLessonsResponse = {
+  teacher_id: number;
+  lessons: TeacherPortalLesson[];
+};
+
+/** ⭐ سطر كشف المستحقات — `MoneyCast` بيرجّع نص عشري عمداً. */
+export type TeacherPortalEarningsEntry = {
+  id: number;
+  teacher_id: number;
+  type: string;
+  debit: number | string;
+  credit: number | string;
+  balance_after: number | string;
+  currency: string;
+  description: string | null;
+  created_at: string;
+  earning?: { id: number; lesson_id: number | null; earning_date: string } | null;
+  payment?: { id: number; paid_at: string | null } | null;
+};
+
+export type TeacherPortalEarnings = {
+  teacher_id: number;
+  currencies: Record<
+    string,
+    { balance: number; total_debit: number; total_credit: number }
+  >;
+  entries: TeacherPortalEarningsEntry[];
+};
+
+/** ⭐ حصص اليوم — في منطقة المعلم الزمنية. */
+export function getTeacherToday() {
+  return apiFetch<TeacherPortalDay>("/teacher/today");
+}
+
+/** ⭐ حصص الأسبوع الحالي. */
+export function getTeacherWeek() {
+  return apiFetch<TeacherPortalDay>("/teacher/week");
+}
+
+/** ⭐ كل حصصي — بفلاتر اختيارية. */
+export function getTeacherPortalLessons(params?: {
+  from?: string;
+  to?: string;
+  status?: Lesson["status"];
+}) {
+  const s = new URLSearchParams();
+  if (params?.from) s.set("from", params.from);
+  if (params?.to) s.set("to", params.to);
+  if (params?.status) s.set("status", params.status);
+  const q = s.toString();
+
+  return apiFetch<TeacherPortalLessonsResponse>(
+    `/teacher/lessons${q ? `?${q}` : ""}`,
+  );
+}
+
+/** ⭐ كشف مستحقاتي — كل عملة لوحدها. */
+export function getTeacherPortalEarnings() {
+  return apiFetch<TeacherPortalEarnings>("/teacher/earnings");
+}
+
+/**
+ * ⭐ قائمة السور — لنموذج الحفظ.
+ *
+ * ⚠️ مفيش راو تاني بيرجّع `quran_surahs` للواجهة، فالنموذج مش
+ * هيقدر يبني القائمة بنفسه.
+ */
+export function getTeacherSurahs() {
+  return apiFetch<{ surahs: QuranSurah[] }>("/teacher/surahs");
+}
+
+/* ---- التوفر: نفس شكل المسار الإداري بس الهوية من الجلسة ---- */
+
+export function getMyAvailability(week?: string) {
+  const s = new URLSearchParams();
+  if (week) s.set("week", week);
+  const q = s.toString();
+
+  return apiFetch<TeacherAvailability>(
+    `/teacher/availability${q ? `?${q}` : ""}`,
+  );
+}
+
+export function createMyAvailability(payload: {
+  weekday: number;
+  starts_at: string;
+  ends_at: string;
+  kind: ScheduleKind;
+  title?: string;
+  notes?: string;
+  is_recurring?: boolean;
+  specific_date?: string;
+}) {
+  return apiFetch<TeacherScheduleBlock>("/teacher/availability", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateMyAvailability(
+  blockId: number,
+  payload: Partial<{
+    weekday: number;
+    starts_at: string;
+    ends_at: string;
+    kind: ScheduleKind;
+    title: string | null;
+    notes: string | null;
+    is_recurring: boolean;
+    specific_date: string | null;
+  }>,
+) {
+  return apiFetch<TeacherScheduleBlock>(`/teacher/availability/${blockId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteMyAvailability(blockId: number) {
+  return apiFetch<{ message: string }>(`/teacher/availability/${blockId}`, {
+    method: "DELETE",
+  });
+}
+
+/* ---- أفعال الحصة (نفس مسارات الإدارة بس من البوابة) ---- */
+
+export function startTeacherLesson(lessonId: number) {
+  return apiFetch<Lesson>(`/teacher/lessons/${lessonId}/start`, {
+    method: "POST",
+  });
+}
+
+export function completeTeacherLesson(lessonId: number) {
+  return apiFetch<Lesson>(`/teacher/lessons/${lessonId}/complete`, {
+    method: "POST",
+  });
+}
+
+/** ⭐ الحضور — بياخد `entries` (PR 3.5) مش `status` المفرد. */
+export function recordTeacherAttendance(
+  lessonId: number,
+  payload: {
+    entries: Array<{ student_id: number; status: LessonAttendanceStatus }>;
+  },
+) {
+  return apiFetch<{ data: unknown[]; lesson: Lesson }>(
+    `/teacher/lessons/${lessonId}/attendance`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+/** ⭐ حفظ/مراجعة — `category` إجباري، والآيات للحفظ بس. */
+export function recordTeacherMemorization(
+  lessonId: number,
+  payload: {
+    category: ProgressCategory;
+    surah_id?: number;
+    from_ayah?: number;
+    to_ayah?: number;
+    quality?: number;
+    notes?: string;
+  },
+) {
+  return apiFetch<Record<string, unknown>>(
+    `/teacher/lessons/${lessonId}/memorization`,
+    { method: "POST", body: JSON.stringify(payload) },
   );
 }
 

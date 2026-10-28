@@ -181,7 +181,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [ ] PR 4.1 — Notification infrastructure (queue, channels, templates)
 - [ ] PR 4.2 — Scheduled event dispatchers
 - [ ] PR 4.3 — Arabic email template + WhatsApp adapter
-- [ ] PR 4.4 — Teacher portal (Frontend, mobile first)
+- [x] PR 4.4 — Teacher portal (Frontend, mobile first)
 - [ ] PR 4.5 — Parent portal v2
 - [ ] PR 4.6 — Student portal
 - [ ] PR 4.7 — Employee portal
@@ -1739,6 +1739,17 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - Built on the PR 5.2 components if they are ready, otherwise simple components that are migrated later.
 **Acceptance:** Playwright test: a teacher records attendance and completes a lesson from a 390px viewport; no admin link appears for them.
 **Depends on:** 3.10 · 1.2
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-28):**
+> - **شاشة واحدة، خمسة تبويبات**: `/teacher` = اليوم / الأسبوع / كل الحصص / مستحقاتي / مواعيدي، بشريط تنقّل سفلي ثابت (`min-h-14`) مناسب للموبايل. و`/my-schedule` صار تحويلاً إلى `/teacher` بدل صفحة تستهلك مسارات إدارية — فلا رابط محفوظ ينكسر.
+> - **منطق الشاشة مختبَر بلا متصفح**: `lib/teacher-portal.ts` (التبويبات، أزرار الحصة حسب آلة حالات PR 3.1، آلة الحضور، تجميع الأسبوع، ملخص المستحقات، تحقق الحفظ، حارس فتح البوابة) و`tests/teacher-portal.test.ts` (28 اختباراً). الصفحة تستهلك الدوال دي — مفيش قرار في JSX بيتاخد من غير اختبار.
+> - **الحضور بنقرتين (القبول ①)**: نقرة على الحصة = `choose`، ونقرة على الحالة = `confirm` وساعتها فقط تُبنى الحمولة وتُرسل. «حاضر» يكمّل الحصة ويخصم رصيداً — فالنقرتان حماية من أثر مالي بنقرة غلط.
+> - **نقص في عقد PR 3.10 أُصلح — قائمة السور**: لم يكن هناك أي راو يرجّع `quran_surahs` للواجهة، فنموذج الحفظ كان مستحيلاً بلا كتابة 114 سورة يدوياً. أُضيف `GET /teacher/surahs` (صلاحية `teacher.portal` + بروفايل معلم، والترتيب من السيرفر).
+> - **نقص ثانٍ — رابط الحصة**: `present()` كان ينسى `meeting_url`/`meeting_provider`، فزر «انضم» ما كان ليقدر يعمل. أُضيفا للرد مع اختبار يثبتهما.
+> - **صفر روابط إدارية (القبول ②)**: التبويبات أزرار لا `href`، والـlayout يرجّع صفر مجموعات لمعلم-فقط (`filterNavGroups`)، وحارس الصفحة `canOpenTeacherPortal` يشترط بروفايل معلم **و**صلاحية `teacher.portal` — فمافيش شاشة مكسورة كل طلباتها 403.
+> - **مكوّنات PR 5.2 لم تكن جاهزة** (كما تنص المهمة)، فبُنيت مكوّنات بسيطة تحت `components/teacher/` — كل ملف أقل من 300 سطر، وتُرحَّل لاحقاً.
+> - **الخلفية**: `TeacherPortalTest` 11 اختباراً (80 assertion)، والراو الجديد داخل مصفوفة `RouteProtectionTest`.
+> - **ما لم يُتحقق**: **Playwright غير مثبّت في المشروع** (ولا `playwright.config.ts`)، فاختبار القبول الآلي عند 390px **لم يُنفّذ**؛ البديل دوال منطق خالصة مغطاة بـVitest + فحص حي لحارس الصفحة (مستخدم بلا بروفايل معلم يُحوَّل إلى `/dashboard` بلا أخطاء console). **جلسة معلم-فقط لم تُفحص بصرياً**: قاعدة التطوير المحلية لا تحتوي أي سجل `teachers`، ولم يُشغَّل `RealisticDataSeeder` لأنه يغيّر بيانات التطوير بلا موافقة. «إعادة الجدولة» (`rescheduled`) غير قابلة للاختيار من البوابة — تبقى عمل الإدارة.
 
 ### PR 4.5 — Parent portal v2
 **Goal:** Go beyond the "list of children".

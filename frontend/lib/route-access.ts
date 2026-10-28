@@ -82,7 +82,9 @@ export const PUBLIC_PATHS: readonly string[] = [
 
 /** ⭐ راوات الأدوار الخاصة — كل واحد ليه بيت واحد */
 export const ROLE_HOME: Record<string, string> = {
-  teacher: "/my-schedule",
+  // ⭐⭐ PR 4.4 — بوابة المعلم بقت بيته: اليوم والحضور والحفظ
+  // والمستحقات والتوفر في شاشة واحدة (كانت `/my-schedule`).
+  teacher: "/teacher",
   parent: "/my-children",
 };
 
