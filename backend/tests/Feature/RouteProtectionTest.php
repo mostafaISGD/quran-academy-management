@@ -75,6 +75,12 @@ class RouteProtectionTest extends TestCase
         'POST api/notifications/{notification}/read' => 'مفلتر بملكية الإشعار (abort 404) جوه ال‏ـ controller',
         'POST api/notifications/read-all' => 'بيأثر على إشعارات المستخدم الحالي بس (whereNull + where user_id)',
 
+        // ⭐ PR 4.3 — تفضيلات الإشعارات خدمة ذاتية. المستخدم يتحكم
+        // في قنواته هو فقط؛ الـcontroller يشتق user_id من التوكن ولا
+        // يقبل هوية من العميل، فلا معنى لصلاحية إدارية هنا.
+        'GET api/notification-preferences' => 'تفضيلات المستخدم نفسه — user_id من التوكن، بلا أي وصول لمستخدم آخر',
+        'PUT api/notification-preferences' => 'المستخدم يعدّل قنواته هو — user_id من التوكن والكتابة على صفوفه فقط',
+
         // ===== جدول أوقات المعلم — محمي بالملكية جوه الـ controller =====
         //
         // المعلم بيتحكم بجدوله هو، فـ `authorizeOwnership()` جوه

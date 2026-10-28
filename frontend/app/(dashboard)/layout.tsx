@@ -101,6 +101,8 @@ const NAV_GROUPS: NavGroup[] = [
       // ⭐ الإشعارات مالهاش `permission` عمداً — كل دور بياخد
       // إشعاراته، والحماية بالملكية جوه الـcontroller.
       { href: "/notifications", label: "الإشعارات", icon: "🔔" },
+      // ⭐ PR 4.3 — تفضيلات القنوات خدمة ذاتية أيضاً (بلا صلاحية).
+      { href: "/notification-preferences", label: "تفضيلات الإشعارات", icon: "🎛️" },
       { href: "/audit-logs", label: "سجل العمليات", icon: "📝", permission: "settings.manage" },
       // ⭐⭐ الحسابات بـ`users.view` مش `settings.manage` — دي
       // صلاحيات مختلفة. تقدر تشوف الحسابات من غير ما تلمسها.

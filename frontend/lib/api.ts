@@ -1620,6 +1620,25 @@ export type Notification = {
   created_at: string;
 };
 
+/** ⭐ PR 4.3 — قناة يمكن للمستخدم تعطيلها بنفسه. */
+export type NotificationPreferenceChannel = "email" | "whatsapp" | "sms";
+
+/**
+ * ⭐ `available` = القناة قابلة للإرسال فعلياً الآن (مزوّد/علم).
+ * `is_enabled` = تفضيل المستخدم المحفوظ — يُطبَّق عند التفعيل.
+ */
+export type NotificationPreference = {
+  channel: NotificationPreferenceChannel;
+  label: string;
+  is_enabled: boolean;
+  available: boolean;
+  note: string | null;
+};
+
+export type NotificationPreferencesResponse = {
+  channels: NotificationPreference[];
+};
+
 export type AuditLog = {
   id: number;
   user_id: number;
@@ -4357,6 +4376,20 @@ export function markNotificationRead(notificationId: number) {
 
 export function markAllNotificationsRead() {
   return apiFetch("/notifications/read-all", { method: "POST" });
+}
+
+/** ⭐ PR 4.3 — تفضيلات الإشعارات الذاتية. */
+export function getNotificationPreferences() {
+  return apiFetch<NotificationPreferencesResponse>("/notification-preferences");
+}
+
+export function updateNotificationPreferences(
+  preferences: Array<{ channel: NotificationPreferenceChannel; is_enabled: boolean }>,
+) {
+  return apiFetch<NotificationPreferencesResponse>("/notification-preferences", {
+    method: "PUT",
+    body: JSON.stringify({ preferences }),
+  });
 }
 
 export function getAuditLogs(params?: {

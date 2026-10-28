@@ -18,6 +18,8 @@ use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\LessonController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\NotificationPreferenceController;
+use App\Http\Controllers\Api\WhatsAppWebhookController;
 use App\Http\Controllers\Api\ParentController;
 use App\Http\Controllers\Api\ParentPortalController;
 use App\Http\Controllers\Api\PaymentController;
@@ -597,6 +599,11 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
 
+    // ⭐ PR 4.3 — تفضيلات الإشعارات الذاتية (بلا صلاحية: قرار المستخدم
+    // في قنواته، والحماية بالملكية داخل الـcontroller).
+    Route::get('/notification-preferences', [NotificationPreferenceController::class, 'index']);
+    Route::put('/notification-preferences', [NotificationPreferenceController::class, 'update']);
+
     // Audit Logs
     Route::get('/audit-logs', [AuditLogController::class, 'index'])->middleware('permission:audit.view');
 
@@ -811,3 +818,8 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
 // ⭐ PR 1.12 — استعمال رمز دخول الحصة (عام — الطالب تحت 13 مالوش حساب)
 Route::post('/lessons/join', [LessonJoinTokenController::class, 'redeem'])
     ->middleware('throttle:10,1');
+
+// ⭐ PR 4.3 — واتساب webhook (عام عمداً: Meta تنادي بلا توكن،
+// والحماية توقيع HMAC على الجسم الخام — لا auth:sanctum).
+Route::get('/webhooks/whatsapp', [WhatsAppWebhookController::class, 'verify']);
+Route::post('/webhooks/whatsapp', [WhatsAppWebhookController::class, 'receive']);

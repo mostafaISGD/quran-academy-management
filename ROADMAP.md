@@ -180,7 +180,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 
 - [x] PR 4.1 — Notification infrastructure (queue, channels, templates)
 - [x] PR 4.2 — Scheduled event dispatchers
-- [ ] PR 4.3 — Arabic email template + WhatsApp adapter
+- [x] PR 4.3 — Arabic email template + WhatsApp adapter
 - [ ] PR 4.4 — Teacher portal (Frontend, mobile first)
 - [ ] PR 4.5 — Parent portal v2
 - [ ] PR 4.6 — Student portal
@@ -1755,6 +1755,16 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - A `WhatsAppProvider` interface and a WhatsApp Business adapter behind the flag `notifications.whatsapp_enabled=false` by default, pre-approved templates for lesson reminders and invoices, and a webhook for delivery statuses (signature verification).
 **Acceptance:** Email is sent with correct Arabic; the adapter is disabled unless enabled; a webhook with a wrong signature = 401.
 **Depends on:** 4.1
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-28):**
+> - **بريد عربي موحّد**: `NotificationMail` + `resources/views/emails/notification.blade.php` بدل `Mail::raw`: `dir="rtl" lang="ar"`، ترويسة `#0f766e` وشريط ذهبي `#d4af37`، شعار حرفي (بلا صورة خارجية قد تحجبها عملاء البريد)، وتذييل يشرح كيف يعدّل المستخدم تفضيلاته. كل نص من الـpayload يمر على `{{ }}`/`e()` فلا حقن HTML.
+> - **واتساب خلف علم**: `notifications.whatsapp_enabled` (env: `NOTIFICATIONS_WHATSAPP_ENABLED`، افتراضي `false`) — لا إعداد قاعدة بيانات جديد. `NotificationService::isChannelDeferred()` يعتبر القناة مؤجلة طالما العلم مقفول، فيبقى الصف `queued` بلا محاولة (عقد 4.1 كما هو)، والتفعيل يرفع التأجيل عنها وحدها.
+> - **قوالب معتمدة فقط**: `config/notifications.php` يربط الحدث باسم قالب Meta ولغته وترتيب معاملاته — `lesson_reminder_ar` و`invoice_issued_ar` فقط. حدث بلا قالب = استثناء صريح، لا نص حر (شرط Meta خارج نافذة 24 ساعة).
+> - **المحوّل** `WhatsAppBusinessAdapter`: Meta Cloud API، تطبيع الرقم لأرقام دولية بلا `+`، ومصدر الرقم حساب المستخدم ثم بيانات الطالب ثم هواتف الطالب المعلّمة واتساب (فاتورة ولي الأمر تُجلب من `payload.student_id`). الاعتماد على `messages[0].id` وحده كـ`external_id`، وفشل HTTP يُسجَّل `failed` بـ`HTTP <code>: <reason>` بلا token.
+> - **Webhook**: GET يتحقق من `hub.verify_token` ويرجّع `hub.challenge` وإلا 403؛ POST يتحقق من HMAC-SHA256 على **الجسم الخام** (`X-Hub-Signature-256`) — مفتاح مفقود أو توقيع غلط = 401 قبل قراءة الحمولة. التحديث بـ`external_id`، والحالة تُحفظ في `payload.whatsapp_status`، و`failed` تجعل الصف `failed` بسبب مقروء، والرسالة المجهولة تُرد 200 عمداً حتى لا تعيد Meta بلا نهاية. المساران عامّان في `RouteProtectionTest::EXCEPTIONS` بسبب مكتوب.
+> - **تفضيلات ذاتية**: `GET/PUT /notification-preferences` — القنوات `email|whatsapp|sms` فقط، و`database` ليست خياراً (الصندوق يُقرأ دائماً). غياب الصف = مفعّل، والواجهة ترسل **الفروق فقط**؛ القناة غير الجاهزة تُحفظ مع ملاحظة عربية وتُطبَّق عند تفعيلها. الحماية بالملكية (`user_id` من التوكن) لا بصلاحية إدارية — والمساران في `EXCEPTIONS` بسبب مكتوب.
+> - **الاختبارات**: 14 اختباراً في `NotificationChannelsTest.php` (بريد + تفضيلات) و`WhatsAppChannelTest.php` (قناة + webhook) — 55 تأكيداً، RED مثبت (13/14 فشل: القالب/المسارات/المحوّل غير موجودة) ثم GREEN. Backend: 962 → **976** passed (1 risky + 3 skipped pgsql). الجولة الأولى أظهرت flake قديماً واحداً في `GroupWaitingListTest:190` (فارق ثانية بين `now()`ين، يمر منفرداً) ثم مرّت الجولة الكاملة نظيفة. Frontend: 4 اختبارات Vitest جديدة (171 إجمالاً) و`tsc` و`npm run build` تنجح (الصفحة `/notification-preferences` في المخرجات)؛ lint كما هو (10 errors + 1 warning سابقة). لا ترحيل جديد في هذا الـPR.
+> - **ما لم يُتحقق**: Postgres محلياً · مزود Meta حقيقي (كل الإرسال عبر `Http::fake` — القوالب يجب اعتمادها فعلياً على Meta قبل التفعيل) · عامل طابور حقيقي · اختبار Playwright لصفحة التفضيلات — الفحص يدوي: GET 200، الصفحة 200، ثلاث قنوات وزر حفظ معطّل بلا تغيير.
 
 ### PR 4.4 — Teacher portal (Frontend, mobile first)
 **Goal:** The teacher does their whole day from their phone.

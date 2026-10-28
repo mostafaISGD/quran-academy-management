@@ -321,6 +321,7 @@ class NotificationService
                 ),
                 'invoice_id' => $invoice->id,
                 'invoice_number' => (string) $invoice->invoice_number,
+                'student_id' => $invoice->student_id,
                 'amount_due' => (float) $invoice->balance_due,
                 'currency' => (string) $invoice->currency,
                 'due_date' => $dueDate,
@@ -501,8 +502,8 @@ class NotificationService
                 return ['action' => 'already']; // نهائية سلفاً — بلا محاولات إضافية.
             }
 
-            if (in_array($delivery->channel, (array) config('notifications.deferred_channels', []), true)) {
-                return ['action' => 'deferred']; // مؤجلة بمواصفة المرحلة الرابعة.
+            if ($this->isChannelDeferred($delivery->channel)) {
+                return ['action' => 'deferred']; // مؤجلة بقرار صريح (واتساب المقفول أو قناة معلنة).
             }
 
             if ($this->inQuietHours($delivery->channel, (int) $delivery->organization_id)) {
@@ -581,6 +582,24 @@ class NotificationService
         });
 
         return true;
+    }
+
+    /**
+     * ⭐ PR 4.3 — هل القناة مؤجلة بقرار صريح؟
+     *
+     * واتساب يبقى مؤجلاً طالما `notifications.whatsapp_enabled=false`،
+     * حتى لو كان مذكوراً في `deferred_channels`. تفعيل العلم يرفع
+     * التأجيل عنه وحده — بقية القنوات تتبع الإعداد كما هي.
+     */
+    private function isChannelDeferred(string $channel): bool
+    {
+        $deferred = (array) config('notifications.deferred_channels', []);
+
+        if ($channel === 'whatsapp' && (bool) config('notifications.whatsapp_enabled')) {
+            $deferred = array_values(array_diff($deferred, ['whatsapp']));
+        }
+
+        return in_array($channel, $deferred, true);
     }
 
     /**
