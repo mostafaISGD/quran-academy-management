@@ -612,6 +612,25 @@ class TeacherPayrollController extends Controller
                 $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';
             }
 
+            // ⭐⭐ PR 4.2 — إشعار «تم صرف المرتب» لحساب المعلم.
+            // `safeDispatch` يمنع فشل الإشعار من إفشال الصرف،
+            // والمفتاح `teacher_line:{id}` يمنع التكرار عند إعادة
+            // المحاولة على نفس السطر.
+            if (($teacherUser = $locked->teacher?->user) !== null) {
+                app(\App\Services\NotificationService::class)->safeDispatch('salary_paid', $teacherUser, [
+                    'title' => 'تم صرف المرتب',
+                    'message' => sprintf(
+                        'صُرف مرتب بمبلغ %s %s لفترة #%s.',
+                        number_format((float) $locked->amount, 2),
+                        (string) $locked->currency,
+                        (string) ($locked->payroll_period_id ?? '—'),
+                    ),
+                    'teacher_payroll_line_id' => $locked->id,
+                    'amount' => (float) $locked->amount,
+                    'currency' => (string) $locked->currency,
+                ], 'teacher_line:'.$locked->id);
+            }
+
             return response()->json([
                 ...$this->present($locked->fresh()),
                 'payment_id' => $payment->id,

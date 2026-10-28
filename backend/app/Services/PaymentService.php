@@ -203,6 +203,11 @@ class PaymentService
                 throw $e;
             }
 
+            // ⭐⭐ PR 4.2 — حدث لحظي: «استلام دفعة» عبر البنية بعد
+            // إنشاء الدفعة (فشل الإشعار لا يثقل الفعل المالي). مسار
+            // إعطاء idempotency الموجودة يرجع مبكراً — بلا حدث ثانٍ.
+            app(NotificationService::class)->notifyPaymentReceived($payment);
+
             $movement = null;
             $feeMovement = null;
             $warning = null;

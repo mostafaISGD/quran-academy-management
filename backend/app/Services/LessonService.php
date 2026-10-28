@@ -139,6 +139,15 @@ final class LessonService
                 'reason' => $reason,
             ]);
 
+            // ⭐⭐ PR 4.2 — أحداث لحظية عبر البنية (فشل الإشعار
+            // لا يثقل التحويل). الإلغاء يخبر ولي الأمر + المعلم،
+            // وغياب المعلم يخبر أولياء المؤكدين.
+            if ($to->isCancellation()) {
+                app(NotificationService::class)->notifyLessonCancelled($locked);
+            } elseif ($to === LessonStatus::TeacherAbsent) {
+                app(NotificationService::class)->notifyTeacherAbsence($locked);
+            }
+
             return $locked->fresh();
         });
     }
@@ -193,6 +202,13 @@ final class LessonService
                 );
 
                 $results[] = $attendance;
+
+                // ⭐⭐ PR 4.2 — غياب/بُعذر = حدث لحظي عبر البنية
+                // (فشل الإشعار لا يثقل تسجيل الحضور). الحاضر/
+                // المتأخر ليسا حدثاً — عادي.
+                if (! in_array($status, ['present', 'late'], true)) {
+                    app(NotificationService::class)->notifyStudentAbsence($locked, $studentId, $status);
+                }
 
                 // ⭐ الأثر المالي للطالب ده — من لقطة السياسة.
                 $this->applyOutcomeToCredit($locked, $studentId, $status, $actor);

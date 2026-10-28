@@ -622,6 +622,23 @@ class EmployeePayrollController extends Controller
                 $warning = 'مفيش حساب مالي نشط — الحركة المالية ماتسجلتش';
             }
 
+            // ⭐⭐ PR 4.2 — إشعار «تم صرف المرتب» لحساب الموظف.
+            // مفتاح مستقل عن سطر المعلم — `employee_line:{id}`.
+            if (($employeeUser = $locked->employee?->user) !== null) {
+                app(\App\Services\NotificationService::class)->safeDispatch('salary_paid', $employeeUser, [
+                    'title' => 'تم صرف المرتب',
+                    'message' => sprintf(
+                        'صُرف مرتب بمبلغ %s %s لفترة #%s.',
+                        number_format((float) $locked->amount, 2),
+                        (string) $locked->currency,
+                        (string) ($locked->payroll_period_id ?? '—'),
+                    ),
+                    'employee_payroll_line_id' => $locked->id,
+                    'amount' => (float) $locked->amount,
+                    'currency' => (string) $locked->currency,
+                ], 'employee_line:'.$locked->id);
+            }
+
             return response()->json([
                 ...$locked->fresh()->toArray(),
                 'payment' => [

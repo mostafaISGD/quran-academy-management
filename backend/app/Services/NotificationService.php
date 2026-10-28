@@ -3,16 +3,20 @@
 namespace App\Services;
 
 use App\Jobs\DeliverNotification;
+use App\Models\Invoice;
+use App\Models\Lesson;
 use App\Models\Notification;
 use App\Models\NotificationDelivery;
 use App\Models\NotificationPreference;
 use App\Models\NotificationTemplate;
+use App\Models\Payment;
 use App\Models\Student;
 use App\Models\User;
 use App\Support\DeliveryDeferredException;
 use App\Support\DeliveryRetryableException;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -46,11 +50,18 @@ class NotificationService
      * (آخر حالة في `2026_10_21_000009` + إرجاع
      * `subscription_renewed` التي تفعّلها ميجريشن هذا PR).
      */
+    /**
+     * ⭐ قائمة الأحداث المطابقة لعمود `notifications.event_type`
+     * (آخر حالة في `2026_10_24_000005` — أحداث PR 4.2
+     * اللحظية الخمسة + مفردة PR 4.1).
+     */
     public const EVENT_TYPES = [
         'lesson_reminder', 'subscription_expiring', 'subscription_expired',
         'subscription_renewed', 'subscription_paused', 'subscription_resumed',
         'payment_received', 'makeup_created', 'trial_reminder',
         'announcement', 'lesson_completed', 'invoice_overdue',
+        'invoice_issued', 'student_absence', 'teacher_absence',
+        'salary_paid', 'lesson_canceled',
     ];
 
     /**
@@ -84,6 +95,7 @@ class NotificationService
         array $data = [],
         ?array $channels = null,
         bool $writeInbox = true,
+        ?string $referenceKey = null,
     ): array {
         if (! in_array($event, self::EVENT_TYPES, true)) {
             throw new \InvalidArgumentException("حدث إشعار غير معرَّف: {$event}");
@@ -93,6 +105,25 @@ class NotificationService
         [$user, $student] = $this->recipientParts($recipient);
         $lessonId = $data['lesson_id'] ?? null;
 
+        // ⭐⭐ PR 4.2 — مفتاح منع التكرار: كل (حدث، مستلم، مرجع)
+        // يُبنى صفّاً واحداً فقط. الصيغة: event|user|reference —
+        // مستلم بلا حساب يحمل «s{id}» (تسليماته الخارجية تُختم
+        // بهوية الطالب نفسها). الحسم في القاعدة (فهرس فريد) لا
+        // في الكاش — تفريغ الكاش لا يفتح باب إعادة الإرسال.
+        $dedupKey = null;
+        if ($referenceKey !== null) {
+            $bearer = $user?->id ?? ($student?->id !== null ? 's'.$student->id : null);
+
+            $dedupKey = $bearer === null
+                ? null
+                : $event.'|'.$bearer.'|'.$referenceKey;
+        }
+
+        if ($dedupKey !== null
+            && Notification::query()->where('dedup_key', $dedupKey)->exists()) {
+            return []; // أُرسل سلفاً — إعادة التشغيل بلا أثر.
+        }
+
         $requested = $channels === null
             ? [self::DATABASE_CHANNEL]
             : array_values(array_unique($channels));
@@ -100,53 +131,61 @@ class NotificationService
 
         $deliveries = [];
 
-        DB::transaction(function () use (&$deliveries, $event, $orgId, $user, $student, $lessonId, $data, $requested, $writeInbox) {
-            // الصندوق: قناة database صراحةً، أو تاريخ إداري مع
-            // قناة خارجية ($writeInbox). ⚠️ الصندوق = صندوق
-            // **مستخدم** (`user_id` قيد NOT NULL في الجدول) —
-            // مستلم بلا حساب يحصل على تسليمات قنواته الخارجية
-            // فقط، بلا صف صندوق يتيم لا يقرأه أحد.
-            $hasExternal = collect($requested)->contains(fn ($c) => $c !== self::DATABASE_CHANNEL);
-            $wantsInbox = in_array(self::DATABASE_CHANNEL, $requested, true)
-                || ($hasExternal && $writeInbox);
+        try {
+            DB::transaction(function () use (&$deliveries, $event, $orgId, $user, $student, $lessonId, $data, $requested, $writeInbox, $dedupKey) {
+                // الصندوق: قناة database صراحةً، أو تاريخ إداري مع
+                // قناة خارجية ($writeInbox). ⚠️ الصندوق = صندوق
+                // **مستخدم** (`user_id` قيد NOT NULL في الجدول) —
+                // مستلم بلا حساب يحصل على تسليمات قنواته الخارجية
+                // فقط، بلا صف صندوق يتيم لا يقرأه أحد.
+                $hasExternal = collect($requested)->contains(fn ($c) => $c !== self::DATABASE_CHANNEL);
+                $wantsInbox = in_array(self::DATABASE_CHANNEL, $requested, true)
+                    || ($hasExternal && $writeInbox);
 
-            if ($wantsInbox && $user !== null) {
-                Notification::create([
-                    'user_id' => $user?->id,
-                    'student_id' => $student?->id,
-                    'lesson_id' => $lessonId,
-                    'event_type' => $event,
-                    'channel' => 'in_app',
-                    'payload' => array_merge($data, [
-                        'title' => (string) ($data['title'] ?? ''),
-                        'message' => (string) ($data['message'] ?? ($data['title'] ?? '')),
-                    ]),
-                    // كتابة الصندوق هي تسليم in_app — ساعتها صادقة.
-                    'sent_at' => now(),
-                ]);
-            }
-
-            foreach ($requested as $channel) {
-                if ($channel === self::DATABASE_CHANNEL) {
-                    continue; // الصندوق أعلاه هو تسليمها — بلا صف مضاعف.
+                if ($wantsInbox && $user !== null) {
+                    Notification::create([
+                        'user_id' => $user?->id,
+                        'student_id' => $student?->id,
+                        'lesson_id' => $lessonId,
+                        'event_type' => $event,
+                        'channel' => 'in_app',
+                        'payload' => array_merge($data, [
+                            'title' => (string) ($data['title'] ?? ''),
+                            'message' => (string) ($data['message'] ?? ($data['title'] ?? '')),
+                        ]),
+                        // كتابة الصندوق هي تسليم in_app — ساعتها صادقة.
+                        'sent_at' => now(),
+                        // ⭐ PR 4.1 + 4.2 — مفتاح منع التكرار (فارغ = لا قيد).
+                        'dedup_key' => $dedupKey,
+                    ]);
                 }
 
-                [$title, $body] = $this->renderViaTemplate($event, $channel, $data, $orgId);
+                foreach ($requested as $channel) {
+                    if ($channel === self::DATABASE_CHANNEL) {
+                        continue; // الصندوق أعلاه هو تسليمها — بلا صف مضاعف.
+                    }
 
-                $deliveries[] = NotificationDelivery::create([
-                    'organization_id' => $orgId,
-                    'user_id' => $user?->id,
-                    'student_id' => $student?->id,
-                    'event' => $event,
-                    'channel' => $channel,
-                    // ⭐ القاعدة الذهبية: `queued` بدون sent_at —
-                    // الساعة تأتي فقط من `attemptDelivery`.
-                    'payload' => array_merge($data, ['title' => $title, 'body' => $body]),
-                    'status' => 'queued',
-                    'attempts' => 0,
-                ]);
-            }
-        });
+                    [$title, $body] = $this->renderViaTemplate($event, $channel, $data, $orgId);
+
+                    $deliveries[] = NotificationDelivery::create([
+                        'organization_id' => $orgId,
+                        'user_id' => $user?->id,
+                        'student_id' => $student?->id,
+                        'event' => $event,
+                        'channel' => $channel,
+                        // ⭐ القاعدة الذهبية: `queued` بدون sent_at —
+                        // الساعة تأتي فقط من `attemptDelivery`.
+                        'payload' => array_merge($data, ['title' => $title, 'body' => $body]),
+                        'status' => 'queued',
+                        'attempts' => 0,
+                    ]);
+                }
+            });
+        } catch (UniqueConstraintViolationException) {
+            // سباق الـdedup (كاتبان متزامنان بنفس المفتاح) —
+            // الكاتب الأول فاز، والثاني ينسحب بلا أثر.
+            return [];
+        }
 
         // الطابور — الخدمة تُبنى التسليمات، والجوب ينفّذها.
         foreach ($deliveries as $delivery) {
@@ -154,6 +193,265 @@ class NotificationService
         }
 
         return $deliveries;
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 4.2 — كتابة صندوقية مستقلة لمسار «صف لكل مستلم».**
+     *
+     * مسار الأوامر المجدولة القديمة (`DailySubscriptionService`
+     * · `invoices:notify-overdue` · الإيقاف/الاستئناف) كان يكتب
+     * `Notification::create` مباشرة لكل مستلم — نُقل إلى البنية
+     * عبر هذا المدخل: صف واحد بمفتاح منع تكرار اختياري بلا
+     * تسليمات خارجية ولا جوبات.
+     *
+     * @param  array<string, mixed>  $payload  الـpayload كما حدده
+     *   المسار الأصلي (يُحفظ كما هو — بلا دمج مضاف) لسلسلة
+     *   الصفوف التاريخية.
+     * @param  array{student_id?: int|null, subscription_id?: int|null, lesson_id?: int|null}  $context
+     * @return bool كُتب فعلاً (false = أُرسل سلفاً بنفس المفتاح)
+     */
+    public function dispatchInbox(
+        string $event,
+        User $user,
+        array $payload,
+        ?string $referenceKey = null,
+        array $context = [],
+    ): bool {
+        if (! in_array($event, self::EVENT_TYPES, true)) {
+            throw new \InvalidArgumentException("حدث إشعار غير معرَّف: {$event}");
+        }
+
+        $dedupKey = $referenceKey === null
+            ? null
+            : $event.'|'.$user->id.'|'.$referenceKey;
+
+        if ($dedupKey !== null
+            && Notification::query()->where('dedup_key', $dedupKey)->exists()) {
+            return false;
+        }
+
+        try {
+            DB::transaction(function () use ($event, $user, $payload, $dedupKey, $context): void {
+                Notification::create([
+                    'user_id' => $user->id,
+                    'student_id' => $context['student_id'] ?? null,
+                    'subscription_id' => $context['subscription_id'] ?? null,
+                    'lesson_id' => $context['lesson_id'] ?? null,
+                    'event_type' => $event,
+                    'channel' => 'in_app',
+                    'payload' => $payload,
+                    // كتابة الصندوق هي تسليم in_app — ساعتها صادقة.
+                    'sent_at' => now(),
+                    'dedup_key' => $dedupKey,
+                ]);
+            });
+        } catch (UniqueConstraintViolationException) {
+            return false; // سباق الكاتبين — الأول فاز.
+        }
+
+        return true;
+    }
+
+    /**
+     * ⭐⭐⭐ **PR 4.2 — إرسال لحظي محمي.**
+     *
+     * خطّافات الأحداث (صرف مرتب، تسجيل غياب...) تعمل داخل
+     * معاملات مالية — فشل الإشعار **لا يجوز** أن يثقل الفعل
+     * الأصلي: الالتقاط هنا مع تسجيل صريح في السجل.
+     */
+    public function safeDispatch(
+        string $event,
+        Model $recipient,
+        array $data = [],
+        ?string $referenceKey = null,
+    ): void {
+        try {
+            $this->dispatch($event, $recipient, $data, [self::DATABASE_CHANNEL], true, $referenceKey);
+        } catch (\Throwable $e) {
+            Log::error('Notification dispatch failed for event', [
+                'event' => $event,
+                'reference_key' => $referenceKey,
+                'recipient' => get_class($recipient).'#'.$recipient->getKey(),
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * ⭐ PR 4.2 — مستقبلات حسابات الطالب: حساب الطالب نفسه + حسابات
+     * أولياء الأمر **المؤكدين** فقط (نمط الصلة الموثقة نفسه).
+     *
+     * @return list<User>
+     */
+    public function studentAccountUsers(Student $student): array
+    {
+        $users = [];
+
+        if ($student->user !== null) {
+            $users[$student->user->id] = $student->user;
+        }
+
+        foreach ($student->parents()->wherePivot('status', 'verified')->with('user')->get() as $parent) {
+            if ($parent->user !== null) {
+                $users[$parent->user->id] ??= $parent->user;
+            }
+        }
+
+        return array_values($users);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ⭐⭐ أحداث PR 4.2 اللحظية — نقاط الدمج الموحّدة (dedup مضمن)
+    // ═══════════════════════════════════════════════════════════
+
+    /** إصدار فاتورة — طالب الحساب وأولياء المؤكدين، مفتاح لكل فاتورة. */
+    public function notifyInvoiceIssued(Invoice $invoice): void
+    {
+        $dueDate = optional($invoice->due_date)->toDateString();
+
+        foreach ($this->recipientsFor($invoice->student) as $user) {
+            $this->safeDispatch('invoice_issued', $user, [
+                'title' => 'فاتورة جديدة صدرت',
+                'message' => sprintf(
+                    'صدرت الفاتورة %s بمبلغ %s %s — تُستحق في %s.',
+                    (string) $invoice->invoice_number,
+                    number_format((float) $invoice->total, 2),
+                    (string) $invoice->currency,
+                    (string) ($dueDate ?? 'بلا تحديد'),
+                ),
+                'invoice_id' => $invoice->id,
+                'invoice_number' => (string) $invoice->invoice_number,
+                'amount_due' => (float) $invoice->balance_due,
+                'currency' => (string) $invoice->currency,
+                'due_date' => $dueDate,
+            ], 'invoice:'.$invoice->id);
+        }
+    }
+
+    /** استلام دفعة — مفتاح لكل (مستلم، دفعة). */
+    public function notifyPaymentReceived(Payment $payment): void
+    {
+        foreach ($this->recipientsFor($payment->student) as $user) {
+            $this->safeDispatch('payment_received', $user, [
+                'title' => 'تم استلام دفعة',
+                'message' => sprintf(
+                    'استُلمت دفعة بمبلغ %s %s عن الطالب %s.',
+                    number_format((float) $payment->amount, 2),
+                    (string) $payment->currency,
+                    (string) ($payment->student?->full_name ?? '—'),
+                ),
+                'payment_id' => $payment->id,
+                'invoice_id' => $payment->invoice_id,
+                'amount' => (float) $payment->amount,
+                'currency' => (string) $payment->currency,
+            ], 'payment:'.$payment->id);
+        }
+    }
+
+    /** غياب طالب (أو بعذر) — مفتاحٍ لكل (حصة، طالب). */
+    public function notifyStudentAbsence(Lesson $lesson, int $studentId, string $status): void
+    {
+        $student = $lesson->students->firstWhere('id', $studentId)
+            ?? Student::query()->find($studentId);
+
+        if ($student === null) {
+            return;
+        }
+
+        foreach ($this->recipientsFor($student) as $user) {
+            $this->safeDispatch('student_absence', $user, [
+                'title' => 'غياب في الحصة',
+                'message' => sprintf(
+                    'سُجّل غياب الطالب %s (%s) في حصة %s.',
+                    (string) $student->full_name,
+                    (string) $status,
+                    (string) ($lesson->scheduled_start_at?->format('Y-m-d H:i') ?? '—'),
+                ),
+                'lesson_id' => $lesson->id,
+                'student_id' => $studentId,
+                'status' => $status,
+            ], 'lesson:'.$lesson->id.':absence:'.$studentId);
+        }
+    }
+
+    /** غياب المعلم — يوصل لأولياء الأمر والحساب المؤكد. */
+    public function notifyTeacherAbsence(Lesson $lesson): void
+    {
+        foreach ($this->recipientsForStudentSide($lesson) as $user) {
+            $this->safeDispatch('teacher_absence', $user, [
+                'title' => 'غياب المعلم',
+                'message' => sprintf(
+                    'غاب المعلم عن حصة %s — ستُعوّض الحصة حسب السياسة.',
+                    (string) ($lesson->scheduled_start_at?->format('Y-m-d H:i') ?? '—'),
+                ),
+                'lesson_id' => $lesson->id,
+            ], 'lesson:'.$lesson->id.':teacher-absent');
+        }
+    }
+
+    /** إلغاء الحصة — ولي الأمر + المعلم معاً. */
+    public function notifyLessonCancelled(Lesson $lesson): void
+    {
+        $reason = trim((string) ($lesson->cancellation_reason ?? ''));
+
+        foreach ($this->recipientsForStudentSide($lesson) as $user) {
+            $this->safeDispatch('lesson_canceled', $user, [
+                'title' => 'أُلغيت الحصة',
+                'message' => sprintf(
+                    'أُلغيت حصة %s%s.',
+                    (string) ($lesson->scheduled_start_at?->format('Y-m-d H:i') ?? '—'),
+                    $reason !== '' ? ' — السبب: '.$reason : '',
+                ),
+                'lesson_id' => $lesson->id,
+            ], 'lesson:'.$lesson->id.':cancelled');
+        }
+
+        if (($teacherUser = $lesson->teacher?->user) !== null) {
+            $this->safeDispatch('lesson_canceled', $teacherUser, [
+                'title' => 'أُلغيت حصتك',
+                'message' => sprintf(
+                    'أُلغيت حصة %s داخل الأكاديمية — راجع جدولك.',
+                    (string) ($lesson->scheduled_start_at?->format('Y-m-d H:i') ?? '—'),
+                ),
+                'lesson_id' => $lesson->id,
+            ], 'lesson:'.$lesson->id.':cancelled');
+        }
+    }
+
+    /**
+     * مستقبلات صالحة لحدث مرتبط بطالب (مستخدم الطالب أو الدفعة
+     * الفارغة) — تنظر في الصلة الأصلية إن وُجدت.
+     *
+     * @return list<User>
+     */
+    private function recipientsFor(?Student $student): array
+    {
+        if ($student === null) {
+            return [];
+        }
+
+        return $this->studentAccountUsers($student);
+    }
+
+    /**
+     * مستقبلات حدث الحصة (غياب/إلغاء) — حسابات أولياء فقط؛
+     * حساب المعلم ينفصل في `notifyLessonCancelled`.
+     *
+     * @return list<User>
+     */
+    private function recipientsForStudentSide(Lesson $lesson): array
+    {
+        $users = [];
+
+        if (($student = $lesson->student) !== null) {
+            $users += $this->recipientsFor($student);
+        }
+
+        foreach ($lesson->students as $groupStudent) {
+            $users += $this->recipientsFor($groupStudent);
+        }
+
+        return $users;
     }
 
     /**

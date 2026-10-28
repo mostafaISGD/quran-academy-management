@@ -548,6 +548,11 @@ class StudentController extends Controller
                 continue;
             }
 
+            // ⭐⭐ PR 4.2 — الإنشاء الجماعي يُصدر فواتير `issued`
+            // مباشرة (لا مسودة تُعتمد) — فالحدث هنا، بعد نجاح
+            // الصفقة، وبمفتاح `invoice:{id}` الموحّد.
+            app(\App\Services\NotificationService::class)->notifyInvoiceIssued($invoice);
+
             $created[] = [
                 'invoice_id' => $invoice->id,
                 'invoice_number' => $invoice->invoice_number,

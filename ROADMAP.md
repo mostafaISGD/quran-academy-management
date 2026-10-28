@@ -179,7 +179,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 **Phase 4 — Notifications and Portals**
 
 - [x] PR 4.1 — Notification infrastructure (queue, channels, templates)
-- [ ] PR 4.2 — Scheduled event dispatchers
+- [x] PR 4.2 — Scheduled event dispatchers
 - [ ] PR 4.3 — Arabic email template + WhatsApp adapter
 - [ ] PR 4.4 — Teacher portal (Frontend, mobile first)
 - [ ] PR 4.5 — Parent portal v2
@@ -1734,6 +1734,19 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - A unique key per (event, recipient, reference) prevents duplicates when the job is rerun.
 **Acceptance:** Running the job twice does not send twice; the lesson reminder arrives at the recipient's local time.
 **Depends on:** 4.1 · 3.7
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-28):**
+> - **مفتاح منع التكرار** `notifications.dedup_key` (فهرس فريد، nullable): الصيغة `event|bearer|reference` — المستلم بلا حساب يحمل `s{student_id}`. الحسم في القاعدة: فحص مسبق + التقاط `UniqueConstraintViolationException` (سباق كاتبين) — تفريغ الكاش لا يفتح باب التكرار، والصفوف بلا مفتاح (الإشعار اليدوي) لا تتصادم أبداً.
+> - **مدخلا كتابة**: `dispatch(event, recipient, data, channels, writeInbox, referenceKey)` للصندوق + التسليمات الخارجية (أحداث)، و`dispatchInbox()` للصندوق فقط بإرجاع `bool` مع حفظ الـpayload الخام (استمرارية الصفوف التاريخية) — أُعيد توجيه `DailySubscriptionService::notify()` و`invoices:notify-overdue` و`SubscriptionPauseService` إليه.
+> - **`lessons:send-reminders`** (كل ١٠ دقائق): المدد من `notifications.lesson_reminder_offsets` (نوع list، افتراضي `['60']`) لكل مؤسسة؛ الحالات `scheduled`/`confirmed`؛ الاستحقاق `now ≥ start − offset` و`now < start`؛ لكل مستلم نص بتوقيته المحلي (`user.timezone` ← `org.default_timezone` ← UTC)؛ المفتاح `lesson:{id}:o{offset}`.
+> - **`subscriptions:notify-expiring`** (09:30): أمر رفيع يستدعي `notifyExpiringOnly()` وحده (بلا تجديد/إقفال/فواتير) — التجديد يبقى في `subscriptions:process-day`.
+> - **الأحداث اللحظية** عبر `safeDispatch` (فشل الإشعار لا يُفشل معاملة مالية): `invoice_issued` (نقطتا الإصدار الإداري: `InvoiceController::issue` و`StudentController::bulkCreateInvoices`، مفتاح `invoice:{id}`) · `payment_received` (`PaymentService::record`، مفتاح `payment:{id}`) · `student_absence` (`recordAttendance`، مفتاح `lesson:{id}:absence:{student}`) · `teacher_absence`/`lesson_canceled` (`transition`، إلغاء الحصة يوصل للطالب وولي الأمر والمعلم) · `salary_paid` (صرف سطر معلم/موظف، مفتاحا `teacher_line:{id}`/`employee_line:{id}`). مستقبلات الطالب = حسابه + أولياء الأمر المؤكدين فقط.
+> - **إيقاف/استئناف الاشتراك** بلا مفتاح مرجعي عمداً — كل دورة إيقاف/استئناف يجب أن تُشعِر من جديد.
+> - **`Notification::$fillable`**: أُضيف `dedup_key` و`subscription_id` (الثاني كان يُسقَط بصمت عند الإنشاء).
+> - **`DeliverNotification` لم يعد يرمي `DeliveryRetryableException`**: تحت `QUEUE_CONNECTION=sync` كان فشل مزود يُسقط مسار الدفع؛ الإعادة الآن حصراً عبر `notifications:retry-queued` المجدول (5 دقائق).
+> - **إصلاحات اختبار (بلا إضعاف تأكيد)**: سطور المرتب تحتاج `payroll_period_id` (فيكسشر ناقص)؛ غياب المعلم يتطلب `confirmed` أولاً (جدول التحويلات يمنعه من `scheduled`)؛ `dispatch` يُرجع صفوف التسليمات **الخارجية** فقط (قناة `database` صفها هو الصندوق)، فأُبدل تأكيد الفراغ بتأكيد «صندوق واحد للنداءين». اختبار الاشتراكات يقارن ثبات العدد (المستقبلات تشمل الأدمن) بدل رقم افتراضي.
+> - **الاختبارات**: 12 اختباراً في `ScheduledEventDispatchTest.php` (62 تأكيداً) — RED مثبت (11/12 فشل) ثم GREEN. Backend: 950 → **962** passed (نفس 1 risky + 3 skipped pgsql). Frontend: `tsc` و`npm test` (167) و`npm run build` تنجح؛ lint كما هو (10 errors + 1 warning سابقة). الترحيل قابل للرجوع: `migrate` ← `migrate:rollback --step=1` ← `migrate` محلياً على SQLite.
+> - **ما لم يُتحقق**: Postgres محلياً (3 skipped) · عامل Redis/Horizon حقيقي · مزود whatsapp (4.3) · لا شاشة واجهة تعرض الإشعارات بعد · مسارات إصدار الفواتير عبر الاشتراكات (التفعيل/المجموعات/الترويج) غير موصولة بـ`invoice_issued` (المقصود: نقطتا الإصدار الإداري فقط) · `down()` يحذف صفوف الأحداث الخمسة الجديدة (غير صالحة في الإلنوم الراجع) — مقصود وموثّق.
 
 ### PR 4.3 — Arabic email template + WhatsApp adapter
 **Goal:** The first-phase and second-phase channels.

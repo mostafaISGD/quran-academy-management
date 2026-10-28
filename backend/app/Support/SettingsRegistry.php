@@ -149,6 +149,13 @@ final class SettingsRegistry
             'group' => 'الإشعارات',
             'label' => 'ساعات الهدوء — النهاية (H:i)',
         ],
+        // ⭐⭐ PR 4.2 — مدد تذكير الحصص (قائمة بالدقائق قبل الحصة).
+        'notifications.lesson_reminder_offsets' => [
+            'type' => 'list',
+            'default' => ['60'],
+            'group' => 'الإشعارات',
+            'label' => 'مدد تذكير الحصص بالدقائق (مثل: 60، 1440)',
+        ],
     ];
 
     public static function definition(string $key): ?array

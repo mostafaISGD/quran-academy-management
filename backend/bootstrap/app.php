@@ -48,6 +48,20 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('invoices:notify-overdue')
             ->dailyAt('09:00')
             ->withoutOverlapping();
+
+        // ⭐⭐ PR 4.2 — تذكير الحصص (كل ١٠ دقائق). المدد من مركز
+        // الإعدادات (`notifications.lesson_reminder_offsets`)، والنص
+        // يُعرض بتوقيت كل مستلم المحلي، ومفتاح dedup يمنع التكرار.
+        $schedule->command('lessons:send-reminders')
+            ->everyTenMinutes()
+            ->withoutOverlapping();
+
+        // ⭐⭐ PR 4.2 — اشتراكات «هتنتهي قريب» (09:30). مسار
+        // الإشعار فقط من `DailySubscriptionService` — التجديد
+        // والإقفال مسؤولية `subscriptions:process-day` (01:15).
+        $schedule->command('subscriptions:notify-expiring')
+            ->dailyAt('09:30')
+            ->withoutOverlapping();
     })
     ->withMiddleware(function (Middleware $middleware) {
         // ⭐⭐⭐ **مافيش `login` route — الـAPI بيرجّع 401 مش redirect**

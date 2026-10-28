@@ -8,6 +8,10 @@ class Notification extends Model
 {
     protected $fillable = [
         'user_id', 'student_id', 'lesson_id', 'event_type', 'channel', 'payload', 'sent_at', 'read_at',
+        // ⭐ PR 3.8 — الربط الاشتراك (كان ينكتب من Service الإيقاف).
+        'subscription_id',
+        // ⭐⭐ PR 4.2 — مفتاح منع التكرار الفريد (event|user|reference).
+        'dedup_key',
     ];
 
     protected function casts(): array
