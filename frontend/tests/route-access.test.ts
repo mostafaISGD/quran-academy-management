@@ -7,6 +7,7 @@ import {
   isDashboardPath,
   isParentOnly,
   isPublicPath,
+  isStudentOnly,
   isTeacherOnly,
   loginRedirect,
   ROLE_HOME,
@@ -23,6 +24,8 @@ function user(overrides: Partial<NonNullable<AccessUser>> = {}): NonNullable<Acc
     teacher: null,
     is_parent: false,
     parent: null,
+    is_student: false,
+    student: null,
     roles: [],
     permissions: [],
     ...overrides,
@@ -44,15 +47,46 @@ const parent = () =>
     roles: ["parent"],
     permissions: ["programs.view"],
   });
+const student = () =>
+  user({
+    is_student: true,
+    student: { id: 7 } as NonNullable<AccessUser>["student"],
+    roles: ["student"],
+    permissions: ["student.portal", "programs.view"],
+  });
 
 // ═══════════════════════════════════════════════════════════════
 // ① مين أنا
 // ═══════════════════════════════════════════════════════════════
 
-describe("isTeacherOnly / isParentOnly", () => {
+describe("isTeacherOnly / isParentOnly / isStudentOnly", () => {
   it("a teacher with a teacher record is teacher-only", () => {
     expect(isTeacherOnly(teacher())).toBe(true);
     expect(isParentOnly(teacher())).toBe(false);
+    expect(isStudentOnly(teacher())).toBe(false);
+  });
+
+  it("⭐ PR 4.6 — a student with a student record is student-only", () => {
+    expect(isStudentOnly(student())).toBe(true);
+    expect(isTeacherOnly(student())).toBe(false);
+    expect(isParentOnly(student())).toBe(false);
+  });
+
+  it("⭐ an admin linked to a student record is NOT student-only", () => {
+    // ⭐ نفس حادثة المعلم: المدير مربوط بسجل طالب في القاعدة.
+    const linkedAdmin = user({
+      roles: ["admin"],
+      is_student: true,
+      student: { id: 7 } as NonNullable<AccessUser>["student"],
+    });
+
+    expect(isStudentOnly(linkedAdmin)).toBe(false);
+  });
+
+  it("a student record without the link is not enough", () => {
+    expect(
+      isStudentOnly(user({ is_student: true, roles: ["student"] })),
+    ).toBe(false);
   });
 
   it("a parent with a parent profile is parent-only", () => {
@@ -79,9 +113,10 @@ describe("isTeacherOnly / isParentOnly", () => {
     expect(isTeacherOnly(user({ is_teacher: true, roles: ["teacher"] }))).toBe(false);
   });
 
-  it("null user is neither", () => {
+  it("null user is none of them", () => {
     expect(isTeacherOnly(null)).toBe(false);
     expect(isParentOnly(null)).toBe(false);
+    expect(isStudentOnly(null)).toBe(false);
   });
 });
 
@@ -98,12 +133,18 @@ describe("homeFor", () => {
     expect(homeFor(parent())).toBe(ROLE_HOME.parent);
   });
 
-  it("⭐ the three homes are distinct", () => {
+  it("⭐ PR 4.6 — a student lands on the student portal", () => {
+    expect(homeFor(student())).toBe(ROLE_HOME.student);
+    expect(ROLE_HOME.student).toBe("/student");
+  });
+
+  it("⭐ the role homes are distinct", () => {
     // ⭐ لو اتكرروا، اختبار آخر بيبقى بلا معنى: كل اختبار
     // redirect هيعدّي لاCause السبب.
     expect(new Set(Object.values(ROLE_HOME)).size).toBe(Object.keys(ROLE_HOME).length);
     expect(DEFAULT_HOME).not.toBe(ROLE_HOME.teacher);
     expect(DEFAULT_HOME).not.toBe(ROLE_HOME.parent);
+    expect(DEFAULT_HOME).not.toBe(ROLE_HOME.student);
   });
 });
 
@@ -113,14 +154,30 @@ describe("homeFor", () => {
 
 describe("path classification", () => {
   it("public paths are exactly the declared ones", () => {
-    for (const path of ["/login", "/", "/pricing", "/groups"]) {
+    for (const path of ["/login", "/", "/pricing", "/groups", "/join"]) {
       expect(isPublicPath(path)).toBe(true);
       expect(isDashboardPath(path)).toBe(false);
     }
   });
 
+  it("⭐ PR 4.6 — a join link with a token is public too", () => {
+    // ⭐ `/join/{token}` مش في القائمة حرفياً — بس هو نفس الصفحة
+    // العامة. من غير فحص البادئة، الطفل هيتحوّل لـ`/login`.
+    for (const path of ["/join/abc123", "/join/abc123/", "/join/a/b"]) {
+      expect(isPublicPath(path)).toBe(true);
+      expect(isDashboardPath(path)).toBe(false);
+      expect(decideRoute(path, { hasSession: false })).toEqual({ kind: "allow" });
+    }
+  });
+
+  it("⭐ a path that merely starts with 'join' is not public", () => {
+    // ⭐ بادئة `/join/` مش `/join` — `/joiner` صفحة تانية تماماً.
+    expect(isPublicPath("/joiner")).toBe(false);
+    expect(isDashboardPath("/joiner")).toBe(true);
+  });
+
   it("everything else is a dashboard path", () => {
-    for (const path of ["/students", "/finance", "/settings", "/audit-logs", "/teachers"]) {
+    for (const path of ["/students", "/finance", "/settings", "/audit-logs", "/teachers", "/student"]) {
       expect(isDashboardPath(path)).toBe(true);
     }
   });
@@ -241,6 +298,23 @@ describe("decideRoute — with a session", () => {
     ).toEqual({ kind: "allow" });
   });
 
+  it("⭐ PR 4.6 — a student away from their home is sent to it", () => {
+    expect(decideRoute("/students", { hasSession: true, user: student() })).toEqual({
+      kind: "redirect",
+      to: "/student",
+    });
+    expect(decideRoute("/finance", { hasSession: true, user: student() })).toEqual({
+      kind: "redirect",
+      to: "/student",
+    });
+  });
+
+  it("a student on their own home is allowed", () => {
+    expect(
+      decideRoute(ROLE_HOME.student, { hasSession: true, user: student() }),
+    ).toEqual({ kind: "allow" });
+  });
+
   it("⭐ a public page stays open even for a teacher", () => {
     // ⭐ ولي الأمر والمعلم لازم يوصلوا `/pricing` — دي عامة على
     // السيرفر وبيستخدموها فعلاً.
@@ -252,17 +326,19 @@ describe("decideRoute — with a session", () => {
   it("⭐ the redirect is never a loop", () => {
     // ⭐⭐ بتاخد كل النواتج الممكنة وتطلب إنTarget نفسه يعدّي.
     // ⭐ أي `redirect → redirect` معناها loop حقيقي في الإنتاج.
-    const users = [admin(), teacher(), parent()];
+    const users = [admin(), teacher(), parent(), student()];
     const paths = [
       "/login",
       "/",
       "/pricing",
       "/groups",
+      "/join/token-1",
       "/students",
       "/finance",
       "/settings",
       "/my-schedule",
       "/my-children",
+      "/student",
       "/dashboard",
     ];
 

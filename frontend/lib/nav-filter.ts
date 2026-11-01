@@ -35,7 +35,7 @@
  */
 
 import type { AccessUser } from "@/lib/route-access";
-import { isParentOnly, isTeacherOnly } from "@/lib/route-access";
+import { isParentOnly, isStudentOnly, isTeacherOnly } from "@/lib/route-access";
 
 export type NavItem = {
   href: string;
@@ -81,11 +81,14 @@ export function filterNavGroups(
   // ⭐ⓘ لسه بنجيب المستخدم — مافيش قرار ناخده.
   if (!user) return null;
 
-  // ⭐⭐ المعلم وولي الأمر: **مفيش قائمة إدارية أصلاً**.
+  // ⭐⭐ المعلم وولي الأمر والطالب: **مفيش قائمة إدارية أصلاً**.
   //
   // مش «فلترة» — صفر. لو بس فلترنا، ممكن يفضل عنده
   // `/dashboard` و`/programs`، وده بيفتحله صفحات مش ليه فيها.
-  if (isTeacherOnly(user) || isParentOnly(user)) return [];
+  //
+  // ⭐ PR 4.6 — الطالب كمان: بوابته `/student` بس، ومفيش أي رابط
+  // مالي أو إداري في القائمة.
+  if (isTeacherOnly(user) || isParentOnly(user) || isStudentOnly(user)) return [];
 
   const allowed = new Set(user.permissions ?? []);
 

@@ -183,7 +183,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [ ] PR 4.3 — Arabic email template + WhatsApp adapter
 - [ ] PR 4.4 — Teacher portal (Frontend, mobile first)
 - [ ] PR 4.5 — Parent portal v2
-- [ ] PR 4.6 — Student portal
+- [x] PR 4.6 — Student portal
 - [ ] PR 4.7 — Employee portal
 - [ ] PR 4.8 — Online payment (Stripe) and webhooks
 
@@ -1756,6 +1756,14 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - A read-only API for the student themselves.
 **Acceptance:** The student does not see another student or any financial path; a child with a PIN cannot change their data.
 **Depends on:** 1.12 · 3.11
+
+> **✅ As implemented (2026-11-01).** 14 اختباراً في `tests/Feature/StudentPortalTest.php` — الباكإند **940 → 954 passed** (1 risky + 3 skipped زي الأساس).
+> - **العزل**: مفيش `{student}` في أي راو؛ الطالب بيتحدد من `students.user_id` (`StudentPortalView::studentFor`)، والحصص فردية + مجموعات (`lesson_students`)، وزر الانضمام بيفحص الملكية (404 لغير حصته).
+> - **صلاحية ودور**: `student.portal` في `config/permissions.php` ودور `student` في الـseeder؛ `profile()` بقى يرجّع `is_student`/`student` بنفس استثناء الأدمن، وبأعمدة محددة (تقرير المال بيراقب `select *` على `students`).
+> - **الدخول**: `LessonJoinService` هي المصدر الوحيد (`isJoinable` = scheduled/confirmed/in_progress + رابط)، و`POST /student/lessons/{lesson}/join` بيسجّل `lesson_participants` (source `student_portal`) ويرجّع الرابط؛ الملغاة/بلا رابط = 422.
+> - **الطفل < 13**: `GET /api/join/{token}` عام بمعاينة **بلا أي بيانات شخصية** (معلم/برنامج/مستوى/مواعيد/حالة فقط)، و`LessonJoinTokenService::redeem` بقى يسجّل مشارك (source `pin`) ويرجّع `meeting_url` باستهلاك ذرّي (`UPDATE ... WHERE used_at IS NULL`)؛ استعمال واحد ولا تعديل لبيانات الطفل.
+> - **الواجهة**: `/student` بتلاتة تبويبات (نظرة عامة/جدولي/تقدمي) + خريطة حفظ بالمقاطع + الواجبات `available:false` (مفيش جدول)، وصفحتا `/join` و`/join/{token}` عامّتان في `PUBLIC_PATHS`، و`ROLE_HOME.student = "/student"` مع إخفاء القائمة الإدارية. 30 اختبار منطق جديد + 9 في `route-access`/`nav-filter` — **167 → 206 passed** في 16 ملفاً، `tsc` و`build` نضيفان، وlint عند الأساس (10 أخطاء + 1 تحذير).
+> - **ما لم يُتحقق**: Playwright غير مثبّت فقبول الواجهة مغطّى بمنطق خالص + مراجعة يدوية؛ لا مزوّد اجتماع حقيقي (روابط نصية فقط)؛ Postgres لم يُشغّل محلياً (3 skipped)؛ الواجبات مؤجلة لغياب جدول؛ حساب طالب+ولي أمر بيتوجّه لبوابة ولي الأمر (أولوية الأدوار الحالية) — يحتاج قراراً في PR لاحق.
 
 ### PR 4.7 — Employee portal
 **Goal:** The employee sees their attendance and salaries.

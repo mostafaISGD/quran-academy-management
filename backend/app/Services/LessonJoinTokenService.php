@@ -82,7 +82,15 @@ class LessonJoinTokenService
     /**
      * ⭐ استعمل الرمز — **مرة واحدة**.
      *
-     * @return array{ok: bool, reason: string, student_id?: int, lesson_id?: int}
+     * ⭐ PR 4.6 — الاستعمال بقى **يسجّل الدخول** في
+     * `lesson_participants` (مصدر `pin`) ويرجّع رابط الحصة.
+     * قبل كده كان بيستهلك الرمز وخلاص، فسجل الدخول اللي بيغذّي
+     * اقتراح الحضور مكانش بيعرف حاجة عن أطفال الـPIN.
+     *
+     * ⭐ والاستهلاك **ذرّي**: `UPDATE ... WHERE used_at IS NULL`
+     * — طلبان في نفس اللحظة، واحد بس بياخد السطر.
+     *
+     * @return array{ok: bool, reason: string, student_id?: int, lesson_id?: int, meeting_url?: string|null}
      */
     public function redeem(string $pinOrToken, int $lessonId): array
     {
@@ -112,7 +120,37 @@ class LessonJoinTokenService
             return ['ok' => false, 'reason' => 'انتهت صلاحية الرمز'];
         }
 
-        $row->update(['used_at' => now()]);
+        $student = $row->student;
+        $lesson = $row->lesson;
+
+        if ($student === null || $lesson === null) {
+            return ['ok' => false, 'reason' => 'الحصة أو الطالب مش موجود'];
+        }
+
+        // ⭐ الاستهلاك الذرّي: أول طلب بيلاقي `used_at` فاضي وبياخده،
+        // والتاني بياخد 0 صفوف — حتى لو الاتنين قرأوا السطر مع بعض.
+        $claimed = LessonJoinToken::query()
+            ->whereKey($row->id)
+            ->whereNull('used_at')
+            ->update([
+                'used_at' => now(),
+                // ⭐ `used_by` بيتكلم عن **حساب مستخدم** (FK على
+                // `users`) — الطفل غالباً مالوش حساب، فبيبقى null.
+                'used_by' => $student->user_id,
+            ]);
+
+        if ($claimed === 0) {
+            return ['ok' => false, 'reason' => 'الرمز اتستخدم قبل كده'];
+        }
+
+        // ⭐ بنسجّل «دخول» بس لو الحصة فعلًا قابلة للدخول (حالة +
+        // رابط) — نفس حكم `LessonJoinService`. الحصة الملغاة أو
+        // اللي بلا رابط ما بتسجّلش مشارك كاذب.
+        $join = app(LessonJoinService::class);
+
+        if ($join->isJoinable($lesson)) {
+            $join->record($lesson, $student, 'pin', (int) $row->id);
+        }
 
         app(AuditLogService::class)->log(
             'lesson_join_token_redeemed',
@@ -127,6 +165,7 @@ class LessonJoinTokenService
             'reason' => 'تم الدخول',
             'student_id' => (int) $row->student_id,
             'lesson_id' => (int) $row->lesson_id,
+            'meeting_url' => $join->meetingUrl($lesson),
         ];
     }
 

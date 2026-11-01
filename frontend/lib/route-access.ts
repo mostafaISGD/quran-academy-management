@@ -40,7 +40,14 @@ import type { AuthUser } from "@/lib/api";
 /** ⭐ مستخدم بشكل مبسّط — اللي الـproxy بيحتاجه بس */
 export type AccessUser = Pick<
   AuthUser,
-  "is_teacher" | "teacher" | "is_parent" | "parent" | "roles" | "permissions"
+  | "is_teacher"
+  | "teacher"
+  | "is_parent"
+  | "parent"
+  | "is_student"
+  | "student"
+  | "roles"
+  | "permissions"
 > | null;
 
 // ═══════════════════════════════════════════════════════════════
@@ -60,6 +67,10 @@ export const PUBLIC_PATHS: readonly string[] = [
   "/pricing",
   "/groups",
   "/accept-invitation",
+  // ⭐⭐ PR 4.6 — الطفل < 13 مالوش حساب، فدخول الحصة برابط/PIN
+  // من ولي الأمر. الصفحتين عامّتين بالتصميم — زي `/accept-invitation`
+  // بالظبط: لو حجبناهم، صاحب الرابط الصحيح يقابل «سجّل دخول».
+  "/join",
 ];
 
 /**
@@ -84,6 +95,8 @@ export const PUBLIC_PATHS: readonly string[] = [
 export const ROLE_HOME: Record<string, string> = {
   teacher: "/my-schedule",
   parent: "/my-children",
+  // ⭐ PR 4.6 — بوابة الطالب: جدوله وتقدمه، لنفسه فقط.
+  student: "/student",
 };
 
 /** ⭐ افتراضي أي حد تاني */
@@ -114,10 +127,23 @@ export function isParentOnly(user: AccessUser): boolean {
   return Boolean(user?.is_parent && user.parent && !user.roles.includes("admin"));
 }
 
+/**
+ * ⭐⭐ PR 4.6 — طالب مستقل (≥ 13 بموافقة مسجّلة).
+ *
+ * ⭐ نفس شرط `AuthController::profile()`:
+ * `is_student = student !== null && !hasRole('admin')`.
+ * فالشرط المزدوج هنا بيمنع حساب المدير المربوط بسجل طالب من
+ * التحويل لبوابة الطالب — نفس حادثة المعلم المشهورة.
+ */
+export function isStudentOnly(user: AccessUser): boolean {
+  return Boolean(user?.is_student && user.student && !user.roles.includes("admin"));
+}
+
 /** ⭐ بيت المستخدم — حسب دوره */
 export function homeFor(user: AccessUser): string {
   if (isParentOnly(user)) return ROLE_HOME.parent;
   if (isTeacherOnly(user)) return ROLE_HOME.teacher;
+  if (isStudentOnly(user)) return ROLE_HOME.student;
   return DEFAULT_HOME;
 }
 
@@ -127,11 +153,20 @@ export function homeFor(user: AccessUser): string {
 
 /** ⭐ كل حاجة جوه `(dashboard)` محمية */
 export function isDashboardPath(pathname: string): boolean {
-  return pathname !== "/" && !PUBLIC_PATHS.includes(pathname);
+  return pathname !== "/" && !isPublicPath(pathname);
 }
 
+/**
+ * ⭐ راوت عام — أو **فرع** من راوت عام.
+ *
+ * ⭐ `/join/{token}` مش في القائمة حرفياً، بس هو نفس الصفحة العامة
+ * اللي بيفتحها الطفل من الرابط. من غير فحص البادئة، أي طفل بيفتح
+ * رابطه هيتحوّل لـ`/login` — وده بالظبط اللي بنمنعه.
+ */
 export function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PATHS.includes(pathname);
+  if (PUBLIC_PATHS.includes(pathname)) return true;
+
+  return pathname.startsWith("/join/");
 }
 
 // ═══════════════════════════════════════════════════════════════

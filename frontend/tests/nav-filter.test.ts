@@ -9,6 +9,8 @@ function user(overrides: Partial<NonNullable<AccessUser>> = {}): NonNullable<Acc
     teacher: null,
     is_parent: false,
     parent: null,
+    is_student: false,
+    student: null,
     roles: [],
     permissions: [],
     ...overrides,
@@ -35,6 +37,14 @@ const parent = () =>
     parent: { id: 1 } as NonNullable<AccessUser>["parent"],
     roles: ["parent"],
     permissions: ["programs.view"],
+  });
+
+const student = () =>
+  user({
+    is_student: true,
+    student: { id: 7 } as NonNullable<AccessUser>["student"],
+    roles: ["student"],
+    permissions: ["student.portal", "programs.view"],
   });
 
 // ═══════════════════════════════════════════════════════════════
@@ -111,6 +121,16 @@ describe("filterNavGroups — restricted roles", () => {
 
   it("a parent sees no admin menu at all", () => {
     expect(filterNavGroups(GROUPS, parent())).toEqual([]);
+  });
+
+  it("⭐ PR 4.6 — a student sees no admin menu at all", () => {
+    // ⭐ حتى لو عنده `programs.view`، القائمة الإدارية كلها
+    // بتختفي — بوابته `/student` بس.
+    const result = filterNavGroups(GROUPS, student());
+
+    expect(result).toEqual([]);
+    expect(hrefs(result)).not.toContain("/students");
+    expect(hrefs(result)).not.toContain("/finance");
   });
 
   it("⭐ an admin linked to a teacher record still sees the menu", () => {

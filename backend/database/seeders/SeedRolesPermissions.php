@@ -231,6 +231,9 @@ class SeedRolesPermissions extends Seeder
          */
         'student' => [
             'programs.view',
+            // ⭐ PR 4.6 — بوابة الطالب: قراءة نفسه فقط. الملكية
+            // من `students.user_id`، ومفيش أي صلاحية كتابة أو مال.
+            'student.portal',
         ],
     ];
     /**

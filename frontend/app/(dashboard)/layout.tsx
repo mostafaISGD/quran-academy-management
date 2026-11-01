@@ -8,7 +8,12 @@ import { useGroupAlerts } from "@/lib/use-group-alerts";
 import { num } from "@/lib/format";
 import { UIProvider } from "@/components/ui/UIProvider";
 import { filterNavGroups, type NavGroup } from "@/lib/nav-filter";
-import { homeFor, isParentOnly, isTeacherOnly } from "@/lib/route-access";
+import {
+  homeFor,
+  isParentOnly,
+  isStudentOnly,
+  isTeacherOnly,
+} from "@/lib/route-access";
 
 /**
  * ⭐⭐⭐ القائمة — **كل رابط معاه صلاحيته**.
@@ -139,6 +144,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const teacherOnly = isTeacherOnly(user);
   const parentOnly = isParentOnly(user);
+  // ⭐ PR 4.6 — بوابة الطالب بلا sidebar، زي المعلم وولي الأمر.
+  const studentOnly = isStudentOnly(user);
 
   // ⭐⭐ بيت المستخدم — **من نفس الوحدة** اللي بتستخدمها الـproxy
   //
@@ -200,9 +207,9 @@ function toggleGroup(label: string) {
     setExpandedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
   }
 
-  // ===== واجهة المعلّم وولي الأمر: صفحة واحدة بس =====
+  // ===== واجهة المعلّم وولي الأمر والطالب: صفحة واحدة بس =====
   // من غير الـ sidebar — ما فيش أي رابط إداري يوصله
-  if (teacherOnly || parentOnly) {
+  if (teacherOnly || parentOnly || studentOnly) {
     return (
       <UIProvider>
         <div dir="rtl" className="min-h-screen bg-slate-50">{children}</div>

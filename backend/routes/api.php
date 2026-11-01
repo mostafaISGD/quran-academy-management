@@ -37,7 +37,9 @@ use App\Http\Controllers\Api\TeacherLedgerController;
 use App\Http\Controllers\Api\TeacherPaymentController;
 use App\Http\Controllers\Api\StudentCreditController;
 use App\Http\Controllers\Api\StudentConsentController;
+use App\Http\Controllers\Api\StudentPortalController;
 use App\Http\Controllers\Api\LessonJoinTokenController;
+use App\Http\Controllers\Web\JoinLinkController;
 use App\Http\Controllers\Api\ExportController;
 use App\Http\Controllers\Api\LessonPolicyController;
 use App\Http\Controllers\Api\PromoCodeController;
@@ -508,6 +510,22 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
         Route::delete('/availability/{block}', [TeacherScheduleController::class, 'destroyMine']);
     });
 
+    // ═════════════════════════════════════════════════════════════
+    // ⭐⭐⭐ PR 4.6 — بوابة الطالب (`/student/*`)
+    //
+    // صلاحية واحدة (`student.portal`) + **الملكية من البروفايل**:
+    // `StudentPortalView::studentFor` بيقرا `students.user_id`،
+    // ومفيش `{student}` في أي راو. القراءات كلها لنفسه فقط،
+    // ومفيش أي مسار مالي — لا فواتير ولا مدفوعات ولا أرصدة.
+    // ═════════════════════════════════════════════════════════════
+    Route::prefix('student')->middleware('permission:student.portal')->group(function () {
+        Route::get('/overview', [StudentPortalController::class, 'overview']);
+        Route::get('/schedule', [StudentPortalController::class, 'schedule']);
+        Route::get('/progress', [StudentPortalController::class, 'progress']);
+        // ⭐ زر الانضمام: يسجّل مشارك واحد ويرجّع رابط الحصة.
+        Route::post('/lessons/{lesson}/join', [StudentPortalController::class, 'join']);
+    });
+
     // Invoices
     Route::get('/invoices', [InvoiceController::class, 'index'])->middleware('permission:finance.payments.view');
     Route::post('/invoices', [InvoiceController::class, 'store'])->middleware('permission:finance.payments.create');
@@ -811,3 +829,8 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
 // ⭐ PR 1.12 — استعمال رمز دخول الحصة (عام — الطالب تحت 13 مالوش حساب)
 Route::post('/lessons/join', [LessonJoinTokenController::class, 'redeem'])
     ->middleware('throttle:10,1');
+
+// ⭐⭐⭐ PR 4.6 — معاينة رابط الدخول (عام — الطفل تحت 13 مالوش حساب).
+// الرد بيانات الحصة/المعلم/البرنامج فقط — **بلا أي بيانات طالب**.
+Route::get('/join/{token}', [JoinLinkController::class, 'preview'])
+    ->middleware('throttle:30,1');

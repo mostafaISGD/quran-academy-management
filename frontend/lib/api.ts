@@ -222,6 +222,21 @@ export type AuthUser = {
   /** الحساب ولي أمر — بيشوف أبناؤه بس مش بيانات الأكاديمية */
   is_parent: boolean;
   parent: AuthParent | null;
+  /**
+   * ⭐⭐ PR 4.6 — الحساب مربوط بملف طالب (≥ 13 بموافقة).
+   *
+   * ⭐ نفس نمط `is_teacher`: السجل بيقول «فيه بيانات»، والدور
+   * بيقول «الحساب ده طالب». المدير المربوط بسجل طالب لا يُحسب.
+   */
+  is_student: boolean;
+  student: AuthStudent | null;
+};
+
+/** ⭐ أقل قدر من بيانات الطالب — الواجهة مش محتاجة أكتر من كده */
+export type AuthStudent = {
+  id: number;
+  student_code: string;
+  full_name: string;
 };
 
 export type AuthParent = {
@@ -3421,6 +3436,183 @@ export function getMyChildren() {
   }>("/parent/children");
 }
 
+// ============================================================
+// بوابة الطالب (PR 4.6)
+// ============================================================
+
+/**
+ * ⭐⭐ الطالب بيقرا **نفسه فقط**.
+ *
+ * ⭐ مفيش `student_id` في أي دالة هنا — السيرفر بيحدد الطالب من
+ * `students.user_id` بتاع الجلسة. فحتى لو الواجهة حاولت، مفيش
+ * معامل تقدر تمرّره.
+ *
+ * ⚠️ ومفيش أي نوع مالي في القسم ده عمداً: البوابة أكاديمية بالكامل.
+ */
+
+export type StudentPortalStudent = {
+  id: number;
+  full_name: string;
+  student_code: string;
+  status: string;
+};
+
+export type StudentLessonView = {
+  id: number;
+  scheduled_start_at: string | null;
+  scheduled_end_at: string | null;
+  duration_minutes: number;
+  status: string;
+  status_label: string;
+  lesson_type: string | null;
+  teacher_name: string | null;
+  program_name: string | null;
+  level_name: string | null;
+  /** ⭐ نفس حكم السيرفر (`LessonJoinService`) — الواجهة ما تخترعش حكماً تاني */
+  can_join: boolean;
+};
+
+export type StudentAttendanceSummary = {
+  present: number;
+  late: number;
+  absent: number;
+  excused: number;
+  total: number;
+};
+
+export type StudentAttendanceRow = {
+  id: number;
+  lesson_id: number;
+  status: string;
+  status_label: string;
+  late_minutes: number;
+  marked_at: string | null;
+  lesson_start_at: string | null;
+  teacher_name: string | null;
+};
+
+export type StudentHomework = {
+  available: boolean;
+  items: { id: number; title: string; due_date: string | null }[];
+};
+
+export type StudentOverview = {
+  student: StudentPortalStudent;
+  next_lesson: StudentLessonView | null;
+  upcoming_count: number;
+  attendance_rate: number;
+  attendance_summary: StudentAttendanceSummary;
+  memorization_summary: {
+    surahs: number;
+    ayahs: number;
+    records: number;
+  };
+  homework: StudentHomework;
+};
+
+export type StudentSchedule = {
+  student_id: number;
+  upcoming: StudentLessonView[];
+  past: StudentLessonView[];
+};
+
+export type StudentProgressRecord = {
+  id: number;
+  category: string;
+  category_label: string;
+  score: number | null;
+  notes: string | null;
+  recorded_at: string | null;
+  teacher_name: string | null;
+  program_name: string | null;
+  level_name: string | null;
+};
+
+export type StudentMemorizationRecord = {
+  id: number;
+  surah_id: number;
+  surah_name: string | null;
+  surah_number: number | null;
+  from_ayah: number;
+  to_ayah: number;
+  quality: number | null;
+  notes: string | null;
+  recorded_at: string | null;
+};
+
+export type StudentMemorizationSurah = {
+  surah_id: number;
+  surah_name: string | null;
+  surah_number: number | null;
+  from_ayah: number;
+  to_ayah: number;
+  ayahs: {
+    from_ayah: number;
+    to_ayah: number;
+    quality: number | null;
+    recorded_at: string | null;
+  }[];
+};
+
+export type StudentProgress = {
+  student_id: number;
+  attendance: {
+    summary: StudentAttendanceSummary;
+    rate: number;
+    rows: StudentAttendanceRow[];
+  };
+  progress: StudentProgressRecord[];
+  memorization: StudentMemorizationRecord[];
+  memorization_map: StudentMemorizationSurah[];
+};
+
+export type StudentJoinResult = {
+  lesson_id: number;
+  join_url: string;
+  joined_at: string | null;
+};
+
+/** ⭐ معاينة رابط الطفل (< 13) — **بلا أي بيانات شخصية** */
+export type StudentJoinPreview = {
+  teacher_name: string | null;
+  program_name: string | null;
+  level_name: string | null;
+  scheduled_start_at: string | null;
+  scheduled_end_at: string | null;
+  duration_minutes: number;
+  status: string;
+  has_meeting: boolean;
+  expired: boolean;
+  used: boolean;
+  join_url: string | null;
+};
+
+export function getStudentOverview() {
+  return apiFetch<StudentOverview>("/student/overview");
+}
+
+export function getStudentSchedule() {
+  return apiFetch<StudentSchedule>("/student/schedule");
+}
+
+export function getStudentProgress() {
+  return apiFetch<StudentProgress>("/student/progress");
+}
+
+/** ⭐ زر «انضم للحصة» — بيسجّل المشارك ويرجّع رابط الاجتماع */
+export function joinStudentLesson(lessonId: number) {
+  return apiFetch<{ data: StudentJoinResult }>(`/student/lessons/${lessonId}/join`, {
+    method: "POST",
+  });
+}
+
+/** ⭐ معاينة رابط الدخول — عامة (الطفل تحت 13 مالوش حساب) */
+export function getJoinPreview(token: string) {
+  return apiFetch<{ data: StudentJoinPreview }>(
+    `/join/${encodeURIComponent(token)}`,
+  );
+}
+
 export function getStudents(params?: {
   status?: string;
   search?: string;
@@ -3641,12 +3833,25 @@ export function issueLessonJoinToken(lessonId: number, studentId: number) {
   );
 }
 
-/** ⭐ استعمال رمز دخول الحصة — عامة (الطالب تحت 13 مالوش حساب) */
+/**
+ * ⭐ استعمال رمز دخول الحصة — عامة (الطالب تحت 13 مالوش حساب).
+ *
+ * ⭐ PR 4.6 — الرد بقى فيه `meeting_url`: الاستعمال بيسجّل الدخول
+ * في `lesson_participants` ويرجّع الرابط الحقيقي. الرمز نفسه
+ * **ما بيتحوّلش لصفحة** — الواجهة هي اللي بتوجّه.
+ */
 export function redeemLessonJoinToken(pinOrToken: string, lessonId: number) {
-  return apiFetch<{ data: { ok: boolean; student_id: number; lesson_id: number } }>(
-    "/lessons/join",
-    { method: "POST", body: JSON.stringify({ pin_or_token: pinOrToken, lesson_id: lessonId }) },
-  );
+  return apiFetch<{
+    data: {
+      ok: boolean;
+      student_id: number;
+      lesson_id: number;
+      meeting_url: string | null;
+    };
+  }>("/lessons/join", {
+    method: "POST",
+    body: JSON.stringify({ pin_or_token: pinOrToken, lesson_id: lessonId }),
+  });
 }
 
 export function getParents() {
