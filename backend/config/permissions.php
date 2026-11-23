@@ -124,7 +124,7 @@ return [
         // من بروفايل الطالب المرتبط بالحساب، مش من `student_id`
         // جاي في الرابط. والصلاحية دي لا تعطي أي مسار مالي.
         'employee.portal' => [
-            'module' => 'attendance',
+            'module' => 'employee',
             'group' => 'الحضور',
             'description' => 'عرض الحضور والرواتب الخاصة بالموظف المرتبط بالحساب',
         ],
@@ -629,6 +629,6 @@ return [
         'الطلاب' => ['students', 'parents', 'student_requests', 'leads'],
         'التعليم' => ['teachers', 'lessons', 'programs', 'groups'],
         'المالية' => ['finance', 'payroll', 'pricing'],
-        'الإدارة' => ['attendance', 'reports', 'settings', 'roles', 'audit', 'users'],
+        'الإدارة' => ['attendance', 'employee', 'reports', 'settings', 'roles', 'audit', 'users'],
     ],
 ];

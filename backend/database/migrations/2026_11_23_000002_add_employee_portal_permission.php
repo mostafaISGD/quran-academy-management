@@ -13,7 +13,7 @@ return new class extends Migration
         DB::transaction(function (): void {
             $permission = Permission::firstOrCreate(
                 ['name' => 'employee.portal', 'guard_name' => 'web'],
-                ['slug' => 'employee-portal', 'module' => 'attendance', 'group' => 'الحضور',
+                ['slug' => 'employee-portal', 'module' => 'employee', 'group' => 'الحضور',
                     'description' => 'عرض الحضور والرواتب الخاصة بالموظف المرتبط بالحساب'],
             );
             Role::firstOrCreate(
