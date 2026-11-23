@@ -131,13 +131,23 @@ class NotifyOverdueInvoices extends Command
             return count($recipients);
         }
 
+        // ⭐⭐ PR 4.2 — الكتابة عبر بنية الإشعارات (كانت `create`
+        // مباشرة) بمفتاح منع تكرار في القاعدة: تفريغ الكاش لم يبقَ
+        // الحارس — الحارس هو `dedup_key` الفريد.
+        $service = app(\App\Services\NotificationService::class);
+        $written = 0;
+
         foreach ($recipients as $recipient) {
-            Notification::create([
-                'user_id' => $recipient['user_id'],
-                'student_id' => $invoice->student_id,
-                'event_type' => 'invoice_overdue',
-                'channel' => 'in_app',
-                'payload' => [
+            $user = User::query()->find($recipient['user_id']);
+
+            if ($user === null) {
+                continue;
+            }
+
+            $wrote = $service->dispatchInbox(
+                'invoice_overdue',
+                $user,
+                [
                     'invoice_id' => $invoice->id,
                     'invoice_number' => $invoice->invoice_number,
                     'amount_due' => (float) $invoice->balance_due,
@@ -146,13 +156,18 @@ class NotifyOverdueInvoices extends Command
                     'days_overdue' => $daysOverdue,
                     'recipient_type' => $recipient['type'],
                 ],
-                'sent_at' => now(),
-            ]);
+                "invoice:{$invoice->id}:d{$daysOverdue}",
+                ['student_id' => $invoice->student_id],
+            );
+
+            if ($wrote) {
+                $written++;
+            }
         }
 
         // ⭐ نحفظ في cache عشان ما نكررش في نفس اليوم
         \Cache::put($key, true, now()->addDay());
 
-        return count($recipients);
+        return $written;
     }
 }

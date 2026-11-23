@@ -331,6 +331,11 @@ public function show(Invoice $invoice)
             $request,
         );
 
+        // ⭐⭐ PR 4.2 — إشعار «صدرت فاتورة» للطالب وحسابات أولياء
+        // الأمر المؤكدين. داخل `safeDispatch` — فشل الإشعار لا
+        // يلغي اعتماداً مالياً وقع فعلاً.
+        app(\App\Services\NotificationService::class)->notifyInvoiceIssued($invoice->fresh());
+
         return response()->json($invoice->fresh());
     }
 

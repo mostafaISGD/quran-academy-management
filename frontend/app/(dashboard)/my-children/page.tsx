@@ -1,307 +1,352 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { usePage } from "@/lib/use-page";
-import { useCurrentUser } from "@/lib/use-current-user";
+
 import {
   getMyChildren,
-  logout,
+  getParentChild,
+  getParentChildAttendance,
+  getParentChildInvoices,
+  getParentChildLessons,
+  getParentChildPayments,
+  getParentChildProgress,
+  getParentRequests,
+  type ParentAttendance,
+  type ParentChildDetail,
   type ParentChildView,
+  type ParentInvoices,
+  type ParentLessons,
+  type ParentPayments,
+  type ParentProgress,
+  type StudentRequestRow,
 } from "@/lib/api";
-import { date, money, num, time, weekday } from "@/lib/format";
+import { useCurrentUser } from "@/lib/use-current-user";
+import { usePage } from "@/lib/use-page";
+import {
+  PARENT_TABS,
+  canOpenParentPortal,
+  resolveParentTab,
+  visibleParentTabs,
+  type ParentPortalTabId,
+} from "@/lib/parent-portal";
+import ParentChildHeader from "@/components/parent/ParentChildHeader";
+import ChildOverview from "@/components/parent/ChildOverview";
+import ChildAttendance from "@/components/parent/ChildAttendance";
+import ChildProgress from "@/components/parent/ChildProgress";
+import ChildLessons from "@/components/parent/ChildLessons";
+import ChildFinance from "@/components/parent/ChildFinance";
+import ChildRequests from "@/components/parent/ChildRequests";
+import { Empty, ErrorBox, LoadingRows } from "@/components/parent/parent-ui";
 
 /**
- * صفحة ولي الأمر.
+ * ⭐⭐⭐ **PR 4.5 — بوابة ولي الأمر v2.**
  *
- * مفيش sidebar ولا روابط تانية — كل اللي هنا عن أبناؤه بس.
- * السيرفر نفسه بيفلتر: `/parent/children` بيرجّع الأبناء المسجّلين
- * عند ولي الأمر ده بالظبط.
+ * ⭐ شاشة واحدة، ستة تبويبات (حسب أعلام الرابط)، وشريط تنقّل سفلي
+ * ثابت — زي بوابة المعلم (PR 4.4). مفيش أي رابط إداري: الـlayout
+ * بيرجّع صفر مجموعات لولي الأمر (`filterNavGroups`).
+ *
+ * ⭐⭐ **التبديل بين الأبناء فوري**: الابن المختار بيتحدد من قائمة
+ * الأبناء، وكل تبويب بيجيب بيانات الابن ده بس من `/parent/children/{id}/*`
+ * — والسيرفر بيفلتر بـ`ParentChildScope` (أبناء مؤكَّدون فقط).
+ *
+ * ⚠️ **قبول الـroadmap**: الولي ما يشوفش مال ابنه لو
+ * `can_view_finance=false` — متحقّق في السيرفر (`requireFinance`)
+ * وفي الواجهة (`visibleParentTabs`). وطلب الإلغاء بيظهر في صندوق
+ * الإدارة (`/student-requests`).
+ *
+ * ⚠️ Playwright مش مثبّت، فالقرارات كلها في `lib/parent-portal.ts`
+ * المختبَرة، والباقي فحص يدوي موثّق في وصف الـPR.
  */
 
-/** ألوان الحالة حسب status */
-const STATUS_STYLE: Record<string, string> = {
-  active: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  paused: "bg-amber-50 text-amber-700 ring-amber-200",
-  expired: "bg-red-50 text-red-600 ring-red-200",
-  cancelled: "bg-slate-100 text-slate-500 ring-slate-200",
+type ChildrenResponse = {
+  parent: { id: number; name: string; phone: string | null; email: string | null };
+  children: ParentChildView[];
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  active: "نشط",
-  paused: "متوقف",
-  expired: "منتهي",
-  cancelled: "ملغي",
-  lead: "مبدئي",
-  graduated: "متخرج",
-  archived: "مؤرشف",
-  inactive: "غير نشط",
-};
+/**
+ * ⭐⭐ **«لسه بيحمّل» الحقيقي.**
+ *
+ * ⚠️ `usePage` بيبدأ `loading` بقيمة `enabled` وقت **التركيب**. والتبويبات
+ * هنا مقفولة في أول رسم (المستخدم على «نظرة عامة»)، فلما يفتح تبويب
+ * بـ`enabled` بيقلب لـ`true` — لكن `loading` بيفضل `false` لحد ما
+ * الطلب يخلص. من غير الدالة دي، الشاشة بتعرض «مفيش بيانات» لحظة
+ * قبل ما البيانات توصل. `data === null && error === null` = مستني.
+ */
+function stillLoading<T>(state: {
+  data: T | null;
+  loading: boolean;
+  error: string | null;
+}): boolean {
+  return state.loading || (state.data === null && state.error === null);
+}
 
 export default function MyChildrenPage() {
   const router = useRouter();
+  const { user, loading: userLoading } = useCurrentUser();
 
-  const { user: parent } = useCurrentUser();
+  const allowed = canOpenParentPortal(user);
 
-  /**
-   * ⭐ الأبناء بيتجلبوا بس لو المستخدم **ولي أمر فعلاً**.
-   *
-   * ⭐ `enabled` بيمنع الطلب على حد تاني — موسوعة الاستقبال
-   * مثلاً ما عندهوش حق ياخد بيانات الأولاد.
-   *
-   * @see usePage
-   */
-  const isParent = Boolean(parent?.is_parent && parent?.parent);
-
-  const fetchChildren = useCallback(async () => {
-    const r = await getMyChildren();
-    return r.children ?? [];
-  }, []);
-
-  const {
-    data: children,
-    loading,
-    error,
-  } = usePage<ParentChildView[]>("my-children", fetchChildren, {
-    initial: [],
-    enabled: isParent,
-  });
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [tab, setTab] = useState<ParentPortalTabId>("overview");
 
   /** ⭐ اللي مش ولي أمر — يرجع لصفحته */
   useEffect(() => {
-    if (!parent) return;
-    if (!isParent) router.replace("/dashboard");
-  }, [parent, isParent, router]);
+    if (!user) return;
+    if (!allowed) router.replace("/dashboard");
+  }, [user, allowed, router]);
 
-  async function handleLogout() {
-    await logout();
-    router.push("/login");
+  // ── قائمة الأبناء ──────────────────────────────────────────
+  const fetchChildren = useCallback(() => getMyChildren(), []);
+  const childrenPage = usePage<ChildrenResponse | null>("parent-children", fetchChildren, {
+    enabled: allowed,
+    initial: null,
+  });
+
+  const children = childrenPage.data?.children ?? [];
+
+  /**
+   * ⭐⭐ الابن المختار **مشتق** مش مخزّن — فمفيش `useEffect` يزامن
+   * الحالة، وأول ابن بيظهر تلقائياً من غير أي كتابة.
+   */
+  const selected =
+    children.find((child) => child.student.id === selectedId) ?? children[0] ?? null;
+  const childId = selected?.student.id ?? null;
+
+  // ── ملف الابن (ومنه الأعلام) ───────────────────────────────
+  const fetchDetail = useCallback(
+    () => (childId === null ? Promise.resolve(null) : getParentChild(childId)),
+    [childId],
+  );
+  const detail = usePage<ParentChildDetail | null>(
+    `parent-child:${childId ?? 0}`,
+    fetchDetail,
+    { enabled: allowed && childId !== null, initial: null },
+  );
+
+  const flags = detail.data?.flags ?? null;
+  const visible = visibleParentTabs(flags);
+  /** ⭐ منطقة الابن الزمنية — كل التواريخ بتتعرض بيها. */
+  const timeZone = detail.data?.profile.timezone ?? undefined;
+
+  /** ⭐⭐ التبويب الفعلي — لو الأعلام اتغيّرت (تبديل ابن) نرجع للنظرة العامة. */
+  const activeTab = resolveParentTab(tab, flags);
+
+  function selectChild(id: number) {
+    setSelectedId(id);
+    // ⭐ الأعلام بتختلف من ابن لابن — نبدأ من النظرة العامة.
+    setTab("overview");
   }
 
-  if (!parent) return null;
-
-  return (
-    <div className="mx-auto max-w-4xl p-4 sm:p-6">
-      {/* ===== الترويسة ===== */}
-      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h1 className="text-lg font-semibold text-slate-800">
-            {parent.parent?.name ?? parent.name}
-          </h1>
-          <p className="text-sm text-slate-500">
-            {children.length === 0
-              ? "لا يوجد طلاب مرتبطون بحسابك"
-              : children.length === 1
-                ? "طالب واحد"
-                : `${children.length} طلاب`}
-            {parent.parent?.phone ? ` — ${parent.parent.phone}` : ""}
-          </p>
-        </div>
-        <button
-          onClick={handleLogout}
-          className="rounded-lg bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-200"
-        >
-          🚪 تسجيل الخروج
-        </button>
-      </div>
-
-      {loading && (
-        <p className="py-10 text-center text-sm text-slate-500">جاري التحميل…</p>
-      )}
-
-      {error && (
-        <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700 ring-1 ring-red-200">
-          {error}
-        </div>
-      )}
-
-      {!loading && !error && children.length === 0 && (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center">
-          <p className="text-sm text-slate-600">
-            مفيش طلاب مرتبطين بحسابك لسه.
-          </p>
-          <p className="mt-1 text-xs text-slate-400">
-            لو اتسجلت في أكاديمية قبل كده، كلّم الإدارة عشان تربط الحساب.
-          </p>
-        </div>
-      )}
-
-      {/* ===== كارت لكل ابن ===== */}
-      <div className="space-y-5">
-        {children.map((child) => (
-          <ChildCard key={child.student.id} child={child} />
-        ))}
-      </div>
-    </div>
+  // ── بيانات التبويبات (كل واحدة بتتطلب عند فتحها بس) ───────
+  const fetchAttendance = useCallback(
+    () => (childId === null ? Promise.resolve(null) : getParentChildAttendance(childId)),
+    [childId],
   );
-}
+  const attendance = usePage<ParentAttendance | null>(
+    `parent-attendance:${childId ?? 0}`,
+    fetchAttendance,
+    { enabled: allowed && childId !== null && activeTab === "attendance", initial: null },
+  );
 
-/** كارت ابن واحد */
-function ChildCard({ child }: { child: ParentChildView }) {
-  const { student, subscription, lesson_credit, upcoming_lessons, outstanding } = child;
-  const daysLeft = subscription?.days_left ?? null;
+  const fetchProgress = useCallback(
+    () => (childId === null ? Promise.resolve(null) : getParentChildProgress(childId)),
+    [childId],
+  );
+  const progress = usePage<ParentProgress | null>(
+    `parent-progress:${childId ?? 0}`,
+    fetchProgress,
+    { enabled: allowed && childId !== null && activeTab === "progress", initial: null },
+  );
+
+  const fetchLessons = useCallback(
+    () => (childId === null ? Promise.resolve(null) : getParentChildLessons(childId)),
+    [childId],
+  );
+  const lessons = usePage<ParentLessons | null>(
+    `parent-lessons:${childId ?? 0}`,
+    fetchLessons,
+    { enabled: allowed && childId !== null && activeTab === "lessons", initial: null },
+  );
+
+  const fetchInvoices = useCallback(
+    () => (childId === null ? Promise.resolve(null) : getParentChildInvoices(childId)),
+    [childId],
+  );
+  const invoices = usePage<ParentInvoices | null>(
+    `parent-invoices:${childId ?? 0}`,
+    fetchInvoices,
+    { enabled: allowed && childId !== null && activeTab === "invoices", initial: null },
+  );
+
+  const fetchPayments = useCallback(
+    () => (childId === null ? Promise.resolve(null) : getParentChildPayments(childId)),
+    [childId],
+  );
+  const payments = usePage<ParentPayments | null>(
+    `parent-payments:${childId ?? 0}`,
+    fetchPayments,
+    { enabled: allowed && childId !== null && activeTab === "invoices", initial: null },
+  );
+
+  const fetchRequests = useCallback(() => getParentRequests(), []);
+  const requestsPage = usePage<{ requests: StudentRequestRow[] } | null>(
+    `parent-requests:${childId ?? 0}`,
+    fetchRequests,
+    {
+      enabled:
+        allowed &&
+        childId !== null &&
+        activeTab === "requests" &&
+        flags?.can_request_changes === true,
+      initial: null,
+    },
+  );
+
+  /** ⭐ طلبات الابن المختار بس — السيرفر بيرجّع طلبات الحساب كله. */
+  const childRequests = (requestsPage.data?.requests ?? []).filter(
+    (row) => row.student?.id === childId,
+  );
+
+  // ── حالات الشاشة ───────────────────────────────────────────
+  if (userLoading) {
+    return (
+      <div className="mx-auto max-w-3xl p-6">
+        <p className="py-20 text-center text-sm text-slate-500">جاري تحميل البوابة…</p>
+      </div>
+    );
+  }
+
+  if (!user || !allowed) return null;
+
+  const tabs = PARENT_TABS.filter((item) => visible.includes(item.id));
 
   return (
-    <section className="overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-slate-200">
-      {/* الترويسة */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
-        <div>
-          <h2 className="font-semibold text-slate-800">{student.full_name}</h2>
-          <p className="text-xs text-slate-500">
-            {child.relationship ? `${child.relationship} · ` : ""}
-            {student.student_code}
-          </p>
-        </div>
-        <span
-          className={`rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${
-            STATUS_STYLE[student.status] ?? "bg-slate-100 text-slate-600 ring-slate-200"
-          }`}
-        >
-          {STATUS_LABEL[student.status] ?? student.status}
-        </span>
-      </div>
-
-      <div className="space-y-5 px-5 py-4">
-        {/* ===== الاشتراك ===== */}
-        {subscription ? (
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-medium text-slate-700">الاشتراك</h3>
-              <span
-                className={`rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ${
-                  STATUS_STYLE[subscription.status] ?? "bg-slate-100 text-slate-600 ring-slate-200"
-                }`}
-              >
-                {STATUS_LABEL[subscription.status] ?? subscription.status}
-              </span>
-            </div>
-
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
-              <Field label="البرنامج" value={subscription.program_name} />
-              <Field label="المعلّم" value={subscription.teacher_name ?? "—"} />
-              <Field
-                label="الموعد"
-                value={
-                  subscription.weekday_names
-                    ? `${subscription.weekday_names} · ${subscription.start_time ?? ""}`
-                    : "—"
-                }
-              />
-              <Field
-                label="ينتهي"
-                value={subscription.end_date ?? "غير محدود"}
-                tone={
-                  daysLeft !== null && daysLeft <= 3 ? "warn" : "normal"
-                }
-              />
-            </dl>
-
-            {/* شريط التقدّم في الحصص */}
-            {lesson_credit && lesson_credit.included > 0 && (
-              <div className="mt-4">
-                <div className="mb-1 flex items-baseline justify-between text-xs text-slate-600">
-                  <span>الحصص المستهلكة</span>
-                  <span className="tabular-nums">
-                    {lesson_credit.included - lesson_credit.balance} /{" "}
-                    {lesson_credit.included}
-                  </span>
-                </div>
-                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full rounded-full bg-emerald-500 transition-all"
-                    style={{
-                      width: `${Math.min(100, Math.round((subscription.progress ?? 0) * 100))}%`,
-                    }}
-                  />
-                </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  فاضل {lesson_credit.balance} حصة
-                  {lesson_credit.expires_at
-                    ? ` — تنتهي ${lesson_credit.expires_at.slice(0, 10)}`
-                    : ""}
-                </p>
-              </div>
-            )}
+    <div className="mx-auto min-h-screen max-w-3xl px-4 pb-24 pt-4 sm:px-6">
+      <div className="mb-4">
+        {stillLoading(childrenPage) && !childrenPage.data ? (
+          <div className="space-y-2">
+            <div className="h-6 w-40 animate-pulse rounded bg-slate-200" />
+            <div className="h-14 animate-pulse rounded-xl bg-white ring-1 ring-slate-200" />
+          </div>
+        ) : childrenPage.error ? (
+          <ErrorBox message={childrenPage.error} />
+        ) : children.length === 0 ? (
+          <div className="space-y-3">
+            <h1 className="text-lg font-bold text-slate-900">
+              {childrenPage.data?.parent.name ?? user.name}
+            </h1>
+            <Empty
+              title="مفيش طلاب مرتبطين بحسابك لسه."
+              hint="لو اتسجلت في أكاديمية قبل كده، كلّم الإدارة عشان تربط الحساب."
+            />
           </div>
         ) : (
-          <div className="rounded-lg bg-slate-50 p-3 text-sm text-slate-600">
-            مفيش اشتراك نشط حالياً.
-          </div>
+          <ParentChildHeader
+            items={children}
+            selectedId={childId}
+            parentName={childrenPage.data?.parent.name ?? user.name}
+            parentPhone={childrenPage.data?.parent.phone ?? null}
+            onSelect={selectChild}
+          />
         )}
-
-        {/* ===== المستحقات ===== */}
-        {/* ⭐ `outstanding` بيبقى `null` لما `can_view_finance=false`
-            (بPR 1.8) — القسم بيختفي كله بدل ما يعرض أصفار مضللة */}
-        {outstanding && outstanding.invoices > 0 && (
-          <div className="rounded-lg bg-amber-50 p-3 ring-1 ring-amber-200">
-            <p className="text-sm text-amber-900">
-              {/* ⭐ `money` بتعمل التحويل لـ«ج.م» جواها */}
-              <strong className="tabular-nums">
-                {money(outstanding.total, outstanding.currency)}
-              </strong>{" "}
-              مستحق على {num(outstanding.invoices, 0)}{" "}
-              {outstanding.invoices === 1 ? "فاتورة" : "فواتير"}.
-            </p>
-          </div>
-        )}
-
-        {/* ===== الحصص القادمة ===== */}
-        <div>
-          <h3 className="mb-2 text-sm font-medium text-slate-700">
-            الحصص القادمة
-          </h3>
-          {upcoming_lessons.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              مفيش حصص مجدولة حالياً.
-            </p>
-          ) : (
-            <ul className="divide-y divide-slate-100 rounded-lg ring-1 ring-slate-200">
-              {upcoming_lessons.map((lesson) => (
-                <li
-                  key={lesson.id}
-                  className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-                >
-                  {/* ⭐ اليوم والوقت **في سطرين مختلفين** — قبل كده
-                      كانوا `toLocaleDateString` + `toLocaleTimeString`
-                      بخيارات مختلفة عن باقي البرنامج */}
-                  <span className="text-slate-700">
-                    {weekday(lesson.scheduled_start_at)}، {date(lesson.scheduled_start_at)}
-                  </span>
-                  <span className="tabular-nums text-slate-500">
-                    {/* ⭐ مافيش `scheduled_end_at` في رد ولي الأمر — وقت بس */}
-                    {time(lesson.scheduled_start_at)}
-                  </span>
-                  <span className="text-xs text-slate-500">
-                    {lesson.teacher_name ?? "—"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
       </div>
-    </section>
-  );
-}
 
-/** حقل صغير: عنوان + قيمة */
-function Field({
-  label,
-  value,
-  tone = "normal",
-}: {
-  label: string;
-  value: string;
-  tone?: "normal" | "warn";
-}) {
-  return (
-    <div>
-      <dt className="text-xs text-slate-500">{label}</dt>
-      <dd
-        className={`font-medium ${tone === "warn" ? "text-red-600" : "text-slate-800"}`}
-      >
-        {value}
-      </dd>
+      {children.length > 0 && (
+        <main>
+          {stillLoading(detail) && !detail.data ? (
+            <LoadingRows count={3} />
+          ) : detail.error ? (
+            <ErrorBox message={detail.error} />
+          ) : detail.data ? (
+            <>
+              {activeTab === "overview" && <ChildOverview child={detail.data} />}
+
+              {activeTab === "attendance" && (
+                <ChildAttendance
+                  data={attendance.data}
+                  loading={stillLoading(attendance)}
+                  error={attendance.error}
+                  timeZone={timeZone}
+                />
+              )}
+
+              {activeTab === "progress" && (
+                <ChildProgress
+                  data={progress.data}
+                  loading={stillLoading(progress)}
+                  error={progress.error}
+                />
+              )}
+
+              {activeTab === "lessons" && (
+                <ChildLessons
+                  data={lessons.data}
+                  loading={stillLoading(lessons)}
+                  error={lessons.error}
+                  timeZone={timeZone}
+                />
+              )}
+
+              {activeTab === "invoices" && (
+                <ChildFinance
+                  invoices={invoices.data}
+                  payments={payments.data}
+                  invoicesLoading={stillLoading(invoices)}
+                  paymentsLoading={stillLoading(payments)}
+                  invoicesError={invoices.error}
+                  paymentsError={payments.error}
+                  timeZone={timeZone}
+                />
+              )}
+
+              {activeTab === "requests" && (
+                <ChildRequests
+                  child={detail.data}
+                  requests={childRequests}
+                  loading={stillLoading(requestsPage)}
+                  error={requestsPage.error}
+                  onChanged={requestsPage.reload}
+                />
+              )}
+            </>
+          ) : null}
+        </main>
+      )}
+
+      {/* ===== شريط التبويبات — ثابت في الآخر (موبايل أولاً) ===== */}
+      {children.length > 0 && tabs.length > 0 && (
+        <nav
+          aria-label="أقسام بوابة ولي الأمر"
+          className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white shadow-[0_-4px_12px_rgba(15,23,42,0.06)]"
+        >
+          <div
+            className="mx-auto grid max-w-3xl"
+            style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))` }}
+          >
+            {tabs.map((item) => {
+              const active = activeTab === item.id;
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setTab(item.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={`flex min-h-14 flex-col items-center justify-center gap-0.5 text-[11px] transition focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-emerald-600 ${
+                    active ? "font-semibold text-emerald-700" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  <span aria-hidden className="text-base leading-none">
+                    {item.icon}
+                  </span>
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      )}
     </div>
   );
 }

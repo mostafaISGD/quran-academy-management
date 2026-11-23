@@ -8,7 +8,13 @@ import { useGroupAlerts } from "@/lib/use-group-alerts";
 import { num } from "@/lib/format";
 import { UIProvider } from "@/components/ui/UIProvider";
 import { filterNavGroups, type NavGroup } from "@/lib/nav-filter";
-import { homeFor, isParentOnly, isTeacherOnly } from "@/lib/route-access";
+import {
+  homeFor,
+  isParentOnly,
+  isStudentOnly,
+  isTeacherOnly,
+  portalRedirectTarget,
+} from "@/lib/route-access";
 
 /**
  * ⭐⭐⭐ القائمة — **كل رابط معاه صلاحيته**.
@@ -38,6 +44,8 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/teachers", label: "المعلمين", icon: "👨‍🏫", permission: "teachers.view" },
       { href: "/employees", label: "الموظفين", icon: "👤", permission: "students.view" },
       { href: "/parents", label: "أولياء الأمور", icon: "👨‍👩‍👧", permission: "parents.view" },
+      // ⭐ PR 4.5 — صندوق طلبات أولياء الأمور (إلغاء/تأجيل/تعليق)
+      { href: "/student-requests", label: "طلبات أولياء الأمور", icon: "📨", permission: "student_requests.view" },
       { href: "/waitlist", label: "قائمة الانتظار", icon: "⏳", permission: "groups.manage" },
       { href: "/groups", label: "إدارة المجموعات", icon: "👥", permission: "groups.manage" },
     ],
@@ -101,6 +109,8 @@ const NAV_GROUPS: NavGroup[] = [
       // ⭐ الإشعارات مالهاش `permission` عمداً — كل دور بياخد
       // إشعاراته، والحماية بالملكية جوه الـcontroller.
       { href: "/notifications", label: "الإشعارات", icon: "🔔" },
+      // ⭐ PR 4.3 — تفضيلات القنوات خدمة ذاتية أيضاً (بلا صلاحية).
+      { href: "/notification-preferences", label: "تفضيلات الإشعارات", icon: "🎛️" },
       { href: "/audit-logs", label: "سجل العمليات", icon: "📝", permission: "settings.manage" },
       // ⭐⭐ الحسابات بـ`users.view` مش `settings.manage` — دي
       // صلاحيات مختلفة. تقدر تشوف الحسابات من غير ما تلمسها.
@@ -139,6 +149,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const teacherOnly = isTeacherOnly(user);
   const parentOnly = isParentOnly(user);
+  // ⭐ PR 4.6 — بوابة الطالب بلا sidebar، زي المعلم وولي الأمر.
+  const studentOnly = isStudentOnly(user);
 
   // ⭐⭐ بيت المستخدم — **من نفس الوحدة** اللي بتستخدمها الـproxy
   //
@@ -179,15 +191,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   const { count: groupAlerts } = useGroupAlerts(canManageGroups, alertScope);
 
-  // ⭐⭐ اللي فتح رابط مش ليه — نرجّعه لبيته
-  //
-  // ⭐ الشرط بقى `home !== "/dashboard"` بدل `teacherOnly || parentOnly`.
-  // الفرق: أي حساب تاني بيتوجه لنفس الحسبة من مصدر **واحد** —
-  // فلو ضفنا دور «طالب» بكرة، الشرط ده بيشتغل لوحده.
   useEffect(() => {
     if (!user) return;
-    if (home !== "/dashboard" && pathname !== home) router.replace(home);
-  }, [user, home, pathname, router]);
+    const target = portalRedirectTarget(pathname, user);
+    if (target) router.replace(target);
+  }, [user, pathname, router]);
 
   /**
  * ⭐⭐⭐ مافيش `handleLogout` — مافيش خروج في وضع المستخدم الواحد.
@@ -200,12 +208,16 @@ function toggleGroup(label: string) {
     setExpandedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
   }
 
-  // ===== واجهة المعلّم وولي الأمر: صفحة واحدة بس =====
-  // من غير الـ sidebar — ما فيش أي رابط إداري يوصله
-  if (teacherOnly || parentOnly) {
+  if (teacherOnly || parentOnly || studentOnly) {
     return (
       <UIProvider>
-        <div dir="rtl" className="min-h-screen bg-slate-50">{children}</div>
+        <div dir="rtl" className="min-h-screen bg-slate-50">
+          <nav aria-label="بوابة الأكاديمية" className="flex gap-4 border-b border-slate-200 bg-white px-4 py-3 text-sm">
+            <Link href={home} aria-current={pathname === home ? "page" : undefined}>البوابة</Link>
+            <Link href="/notifications" aria-current={pathname === "/notifications" ? "page" : undefined}>الإشعارات</Link>
+          </nav>
+          {children}
+        </div>
       </UIProvider>
     );
   }

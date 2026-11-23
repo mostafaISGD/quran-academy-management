@@ -159,6 +159,9 @@ class SeedRolesPermissions extends Seeder
             'programs.view',
             'attendance.view',
             'attendance.update',
+            // ⭐ PR 4.5 — يشوف طلبات أولياء الأمور عشان يرد على
+            // التليفون؛ القرار (approve/reject) مش من حقه.
+            'student_requests.view',
         ],
 
         /**
@@ -180,6 +183,9 @@ class SeedRolesPermissions extends Seeder
             'programs.view',
             'attendance.view',
             'attendance.update',
+            // ⭐ PR 4.5 — المشرفة بتراجع طلبات أولياء الأمور وتقرر.
+            'student_requests.view',
+            'student_requests.manage',
         ],
 
         /**
@@ -231,6 +237,9 @@ class SeedRolesPermissions extends Seeder
          */
         'student' => [
             'programs.view',
+            // ⭐ PR 4.6 — بوابة الطالب: قراءة نفسه فقط. الملكية
+            // من `students.user_id`، ومفيش أي صلاحية كتابة أو مال.
+            'student.portal',
         ],
     ];
     /**

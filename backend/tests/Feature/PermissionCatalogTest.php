@@ -110,7 +110,10 @@ class PermissionCatalogTest extends TestCase
 
         $out = [];
 
-        preg_match_all('/permission:([a-z][a-z.]*)/', $source, $matches);
+        // ⭐ الشرطة السفلية جزء من الاسم: `student_requests.view`.
+        // الـregex القديم كان بيقف عند `_` فيقرا `student` — صلاحية
+        // وهمية مش في الكتالوج.
+        preg_match_all('/permission:([a-z][a-z._]*)/', $source, $matches);
 
         foreach ($matches[1] as $name) {
             $out[$name] = ($out[$name] ?? 0) + 1;

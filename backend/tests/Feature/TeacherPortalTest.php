@@ -210,6 +210,7 @@ class TeacherPortalTest extends TestCase
         $this->getJsonAs('/api/teacher/lessons', $noPortal)->assertStatus(403);
         $this->getJsonAs('/api/teacher/earnings', $noPortal)->assertStatus(403);
         $this->getJsonAs('/api/teacher/availability', $noPortal)->assertStatus(403);
+        $this->getJsonAs('/api/teacher/surahs', $noPortal)->assertStatus(403);
         $this->postJsonAs("/api/teacher/lessons/{$lesson->id}/start", [], $noPortal)->assertStatus(403);
         $this->postJsonAs("/api/teacher/lessons/{$lesson->id}/complete", [], $noPortal)->assertStatus(403);
 
@@ -315,6 +316,74 @@ class TeacherPortalTest extends TestCase
 
         $this->assertCount(1, $blocks);
         $this->assertSame('16:00', $blocks[0]['starts_at']);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // ⑧ احتياجات بوابة الويب (PR 4.4)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * ⭐⭐⭐ **قائمة السور — عشان المعلم يسجّل الحفظ من الموبايل.**
+     *
+     * ⚠️ قبل كده مفيش أي راو بيرجّع `quran_surahs` للواجهة خالص:
+     * `/lessons/{lesson}/memorization` بياخد `surah_id`، بس الواجهة
+     * مكانش عندها منين تجيبه. فالحفظ من البوابة كان مستحيل بلا
+     * قائمة مكتوبة بالإيد في الفرونت.
+     */
+    public function test_the_portal_exposes_the_surah_catalog_for_the_memorization_form(): void
+    {
+        [$user] = $this->portalTeacher();
+
+        // ⭐ بالعكس عمداً — الترتيب لازم يجي من السيرفر مش من الإدخال.
+        QuranSurah::create([
+            'number' => 2,
+            'name_ar' => 'البقرة',
+            'name_en' => 'Al-Baqara',
+            'ayah_count' => 286,
+            'revelation_type' => 'medinan',
+        ]);
+        QuranSurah::create([
+            'number' => 1,
+            'name_ar' => 'الفاتحة',
+            'name_en' => 'Al-Fatiha',
+            'ayah_count' => 7,
+            'revelation_type' => 'meccan',
+        ]);
+
+        $surahs = $this->getJsonAs('/api/teacher/surahs', $user)
+            ->assertOk()
+            ->json('surahs');
+
+        $this->assertSame([1, 2], array_column($surahs, 'number'), 'السور لازم تيجي مرتبة برقمها');
+        $this->assertSame('الفاتحة', $surahs[0]['name_ar']);
+        $this->assertSame(7, (int) $surahs[0]['ayah_count'], 'عدد الآيات لازم يوصل — التحقق في السيرفر بيعتمد عليه');
+    }
+
+    /**
+     * ⭐⭐⭐ **رابط الحصة — زر «انضم» في البوابة.**
+     *
+     * ⚠️ `present()` في PR 3.10 كان بيرجّع الطالب وولي الأمر والوقت،
+     * وناسي `meeting_url` — فالمعلم كان بيشوف الحصة وما يقدرش يدخلها
+     * من البوابة. الـPR ده بيضيف الزر، فلازم الرابط يوصل.
+     */
+    public function test_the_portal_lesson_carries_the_meeting_link_so_the_teacher_can_join(): void
+    {
+        [$user, $teacher] = $this->portalTeacher();
+
+        [$lesson] = $this->makeCompletableLesson([
+            'scheduled_start_at' => now()->startOfDay()->addHours(10),
+            'scheduled_end_at' => now()->startOfDay()->addHours(10)->addMinutes(30),
+            'meeting_provider' => 'zoom',
+            'meeting_url' => 'https://zoom.us/j/987654321',
+        ], $teacher);
+
+        $row = $this->getJsonAs('/api/teacher/today', $user)
+            ->assertOk()
+            ->json('lessons.0');
+
+        $this->assertSame($lesson->id, (int) $row['id']);
+        $this->assertSame('https://zoom.us/j/987654321', $row['meeting_url'], 'رابط الحصة مش واصل للبوابة');
+        $this->assertSame('zoom', $row['meeting_provider']);
     }
 
     // ═══════════════════════════════════════════════════════════════

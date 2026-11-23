@@ -239,9 +239,27 @@ class AuthController extends Controller
      */
     public function profile(User $user): array
     {
-        $user->load(['roles', 'teacher', 'parentProfile']);
+        $user->load([
+            'roles',
+            'teacher',
+            'parentProfile',
+            // ⭐ أعمدة محددة مش `select *`: `/auth/me` بيتنادى مع
+            // تسجيل الدخول، وتقرير المال بيراقب أي `select *` على
+            // جدول `students` (FinancialReportTest). إحنا محتاجين
+            // الحقول المعروضة بس — مش الموديل كله.
+            'student' => fn ($query) => $query->select(
+                'id',
+                'user_id',
+                'student_code',
+                'first_name',
+                'middle_name',
+                'last_name',
+                'status',
+            ),
+        ]);
 
         $parentProfile = $user->parentProfile;
+        $studentProfile = $user->student;
 
         return [
             'id' => $user->id,
@@ -314,6 +332,16 @@ class AuthController extends Controller
                 'phone' => $parentProfile->phone,
                 'email' => $parentProfile->email,
                 'children_count' => $parentProfile->students()->count(),
+            ] : null,
+            // ⭐⭐ PR 4.6 — الحساب مربوط بملف طالب (نفس منطق
+            // `is_teacher`): وجود السجل بيقول «فيه بيانات»، والدور
+            // هو اللي بيقول «الحساب ده طالب». الأدمن لا يُحسب طالباً
+            // حتى لو مربوط بسجل — عشان ما يتوجّهش لبوابة الطالب.
+            'is_student' => $studentProfile !== null && ! $user->hasRole('admin'),
+            'student' => $studentProfile ? [
+                'id' => $studentProfile->id,
+                'student_code' => $studentProfile->student_code,
+                'full_name' => $studentProfile->full_name,
             ] : null,
         ];
     }

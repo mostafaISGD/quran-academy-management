@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Lesson;
+use App\Models\QuranSurah;
 use App\Models\Setting;
 use App\Models\Teacher;
 use App\Services\TeacherLedgerService;
@@ -95,6 +96,28 @@ class TeacherPortalController extends Controller
         return response()->json($this->ledger->statementFor($teacher));
     }
 
+    /**
+     * ⭐⭐⭐ **PR 4.4 — قائمة السور لنموذج الحفظ في البوابة.**
+     *
+     * ⚠️ قبل كده مفيش راو بيوصل `quran_surahs` للواجهة:
+     * `/teacher/lessons/{lesson}/memorization` بياخد `surah_id`،
+     * والواجهة مكانش عندها منين تجيبه. فالنموذج كان لازم يكتب
+     * الـ114 سورة بالإيد — وده بيتعارض مع أي تعديل في السيدر.
+     *
+     * ⭐ والمعلم بس: الراو جوه `permission:teacher.portal`، و`teacher()`
+     * بترفض أي مستخدم بلا بروفايل معلم.
+     */
+    public function surahs(Request $request)
+    {
+        $this->teacher($request);
+
+        return response()->json([
+            'surahs' => QuranSurah::query()
+                ->orderBy('number')
+                ->get(['id', 'number', 'name_ar', 'name_en', 'ayah_count', 'revelation_type']),
+        ]);
+    }
+
     // ═══════════════════════════════════════════════════════════════
     // الأدوات
     // ═══════════════════════════════════════════════════════════════
@@ -178,6 +201,14 @@ class TeacherPortalController extends Controller
             'duration_minutes' => $l->duration_minutes,
             'timezone' => $l->timezone,
             'local_start_time' => $l->local_start_time,
+
+            // ⭐⭐ **PR 4.4 — زر «انضم» محتاج الرابط.**
+            // قبل كده المعلم كان بيشوف الحصة وما يعرفش يدخلها من
+            // البوابة؛ الرابط موجود في الجدول بس `present()` كان
+            // ناسيه.
+            'meeting_provider' => $l->meeting_provider,
+            'meeting_url' => $l->meeting_url,
+
             'subscription_id' => $l->subscription_id,
             'student' => $student ? [
                 'id' => $student->id,

@@ -75,6 +75,12 @@ class RouteProtectionTest extends TestCase
         'POST api/notifications/{notification}/read' => 'مفلتر بملكية الإشعار (abort 404) جوه ال‏ـ controller',
         'POST api/notifications/read-all' => 'بيأثر على إشعارات المستخدم الحالي بس (whereNull + where user_id)',
 
+        // ⭐ PR 4.3 — تفضيلات الإشعارات خدمة ذاتية. المستخدم يتحكم
+        // في قنواته هو فقط؛ الـcontroller يشتق user_id من التوكن ولا
+        // يقبل هوية من العميل، فلا معنى لصلاحية إدارية هنا.
+        'GET api/notification-preferences' => 'تفضيلات المستخدم نفسه — user_id من التوكن، بلا أي وصول لمستخدم آخر',
+        'PUT api/notification-preferences' => 'المستخدم يعدّل قنواته هو — user_id من التوكن والكتابة على صفوفه فقط',
+
         // ===== جدول أوقات المعلم — محمي بالملكية جوه الـ controller =====
         //
         // المعلم بيتحكم بجدوله هو، فـ `authorizeOwnership()` جوه
@@ -93,6 +99,22 @@ class RouteProtectionTest extends TestCase
         // فعلاً ولي أمر. وده الوضع الصح — ولي الأمر مالوش دور
         // في كتالوج الصلاحيات أصلاً.
         'GET api/parent/children' => 'محمي بـ parent.only middleware (مش permission) — وده الوضع الصح لولي الأمر',
+
+        // ⭐ PR 4.5 — صفحة الابن الواحدة وطلبات الولي. نفس المنطق،
+        // والحماية الحقيقية في `ResolvesParentChild` جوه الـcontroller:
+        // الطالب لازم يكون **ابن مؤكَّد** (ParentChildScope) والأعلام
+        // (can_view_finance / can_view_progress / can_request_changes)
+        // بتقفل الأقسام. اختباراته في ParentPortalV2Test +
+        // StudentRequestTest.
+        'GET api/parent/children/{student}' => 'parent.only + ParentChildScope::allowedStudentIds جوه الـcontroller',
+        'GET api/parent/children/{student}/attendance' => 'parent.only + الربط المؤكد + can_view_progress',
+        'GET api/parent/children/{student}/progress' => 'parent.only + الربط المؤكد + can_view_progress',
+        'GET api/parent/children/{student}/lessons' => 'parent.only + الربط المؤكد + can_view_progress',
+        'GET api/parent/children/{student}/invoices' => 'parent.only + الربط المؤكد + can_view_finance',
+        'GET api/parent/children/{student}/payments' => 'parent.only + الربط المؤكد + can_view_finance',
+        'GET api/parent/requests' => 'parent.only + فلترة parent_id جوه الخدمة',
+        'POST api/parent/children/{student}/requests' => 'parent.only + الربط المؤكد + can_request_changes',
+        'POST api/parent/requests/{studentRequest}/withdraw' => 'parent.only + فحص ملكية الطلب جوه الخدمة',
 
         // ===== مستندات PDF (PR 2.17) =====
         //
