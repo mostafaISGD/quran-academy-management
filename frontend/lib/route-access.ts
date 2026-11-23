@@ -146,7 +146,12 @@ export function homeFor(user: AccessUser): string {
   if (isParentOnly(user)) return ROLE_HOME.parent;
   if (isTeacherOnly(user)) return ROLE_HOME.teacher;
   if (isStudentOnly(user)) return ROLE_HOME.student;
+  if (isEmployeeOnly(user)) return "/employee";
   return DEFAULT_HOME;
+}
+
+export function isEmployeeOnly(user: AccessUser): boolean {
+  return Boolean(user?.roles.length === 1 && user.roles.includes("employee"));
 }
 
 export function portalRedirectTarget(pathname: string, user: AccessUser): string | null {

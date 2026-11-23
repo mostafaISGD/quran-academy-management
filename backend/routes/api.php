@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\AuditLogController;
 use App\Http\Controllers\Api\EmployeeController;
 use App\Http\Controllers\Api\EmployeePayrollController;
+use App\Http\Controllers\Api\EmployeePortalController;
 use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\TeacherPayrollController;
 use App\Http\Controllers\Api\UserController;
@@ -690,6 +691,11 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     // ⭐⭐⭐ PR 3.12 — الرجوع لنسخة سابقة — نفس صلاحية التعديل.
     Route::post('/settings/{key}/rollback', [SettingController::class, 'rollback'])->middleware('permission:settings.update');
     Route::delete('/settings/{key}', [SettingController::class, 'destroy'])->middleware('permission:settings.update');
+
+    Route::prefix('employee')->middleware('permission:employee.portal')->group(function () {
+        Route::get('/attendance', [EmployeePortalController::class, 'attendance']);
+        Route::get('/salaries', [EmployeePortalController::class, 'salaries']);
+    });
 
     // Employees
     Route::get('/employees', [EmployeeController::class, 'index'])->middleware('permission:students.view');

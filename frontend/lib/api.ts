@@ -2342,6 +2342,24 @@ export function saveAttendance(
   });
 }
 
+export type EmployeeSalary = {
+  id: number;
+  period_start: string;
+  period_end: string;
+  amount: string;
+  currency: string;
+  status: "approved" | "paid";
+  paid_at: string | null;
+};
+
+export function getMyEmployeeAttendance(month: string) {
+  return apiFetch<AttendanceMonth>(`/employee/attendance?month=${encodeURIComponent(month)}`);
+}
+
+export function getMyEmployeeSalaries(page: number) {
+  return apiFetch<Paginated<EmployeeSalary>>(`/employee/salaries?page=${page}`);
+}
+
 export type AttendanceMonth = {
   employee: { id: number; name: string; job_title: string | null };
   month: string;
