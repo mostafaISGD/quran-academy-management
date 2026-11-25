@@ -39,6 +39,7 @@ class NotificationInfrastructureTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->travelTo(Carbon::parse('2026-10-24 12:00:00', 'UTC'));
 
         // ⭐ الطابور مزيف في كل الاختبارات — الجوب لا ينفَّذ إلا
         // بمحاولة يدوية مقصودة (determinism تحت sync driver).
