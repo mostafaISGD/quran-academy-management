@@ -121,6 +121,14 @@ describe("isTeacherOnly / isParentOnly / isStudentOnly", () => {
 });
 
 describe("homeFor", () => {
+  it("routes a dedicated employee to the employee portal", () => {
+    const employee = user({ roles: ["employee"], permissions: ["employee.portal"] });
+    expect(homeFor(employee)).toBe("/employee");
+    expect(decideRoute("/payroll", { hasSession: true, user: employee })).toEqual({
+      kind: "redirect", to: "/employee",
+    });
+    expect(decideRoute("/notifications", { hasSession: true, user: employee })).toEqual({ kind: "allow" });
+  });
   it("an admin lands on the dashboard", () => {
     expect(homeFor(admin())).toBe(DEFAULT_HOME);
   });

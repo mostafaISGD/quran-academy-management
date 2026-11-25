@@ -11,6 +11,7 @@ import { filterNavGroups, type NavGroup } from "@/lib/nav-filter";
 import {
   homeFor,
   isParentOnly,
+  isEmployeeOnly,
   isStudentOnly,
   isTeacherOnly,
   portalRedirectTarget,
@@ -111,6 +112,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/notifications", label: "الإشعارات", icon: "🔔" },
       // ⭐ PR 4.3 — تفضيلات القنوات خدمة ذاتية أيضاً (بلا صلاحية).
       { href: "/notification-preferences", label: "تفضيلات الإشعارات", icon: "🎛️" },
+      { href: "/employee", label: "بوابة الموظف", icon: "👤", permission: "employee.portal" },
       { href: "/audit-logs", label: "سجل العمليات", icon: "📝", permission: "settings.manage" },
       // ⭐⭐ الحسابات بـ`users.view` مش `settings.manage` — دي
       // صلاحيات مختلفة. تقدر تشوف الحسابات من غير ما تلمسها.
@@ -208,7 +210,7 @@ function toggleGroup(label: string) {
     setExpandedGroups((prev) => ({ ...prev, [label]: !prev[label] }));
   }
 
-  if (teacherOnly || parentOnly || studentOnly) {
+  if (teacherOnly || parentOnly || studentOnly || isEmployeeOnly(user)) {
     return (
       <UIProvider>
         <div dir="rtl" className="min-h-screen bg-slate-50">

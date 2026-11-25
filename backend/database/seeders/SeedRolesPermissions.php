@@ -109,6 +109,7 @@ class SeedRolesPermissions extends Seeder
          * @see \App\Models\AccountMovement::reversalOf
          */
         'accountant' => [
+            'employee.portal',
             // ============ الحسابات
             'finance.accounts.view',
             'finance.accounts.manage',
@@ -150,6 +151,7 @@ class SeedRolesPermissions extends Seeder
          * بس، فكان بينتج role في الـDB مش موجود في الكتالوج.
          */
         'receptionist' => [
+            'employee.portal',
             'students.view',
             'students.create',
             'students.update',
@@ -171,6 +173,7 @@ class SeedRolesPermissions extends Seeder
          * `students.delete` — الحذف قرار إدارة.
          */
         'supervisor' => [
+            'employee.portal',
             'students.view',
             'students.update',
             'teachers.view',
@@ -199,6 +202,7 @@ class SeedRolesPermissions extends Seeder
          * ⭐ والجدول بتاعه هو استثناء في `RouteProtectionTest` —
          * محمي بـ`authorizeOwnership()` جوه الـcontroller مش بصلاحية.
          */
+        'employee' => ['employee.portal'],
         'teacher' => [
             'programs.view',
             // ⭐⭐⭐ **PR 3.10 — بوابة المعلم**: المعلم يشتغل من

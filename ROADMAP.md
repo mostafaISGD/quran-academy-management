@@ -184,7 +184,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 - [x] PR 4.4 — Teacher portal (Frontend, mobile first)
 - [x] PR 4.5 — Parent portal v2
 - [x] PR 4.6 — Student portal
-- [ ] PR 4.7 — Employee portal
+- [x] PR 4.7 — Employee portal
 - [ ] PR 4.8 — Online payment (Stripe) and webhooks (**deferred**)
 
 **Phase 5 — Design System and UI Rebuild**
