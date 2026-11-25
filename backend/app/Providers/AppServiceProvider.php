@@ -3,8 +3,12 @@
 namespace App\Providers;
 
 use App\Support\DateRange;
+use App\Support\PostgresCompatibleMigrator;
+use App\Support\PostgresSchemaGrammar;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Events\ConnectionEstablished;
 use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -14,7 +18,19 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->extend('migrator', fn ($migrator, $app) => new PostgresCompatibleMigrator(
+            $app['migration.repository'], $app['db'], $app['files'], $app['events'],
+        ));
+
+        Event::listen(ConnectionEstablished::class, function (ConnectionEstablished $event): void {
+            $connection = $event->connection;
+
+            if ($connection->getDriverName() === 'pgsql') {
+                $connection->setSchemaGrammar(
+                    $connection->withTablePrefix(new PostgresSchemaGrammar),
+                );
+            }
+        });
     }
 
     /**

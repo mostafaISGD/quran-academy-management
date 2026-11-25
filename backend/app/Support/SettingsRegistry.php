@@ -136,6 +136,26 @@ final class SettingsRegistry
             'group' => 'الرواتب',
             'label' => 'إظهار هاتف ولي الأمر للمعلم في البوابة',
         ],
+        // ═══════════ الإشعارات ═══════════
+        'notifications.quiet_hours_start' => [
+            'type' => 'string',
+            'default' => '22:00',
+            'group' => 'الإشعارات',
+            'label' => 'ساعات الهدوء — البداية (H:i)',
+        ],
+        'notifications.quiet_hours_end' => [
+            'type' => 'string',
+            'default' => '07:00',
+            'group' => 'الإشعارات',
+            'label' => 'ساعات الهدوء — النهاية (H:i)',
+        ],
+        // ⭐⭐ PR 4.2 — مدد تذكير الحصص (قائمة بالدقائق قبل الحصة).
+        'notifications.lesson_reminder_offsets' => [
+            'type' => 'list',
+            'default' => ['60'],
+            'group' => 'الإشعارات',
+            'label' => 'مدد تذكير الحصص بالدقائق (مثل: 60، 1440)',
+        ],
     ];
 
     public static function definition(string $key): ?array
@@ -224,6 +244,10 @@ final class SettingsRegistry
 
         if (str_contains($definition['label'], 'بداية الحصص') && ! preg_match('/^\d{2}:\d{2}$/', $value)) {
             return ['error' => 'وقت بداية الحصص لازم يكون بصيغة H:i (مثل 16:00)'];
+        }
+
+        if (str_contains($definition['label'], 'ساعات الهدوء') && ! preg_match('/^\d{2}:\d{2}$/', $value)) {
+            return ['error' => 'وقت ساعات الهدوء لازم يكون بصيغة H:i (مثل 22:00)'];
         }
 
         return ['value' => $value];

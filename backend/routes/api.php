@@ -18,8 +18,12 @@ use App\Http\Controllers\Api\InvoiceController;
 use App\Http\Controllers\Api\LeadController;
 use App\Http\Controllers\Api\LessonController;
 use App\Http\Controllers\Api\NotificationController;
+use App\Http\Controllers\Api\NotificationPreferenceController;
+use App\Http\Controllers\Api\WhatsAppWebhookController;
 use App\Http\Controllers\Api\ParentController;
+use App\Http\Controllers\Api\ParentChildController;
 use App\Http\Controllers\Api\ParentPortalController;
+use App\Http\Controllers\Api\ParentRequestController;
 use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\ProgramController;
 use App\Http\Controllers\Api\ReportController;
@@ -28,6 +32,7 @@ use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\Api\FinancialAccountController;
 use App\Http\Controllers\Api\StudentController;
 use App\Http\Controllers\Api\StudentPhoneController;
+use App\Http\Controllers\Api\StudentRequestController;
 use App\Http\Controllers\Api\SubscriptionController;
 use App\Http\Controllers\Api\TeacherController;
 use App\Http\Controllers\Api\TeacherScheduleController;
@@ -37,7 +42,9 @@ use App\Http\Controllers\Api\TeacherLedgerController;
 use App\Http\Controllers\Api\TeacherPaymentController;
 use App\Http\Controllers\Api\StudentCreditController;
 use App\Http\Controllers\Api\StudentConsentController;
+use App\Http\Controllers\Api\StudentPortalController;
 use App\Http\Controllers\Api\LessonJoinTokenController;
+use App\Http\Controllers\Web\JoinLinkController;
 use App\Http\Controllers\Api\ExportController;
 use App\Http\Controllers\Api\LessonPolicyController;
 use App\Http\Controllers\Api\PromoCodeController;
@@ -461,8 +468,35 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     // ===== واجهة ولي الأمر =====
     // البراوت يضمن إن الحساب ده ولي أمر فعلاً. وكمان الـ controller
     // بيتأكد من إن كل ابن مرتبط بيه — عشوائياً لا يكفي.
-    Route::get('/parent/children', [ParentPortalController::class, 'children'])
-        ->middleware('parent.only');
+    Route::prefix('parent')->middleware('parent.only')->group(function () {
+        Route::get('/children', [ParentPortalController::class, 'children']);
+
+        // ⭐ PR 4.5 — صفحة الابن الواحدة: ملف، حضور، تقدم، حصص،
+        // فواتير ومدفوعات. كلها بتنادي `ParentChildScope` جوه
+        // الـcontroller (`ResolvesParentChild`).
+        Route::get('/children/{student}', [ParentChildController::class, 'show']);
+        Route::get('/children/{student}/attendance', [ParentChildController::class, 'attendance']);
+        Route::get('/children/{student}/progress', [ParentChildController::class, 'progress']);
+        Route::get('/children/{student}/lessons', [ParentChildController::class, 'lessons']);
+        Route::get('/children/{student}/invoices', [ParentChildController::class, 'invoices']);
+        Route::get('/children/{student}/payments', [ParentChildController::class, 'payments']);
+
+        // ⭐ طلبات الولي (إلغاء/تأجيل/تعليق) — `can_request_changes`.
+        Route::get('/requests', [ParentRequestController::class, 'index']);
+        Route::post('/children/{student}/requests', [ParentRequestController::class, 'store']);
+        Route::post('/requests/{studentRequest}/withdraw', [ParentRequestController::class, 'withdraw']);
+    });
+
+    // ===== صندوق طلبات أولياء الأمور — الإدارة (PR 4.5) =====
+    //
+    // ⭐ العرض والقرر صلاحيتين منفصلتين: الاستقبال بيشوف عشان يرد،
+    // والقرار (موافقة/رفض) للمشرف/الإدارة.
+    Route::get('/student-requests', [StudentRequestController::class, 'index'])
+        ->middleware('permission:student_requests.view');
+    Route::post('/student-requests/{studentRequest}/approve', [StudentRequestController::class, 'approve'])
+        ->middleware('permission:student_requests.manage');
+    Route::post('/student-requests/{studentRequest}/reject', [StudentRequestController::class, 'reject'])
+        ->middleware('permission:student_requests.manage');
 
     // Schedule / Lessons
     Route::get('/schedule', [LessonController::class, 'schedule'])->middleware('permission:lessons.view');
@@ -502,10 +536,28 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
         Route::post('/lessons/{lesson}/attendance', [LessonController::class, 'attendance']);
         Route::post('/lessons/{lesson}/memorization', [LessonController::class, 'memorization']);
         Route::get('/earnings', [TeacherPortalController::class, 'earnings']);
+        // ⭐ PR 4.4 — قائمة السور لنموذج الحفظ في البوابة.
+        Route::get('/surahs', [TeacherPortalController::class, 'surahs']);
         Route::get('/availability', [TeacherScheduleController::class, 'indexMine']);
         Route::post('/availability', [TeacherScheduleController::class, 'storeMine']);
         Route::put('/availability/{block}', [TeacherScheduleController::class, 'updateMine']);
         Route::delete('/availability/{block}', [TeacherScheduleController::class, 'destroyMine']);
+    });
+
+    // ═════════════════════════════════════════════════════════════
+    // ⭐⭐⭐ PR 4.6 — بوابة الطالب (`/student/*`)
+    //
+    // صلاحية واحدة (`student.portal`) + **الملكية من البروفايل**:
+    // `StudentPortalView::studentFor` بيقرا `students.user_id`،
+    // ومفيش `{student}` في أي راو. القراءات كلها لنفسه فقط،
+    // ومفيش أي مسار مالي — لا فواتير ولا مدفوعات ولا أرصدة.
+    // ═════════════════════════════════════════════════════════════
+    Route::prefix('student')->middleware('permission:student.portal')->group(function () {
+        Route::get('/overview', [StudentPortalController::class, 'overview']);
+        Route::get('/schedule', [StudentPortalController::class, 'schedule']);
+        Route::get('/progress', [StudentPortalController::class, 'progress']);
+        // ⭐ زر الانضمام: يسجّل مشارك واحد ويرجّع رابط الحصة.
+        Route::post('/lessons/{lesson}/join', [StudentPortalController::class, 'join']);
     });
 
     // Invoices
@@ -596,6 +648,11 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
     Route::get('/notifications', [NotificationController::class, 'index']);
     Route::post('/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+
+    // ⭐ PR 4.3 — تفضيلات الإشعارات الذاتية (بلا صلاحية: قرار المستخدم
+    // في قنواته، والحماية بالملكية داخل الـcontroller).
+    Route::get('/notification-preferences', [NotificationPreferenceController::class, 'index']);
+    Route::put('/notification-preferences', [NotificationPreferenceController::class, 'update']);
 
     // Audit Logs
     Route::get('/audit-logs', [AuditLogController::class, 'index'])->middleware('permission:audit.view');
@@ -811,3 +868,13 @@ Route::post('/students/bulk/notify', [StudentController::class, 'bulkNotify'])->
 // ⭐ PR 1.12 — استعمال رمز دخول الحصة (عام — الطالب تحت 13 مالوش حساب)
 Route::post('/lessons/join', [LessonJoinTokenController::class, 'redeem'])
     ->middleware('throttle:10,1');
+
+// ⭐ PR 4.3 — واتساب webhook (عام عمداً: Meta تنادي بلا توكن،
+// والحماية توقيع HMAC على الجسم الخام — لا auth:sanctum).
+Route::get('/webhooks/whatsapp', [WhatsAppWebhookController::class, 'verify']);
+Route::post('/webhooks/whatsapp', [WhatsAppWebhookController::class, 'receive']);
+
+// ⭐⭐⭐ PR 4.6 — معاينة رابط الدخول (عام — الطفل تحت 13 مالوش حساب).
+// الرد بيانات الحصة/المعلم/البرنامج فقط — **بلا أي بيانات طالب**.
+Route::get('/join/{token}', [JoinLinkController::class, 'preview'])
+    ->middleware('throttle:30,1');

@@ -5,7 +5,6 @@ namespace App\Services;
 use App\Enums\LessonStatus;
 use App\Models\ActivityLog;
 use App\Models\Lesson;
-use App\Models\Notification;
 use App\Models\Setting;
 use App\Models\Subscription;
 use App\Models\SubscriptionPause;
@@ -200,17 +199,17 @@ final class SubscriptionPauseService
                 continue;
             }
 
-            Notification::create([
-                'user_id' => $parent->user->id,
-                'student_id' => $student->id,
-                'subscription_id' => $subscription->id,
-                'event_type' => $eventType,
-                'channel' => 'in_app',
-                'payload' => $payload,
-                'sent_at' => now(),
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            // ⭐⭐ PR 4.2 — عبر البنية (كانت create مباشرة). بلا
+            // مفتاح مرجعي عمداً: الإيقاف→الاستئناف→إيقاف يعيد
+            // إشعاراً جديداً كل دورة — مفتاح الاشتراك وحده كان
+            // ستبتلع دورة لاحقة.
+            app(NotificationService::class)->dispatchInbox(
+                $eventType,
+                $parent->user,
+                $payload,
+                null,
+                ['student_id' => $student->id, 'subscription_id' => $subscription->id],
+            );
         }
     }
 }

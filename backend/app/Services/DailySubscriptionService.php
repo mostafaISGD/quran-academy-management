@@ -504,6 +504,28 @@ class DailySubscriptionService
     }
 
     /**
+     * ⭐⭐⭐ **PR 4.2 — إشعارات «هينتهي قريب» وحدها.**
+     *
+     * أمر `subscriptions:notify-expiring` يستدعي المسار الواحد
+     * (نافذة تحذير كل مؤسسة من مركز الإعدادات) بلا تجديد ولا
+     * إقفال — الكتابة عبر البنية، والتكرار مفتاحه في القاعدة.
+     */
+    public function notifyExpiringOnly(?Carbon $onDate = null): array
+    {
+        $today = ($onDate ?? Carbon::today())->copy()->startOfDay();
+
+        $result = [
+            'date' => $today->toDateString(),
+            'expiring_notified' => [],
+            'notifications_created' => 0,
+        ];
+
+        $this->notifyExpiring($result, $today);
+
+        return $result;
+    }
+
+    /**
      * يبعت الإشعار لكل ليهم حق: الأدمن، المعلم، وأولياء الأمور.
      *
      * التكرار بيتمنع بـ payload.event_key — نفس المفتاح = نفس الإشعار،
@@ -524,7 +546,13 @@ class DailySubscriptionService
         // «اتبعت للمعلم». قبل كده كان المفتاح لوحده فكان أول مستلم
         // بس هو اللي بياخد الإشعار والباقي بيترفضوا على إن المفتاح
         // موجود.
+        //
+        // ⭐⭐ PR 4.2 — الجسر ده بقى للصفوف **التاريخية** ما قبل
+        // PR 4.2 (بلا `dedup_key`) — الصفوف الجديدة تُمنع عبر
+        // مفتاح فريد في القاعدة داخل `dispatchInbox()`.
         $sentKeys = $this->existingEventKeys($recipients);
+
+        $service = app(NotificationService::class);
 
         foreach ($recipients as $userId) {
             $key = $userId . '|' . $eventKey;
@@ -533,17 +561,22 @@ class DailySubscriptionService
                 continue;
             }
 
-            Notification::create([
-                'user_id' => $userId,
-                'event_type' => $eventType,
-                'channel' => 'in_app',
-                'payload' => $payload + [
+            $user = User::query()->find($userId);
+
+            if ($user === null) {
+                continue; // مستلم بلا حساب فعّال — بلا صندوق يتيم.
+            }
+
+            $service->dispatchInbox(
+                $eventType,
+                $user,
+                $payload + [
                     'event_key' => $eventKey,
                     'entity_type' => 'subscription',
                     'entity_id' => $subscription->id,
                 ],
-                'sent_at' => now(),
-            ]);
+                $eventKey,
+            );
 
             $sentKeys[$key] = true;
             $sent++;

@@ -117,6 +117,9 @@ const GUEST: AuthUser = {
   teacher: null,
   is_parent: false,
   parent: null,
+  // ⭐ PR 4.6 — الزائر مش طالب، ونفس القيمة الفاضية.
+  is_student: false,
+  student: null,
 };
 
 /**

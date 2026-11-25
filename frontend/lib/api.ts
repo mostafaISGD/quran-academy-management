@@ -1,3 +1,8 @@
+import type {
+  AttendanceStatus as LessonAttendanceStatus,
+  ProgressCategory,
+} from "@/lib/teacher-portal";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
 const API_ORIGIN = API_BASE_URL.replace(/\/api\/?$/, "");
 const CSRF_COOKIE_URL = `${API_ORIGIN}/sanctum/csrf-cookie`;
@@ -222,6 +227,21 @@ export type AuthUser = {
   /** الحساب ولي أمر — بيشوف أبناؤه بس مش بيانات الأكاديمية */
   is_parent: boolean;
   parent: AuthParent | null;
+  /**
+   * ⭐⭐ PR 4.6 — الحساب مربوط بملف طالب (≥ 13 بموافقة).
+   *
+   * ⭐ نفس نمط `is_teacher`: السجل بيقول «فيه بيانات»، والدور
+   * بيقول «الحساب ده طالب». المدير المربوط بسجل طالب لا يُحسب.
+   */
+  is_student: boolean;
+  student: AuthStudent | null;
+};
+
+/** ⭐ أقل قدر من بيانات الطالب — الواجهة مش محتاجة أكتر من كده */
+export type AuthStudent = {
+  id: number;
+  student_code: string;
+  full_name: string;
 };
 
 export type AuthParent = {
@@ -820,6 +840,207 @@ export function deleteScheduleBlock(teacherId: number, blockId: number) {
   return apiFetch<{ message: string }>(
     `/teachers/${teacherId}/availability/${blockId}`,
     { method: "DELETE" },
+  );
+}
+
+/* ============================================================
+   بوابة المعلّم (PR 4.4) — `/teacher/*`
+   ⭐ كلها بصلاحية `teacher.portal` والملكية محكومة في السيرفر
+   (`LessonPolicy`)، فمافيش `teacher_id` في أي مسار هنا.
+   ========================================================== */
+
+/** ⭐ سطر حصة زي ما البوابة بترجّعه (PR 3.10 + رابط الحصة في 4.4). */
+export type TeacherPortalLesson = {
+  id: number;
+  status: Lesson["status"];
+  lesson_type: Lesson["lesson_type"];
+  scheduled_start_at: string;
+  scheduled_end_at: string;
+  duration_minutes: number;
+  timezone: string | null;
+  local_start_time: string | null;
+  meeting_provider: Lesson["meeting_provider"];
+  meeting_url: string | null;
+  subscription_id: number | null;
+  student: { id: number; name: string } | null;
+  parent: { name: string; phone: string | null } | null;
+};
+
+export type TeacherPortalDay = {
+  teacher_id: number;
+  label: string;
+  from: string;
+  to: string;
+  timezone: string;
+  lessons: TeacherPortalLesson[];
+};
+
+export type TeacherPortalLessonsResponse = {
+  teacher_id: number;
+  lessons: TeacherPortalLesson[];
+};
+
+/** ⭐ سطر كشف المستحقات — `MoneyCast` بيرجّع نص عشري عمداً. */
+export type TeacherPortalEarningsEntry = {
+  id: number;
+  teacher_id: number;
+  type: string;
+  debit: number | string;
+  credit: number | string;
+  balance_after: number | string;
+  currency: string;
+  description: string | null;
+  created_at: string;
+  earning?: { id: number; lesson_id: number | null; earning_date: string } | null;
+  payment?: { id: number; paid_at: string | null } | null;
+};
+
+export type TeacherPortalEarnings = {
+  teacher_id: number;
+  currencies: Record<
+    string,
+    { balance: number; total_debit: number; total_credit: number }
+  >;
+  entries: TeacherPortalEarningsEntry[];
+};
+
+/** ⭐ حصص اليوم — في منطقة المعلم الزمنية. */
+export function getTeacherToday() {
+  return apiFetch<TeacherPortalDay>("/teacher/today");
+}
+
+/** ⭐ حصص الأسبوع الحالي. */
+export function getTeacherWeek() {
+  return apiFetch<TeacherPortalDay>("/teacher/week");
+}
+
+/** ⭐ كل حصصي — بفلاتر اختيارية. */
+export function getTeacherPortalLessons(params?: {
+  from?: string;
+  to?: string;
+  status?: Lesson["status"];
+}) {
+  const s = new URLSearchParams();
+  if (params?.from) s.set("from", params.from);
+  if (params?.to) s.set("to", params.to);
+  if (params?.status) s.set("status", params.status);
+  const q = s.toString();
+
+  return apiFetch<TeacherPortalLessonsResponse>(
+    `/teacher/lessons${q ? `?${q}` : ""}`,
+  );
+}
+
+/** ⭐ كشف مستحقاتي — كل عملة لوحدها. */
+export function getTeacherPortalEarnings() {
+  return apiFetch<TeacherPortalEarnings>("/teacher/earnings");
+}
+
+/**
+ * ⭐ قائمة السور — لنموذج الحفظ.
+ *
+ * ⚠️ مفيش راو تاني بيرجّع `quran_surahs` للواجهة، فالنموذج مش
+ * هيقدر يبني القائمة بنفسه.
+ */
+export function getTeacherSurahs() {
+  return apiFetch<{ surahs: QuranSurah[] }>("/teacher/surahs");
+}
+
+/* ---- التوفر: نفس شكل المسار الإداري بس الهوية من الجلسة ---- */
+
+export function getMyAvailability(week?: string) {
+  const s = new URLSearchParams();
+  if (week) s.set("week", week);
+  const q = s.toString();
+
+  return apiFetch<TeacherAvailability>(
+    `/teacher/availability${q ? `?${q}` : ""}`,
+  );
+}
+
+export function createMyAvailability(payload: {
+  weekday: number;
+  starts_at: string;
+  ends_at: string;
+  kind: ScheduleKind;
+  title?: string;
+  notes?: string;
+  is_recurring?: boolean;
+  specific_date?: string;
+}) {
+  return apiFetch<TeacherScheduleBlock>("/teacher/availability", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateMyAvailability(
+  blockId: number,
+  payload: Partial<{
+    weekday: number;
+    starts_at: string;
+    ends_at: string;
+    kind: ScheduleKind;
+    title: string | null;
+    notes: string | null;
+    is_recurring: boolean;
+    specific_date: string | null;
+  }>,
+) {
+  return apiFetch<TeacherScheduleBlock>(`/teacher/availability/${blockId}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteMyAvailability(blockId: number) {
+  return apiFetch<{ message: string }>(`/teacher/availability/${blockId}`, {
+    method: "DELETE",
+  });
+}
+
+/* ---- أفعال الحصة (نفس مسارات الإدارة بس من البوابة) ---- */
+
+export function startTeacherLesson(lessonId: number) {
+  return apiFetch<Lesson>(`/teacher/lessons/${lessonId}/start`, {
+    method: "POST",
+  });
+}
+
+export function completeTeacherLesson(lessonId: number) {
+  return apiFetch<Lesson>(`/teacher/lessons/${lessonId}/complete`, {
+    method: "POST",
+  });
+}
+
+/** ⭐ الحضور — بياخد `entries` (PR 3.5) مش `status` المفرد. */
+export function recordTeacherAttendance(
+  lessonId: number,
+  payload: {
+    entries: Array<{ student_id: number; status: LessonAttendanceStatus }>;
+  },
+) {
+  return apiFetch<{ data: unknown[]; lesson: Lesson }>(
+    `/teacher/lessons/${lessonId}/attendance`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+/** ⭐ حفظ/مراجعة — `category` إجباري، والآيات للحفظ بس. */
+export function recordTeacherMemorization(
+  lessonId: number,
+  payload: {
+    category: ProgressCategory;
+    surah_id?: number;
+    from_ayah?: number;
+    to_ayah?: number;
+    quality?: number;
+    notes?: string;
+  },
+) {
+  return apiFetch<Record<string, unknown>>(
+    `/teacher/lessons/${lessonId}/memorization`,
+    { method: "POST", body: JSON.stringify(payload) },
   );
 }
 
@@ -1612,12 +1833,51 @@ export function unlockPeriod(lockId: number, reason: string, currentPassword: st
 export type Notification = {
   id: number;
   user_id: number;
-  event_type: "lesson_reminder" | "subscription_expiring" | "subscription_expired" | "payment_received" | "makeup_created" | "trial_reminder";
+  event_type:
+    | "lesson_reminder"
+    | "subscription_expiring"
+    | "subscription_expired"
+    | "subscription_renewed"
+    | "subscription_paused"
+    | "subscription_resumed"
+    | "payment_received"
+    | "makeup_created"
+    | "trial_reminder"
+    | "announcement"
+    | "lesson_completed"
+    | "invoice_overdue"
+    | "invoice_issued"
+    | "student_absence"
+    | "teacher_absence"
+    | "salary_paid"
+    | "lesson_canceled"
+    | "student_request_created"
+    | "student_request_approved"
+    | "student_request_rejected";
   channel: "in_app" | "email" | "whatsapp" | "sms";
   payload: Record<string, unknown> | null;
   sent_at: string | null;
   read_at: string | null;
   created_at: string;
+};
+
+/** ⭐ PR 4.3 — قناة يمكن للمستخدم تعطيلها بنفسه. */
+export type NotificationPreferenceChannel = "email" | "whatsapp" | "sms";
+
+/**
+ * ⭐ `available` = القناة قابلة للإرسال فعلياً الآن (مزوّد/علم).
+ * `is_enabled` = تفضيل المستخدم المحفوظ — يُطبَّق عند التفعيل.
+ */
+export type NotificationPreference = {
+  channel: NotificationPreferenceChannel;
+  label: string;
+  is_enabled: boolean;
+  available: boolean;
+  note: string | null;
+};
+
+export type NotificationPreferencesResponse = {
+  channels: NotificationPreference[];
 };
 
 export type AuditLog = {
@@ -3376,6 +3636,7 @@ export type ParentChildView = {
     photo_url: string | null;
   };
   relationship: string | null;
+  is_primary: boolean;
   subscription: {
     id: number;
     program_name: string;
@@ -3419,6 +3680,455 @@ export function getMyChildren() {
     parent: { id: number; name: string; phone: string | null; email: string | null };
     children: ParentChildView[];
   }>("/parent/children");
+}
+
+// ---- PR 4.5: صفحة الابن الواحدة ----
+
+/**
+ * ⭐ أعلام الرابط — نفس `ParentChildScope`.
+ *
+ * ⭐ الواجهة بتستخدمها عشان **تخفي** التبويبات الممنوعة، والسيرفر
+ * بيرفضها بـ403 لو حد فتحها بالـURL.
+ */
+export type ParentChildFlags = {
+  can_view_finance: boolean;
+  can_view_progress: boolean;
+  can_request_changes: boolean;
+  can_manage: boolean;
+  can_pay: boolean;
+};
+
+/** ⭐ ملف الابن الكامل = ملخّص القائمة + الملف + الأعلام. */
+export type ParentChildDetail = ParentChildView & {
+  profile: {
+    date_of_birth: string | null;
+    gender: string | null;
+    timezone: string | null;
+    joined_at: string | null;
+  };
+  flags: ParentChildFlags;
+};
+
+export type ParentAttendanceStatus = "present" | "absent" | "late" | "excused";
+
+export type ParentAttendanceRow = {
+  lesson_id: number;
+  date: string | null;
+  status: ParentAttendanceStatus;
+  late_minutes: number | null;
+  notes: string | null;
+  teacher_name: string | null;
+  program_name: string | null;
+};
+
+export type ParentAttendance = {
+  student_id: number;
+  summary: {
+    present: number;
+    absent: number;
+    late: number;
+    excused: number;
+    total: number;
+  };
+  attendance: ParentAttendanceRow[];
+};
+
+export type ParentProgressRow = {
+  id: number;
+  category: string;
+  score: number | null;
+  notes: string | null;
+  recorded_at: string | null;
+  program_name: string | null;
+  level_name: string | null;
+  teacher_name: string | null;
+};
+
+export type ParentMemorizationRow = {
+  id: number;
+  surah_name: string | null;
+  from_ayah: number;
+  to_ayah: number;
+  quality: number | null;
+  notes: string | null;
+  recorded_at: string | null;
+  teacher_name: string | null;
+};
+
+export type ParentProgress = {
+  student_id: number;
+  progress: ParentProgressRow[];
+  memorization: ParentMemorizationRow[];
+};
+
+export type ParentLessonRow = {
+  id: number;
+  scheduled_start_at: string | null;
+  scheduled_end_at: string | null;
+  status: string;
+  lesson_type: string | null;
+  teacher_name: string | null;
+  program_name: string | null;
+  attendance_status: ParentAttendanceStatus | null;
+};
+
+export type ParentLessons = {
+  student_id: number;
+  lessons: ParentLessonRow[];
+};
+
+export type ParentInvoiceRow = {
+  id: number;
+  invoice_number: string;
+  issue_date: string | null;
+  due_date: string | null;
+  total: number;
+  paid_amount: number;
+  balance_due: number;
+  currency: string;
+  status: string;
+  /** ⭐ محسوبة من `due_date` — مش حالة مخزّنة (قاعدة 10). */
+  is_overdue: boolean;
+};
+
+export type ParentInvoices = {
+  student_id: number;
+  invoices: ParentInvoiceRow[];
+};
+
+export type ParentPaymentRow = {
+  id: number;
+  amount: number;
+  currency: string;
+  payment_method: string;
+  status: string;
+  paid_at: string | null;
+  transaction_reference: string | null;
+  invoice_number: string | null;
+};
+
+export type ParentPayments = {
+  student_id: number;
+  payments: ParentPaymentRow[];
+};
+
+/** ⭐ ملف ابن واحد — الأعلام جواه، فالصفحة تعرف تخفي الأقسام. */
+export function getParentChild(id: number) {
+  return apiFetch<ParentChildDetail>(`/parent/children/${id}`);
+}
+
+export function getParentChildAttendance(id: number) {
+  return apiFetch<ParentAttendance>(`/parent/children/${id}/attendance`);
+}
+
+export function getParentChildProgress(id: number) {
+  return apiFetch<ParentProgress>(`/parent/children/${id}/progress`);
+}
+
+export function getParentChildLessons(id: number) {
+  return apiFetch<ParentLessons>(`/parent/children/${id}/lessons`);
+}
+
+/** ⭐ 403 لو `can_view_finance=false` — والواجهة بتخفي التبويب. */
+export function getParentChildInvoices(id: number) {
+  return apiFetch<ParentInvoices>(`/parent/children/${id}/invoices`);
+}
+
+export function getParentChildPayments(id: number) {
+  return apiFetch<ParentPayments>(`/parent/children/${id}/payments`);
+}
+
+// ---- PR 4.5: طلبات ولي الأمر ----
+
+export type StudentRequestType = "cancel" | "postpone" | "suspend";
+export type StudentRequestStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "withdrawn";
+
+export type StudentRequestRow = {
+  id: number;
+  type: StudentRequestType;
+  type_label: string;
+  status: StudentRequestStatus;
+  status_label: string;
+  reason: string;
+  admin_notes: string | null;
+  requested_date: string | null;
+  created_at: string | null;
+  reviewed_at: string | null;
+  student: {
+    id: number;
+    full_name: string;
+    student_code: string;
+  } | null;
+  parent: { id: number; name: string; phone: string | null } | null;
+  lesson: {
+    id: number;
+    scheduled_start_at: string | null;
+    status: string;
+  } | null;
+  subscription: { id: number; status: string } | null;
+};
+
+export type StudentRequestPayload = {
+  type: StudentRequestType;
+  lesson_id?: number;
+  subscription_id?: number;
+  requested_date?: string;
+  reason: string;
+};
+
+/** ⭐ طلبات الحساب الحالي — كل الحالات. */
+export function getParentRequests() {
+  return apiFetch<{ requests: StudentRequestRow[] }>("/parent/requests");
+}
+
+export function createParentRequest(
+  childId: number,
+  payload: StudentRequestPayload,
+) {
+  return apiFetch<{ message: string; request: StudentRequestRow }>(
+    `/parent/children/${childId}/requests`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
+}
+
+export function withdrawParentRequest(id: number) {
+  return apiFetch<{ message: string; request: StudentRequestRow }>(
+    `/parent/requests/${id}/withdraw`,
+    { method: "POST" },
+  );
+}
+
+/** ⭐ صندوق الإدارة — مفلتر بالمؤسسة على السيرفر. */
+export type StudentRequestInbox = {
+  data: StudentRequestRow[];
+  current_page: number;
+  last_page: number;
+  per_page: number;
+  total: number;
+  counts: {
+    status: Record<string, number>;
+    type: Record<string, number>;
+  };
+};
+
+export function getStudentRequests(params?: {
+  status?: string;
+  type?: string;
+  student_id?: number;
+  page?: number;
+  per_page?: number;
+}) {
+  const search = new URLSearchParams();
+
+  if (params?.status) search.set("status", params.status);
+  if (params?.type) search.set("type", params.type);
+  if (params?.student_id) search.set("student_id", String(params.student_id));
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.per_page) search.set("per_page", String(params.per_page));
+
+  const qs = search.toString();
+
+  return apiFetch<StudentRequestInbox>(
+    `/student-requests${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export function approveStudentRequest(id: number, adminNotes?: string) {
+  return apiFetch<{ message: string; request: StudentRequestRow }>(
+    `/student-requests/${id}/approve`,
+    {
+      method: "POST",
+      body: JSON.stringify({ admin_notes: adminNotes ?? null }),
+    },
+  );
+}
+
+export function rejectStudentRequest(id: number, adminNotes: string) {
+  return apiFetch<{ message: string; request: StudentRequestRow }>(
+    `/student-requests/${id}/reject`,
+    { method: "POST", body: JSON.stringify({ admin_notes: adminNotes }) },
+  );
+}
+
+// ============================================================
+// بوابة الطالب (PR 4.6)
+// ============================================================
+
+/**
+ * ⭐⭐ الطالب بيقرا **نفسه فقط**.
+ *
+ * ⭐ مفيش `student_id` في أي دالة هنا — السيرفر بيحدد الطالب من
+ * `students.user_id` بتاع الجلسة. فحتى لو الواجهة حاولت، مفيش
+ * معامل تقدر تمرّره.
+ *
+ * ⚠️ ومفيش أي نوع مالي في القسم ده عمداً: البوابة أكاديمية بالكامل.
+ */
+
+export type StudentPortalStudent = {
+  id: number;
+  full_name: string;
+  student_code: string;
+  status: string;
+};
+
+export type StudentLessonView = {
+  id: number;
+  scheduled_start_at: string | null;
+  scheduled_end_at: string | null;
+  duration_minutes: number;
+  status: string;
+  status_label: string;
+  lesson_type: string | null;
+  teacher_name: string | null;
+  program_name: string | null;
+  level_name: string | null;
+  /** ⭐ نفس حكم السيرفر (`LessonJoinService`) — الواجهة ما تخترعش حكماً تاني */
+  can_join: boolean;
+};
+
+export type StudentAttendanceSummary = {
+  present: number;
+  late: number;
+  absent: number;
+  excused: number;
+  total: number;
+};
+
+export type StudentAttendanceRow = {
+  id: number;
+  lesson_id: number;
+  status: string;
+  status_label: string;
+  late_minutes: number;
+  marked_at: string | null;
+  lesson_start_at: string | null;
+  teacher_name: string | null;
+};
+
+export type StudentHomework = {
+  available: boolean;
+  items: { id: number; title: string; due_date: string | null }[];
+};
+
+export type StudentOverview = {
+  student: StudentPortalStudent;
+  next_lesson: StudentLessonView | null;
+  upcoming_count: number;
+  attendance_rate: number;
+  attendance_summary: StudentAttendanceSummary;
+  memorization_summary: {
+    surahs: number;
+    ayahs: number;
+    records: number;
+  };
+  homework: StudentHomework;
+};
+
+export type StudentSchedule = {
+  student_id: number;
+  upcoming: StudentLessonView[];
+  past: StudentLessonView[];
+};
+
+export type StudentProgressRecord = {
+  id: number;
+  category: string;
+  category_label: string;
+  score: number | null;
+  notes: string | null;
+  recorded_at: string | null;
+  teacher_name: string | null;
+  program_name: string | null;
+  level_name: string | null;
+};
+
+export type StudentMemorizationRecord = {
+  id: number;
+  surah_id: number;
+  surah_name: string | null;
+  surah_number: number | null;
+  from_ayah: number;
+  to_ayah: number;
+  quality: number | null;
+  notes: string | null;
+  recorded_at: string | null;
+};
+
+export type StudentMemorizationSurah = {
+  surah_id: number;
+  surah_name: string | null;
+  surah_number: number | null;
+  from_ayah: number;
+  to_ayah: number;
+  ayahs: {
+    from_ayah: number;
+    to_ayah: number;
+    quality: number | null;
+    recorded_at: string | null;
+  }[];
+};
+
+export type StudentProgress = {
+  student_id: number;
+  attendance: {
+    summary: StudentAttendanceSummary;
+    rate: number;
+    rows: StudentAttendanceRow[];
+  };
+  progress: StudentProgressRecord[];
+  memorization: StudentMemorizationRecord[];
+  memorization_map: StudentMemorizationSurah[];
+};
+
+export type StudentJoinResult = {
+  lesson_id: number;
+  join_url: string;
+  joined_at: string | null;
+};
+
+/** ⭐ معاينة رابط الطفل (< 13) — **بلا أي بيانات شخصية** */
+export type StudentJoinPreview = {
+  teacher_name: string | null;
+  program_name: string | null;
+  level_name: string | null;
+  scheduled_start_at: string | null;
+  scheduled_end_at: string | null;
+  duration_minutes: number;
+  status: string;
+  has_meeting: boolean;
+  expired: boolean;
+  used: boolean;
+  join_url: string | null;
+};
+
+export function getStudentOverview() {
+  return apiFetch<StudentOverview>("/student/overview");
+}
+
+export function getStudentSchedule() {
+  return apiFetch<StudentSchedule>("/student/schedule");
+}
+
+export function getStudentProgress() {
+  return apiFetch<StudentProgress>("/student/progress");
+}
+
+/** ⭐ زر «انضم للحصة» — بيسجّل المشارك ويرجّع رابط الاجتماع */
+export function joinStudentLesson(lessonId: number) {
+  return apiFetch<{ data: StudentJoinResult }>(`/student/lessons/${lessonId}/join`, {
+    method: "POST",
+  });
+}
+
+/** ⭐ معاينة رابط الدخول — عامة (الطفل تحت 13 مالوش حساب) */
+export function getJoinPreview(token: string) {
+  return apiFetch<{ data: StudentJoinPreview }>(
+    `/join/${encodeURIComponent(token)}`,
+  );
 }
 
 export function getStudents(params?: {
@@ -3641,12 +4351,25 @@ export function issueLessonJoinToken(lessonId: number, studentId: number) {
   );
 }
 
-/** ⭐ استعمال رمز دخول الحصة — عامة (الطالب تحت 13 مالوش حساب) */
+/**
+ * ⭐ استعمال رمز دخول الحصة — عامة (الطالب تحت 13 مالوش حساب).
+ *
+ * ⭐ PR 4.6 — الرد بقى فيه `meeting_url`: الاستعمال بيسجّل الدخول
+ * في `lesson_participants` ويرجّع الرابط الحقيقي. الرمز نفسه
+ * **ما بيتحوّلش لصفحة** — الواجهة هي اللي بتوجّه.
+ */
 export function redeemLessonJoinToken(pinOrToken: string, lessonId: number) {
-  return apiFetch<{ data: { ok: boolean; student_id: number; lesson_id: number } }>(
-    "/lessons/join",
-    { method: "POST", body: JSON.stringify({ pin_or_token: pinOrToken, lesson_id: lessonId }) },
-  );
+  return apiFetch<{
+    data: {
+      ok: boolean;
+      student_id: number;
+      lesson_id: number;
+      meeting_url: string | null;
+    };
+  }>("/lessons/join", {
+    method: "POST",
+    body: JSON.stringify({ pin_or_token: pinOrToken, lesson_id: lessonId }),
+  });
 }
 
 export function getParents() {
@@ -4357,6 +5080,20 @@ export function markNotificationRead(notificationId: number) {
 
 export function markAllNotificationsRead() {
   return apiFetch("/notifications/read-all", { method: "POST" });
+}
+
+/** ⭐ PR 4.3 — تفضيلات الإشعارات الذاتية. */
+export function getNotificationPreferences() {
+  return apiFetch<NotificationPreferencesResponse>("/notification-preferences");
+}
+
+export function updateNotificationPreferences(
+  preferences: Array<{ channel: NotificationPreferenceChannel; is_enabled: boolean }>,
+) {
+  return apiFetch<NotificationPreferencesResponse>("/notification-preferences", {
+    method: "PUT",
+    body: JSON.stringify({ preferences }),
+  });
 }
 
 export function getAuditLogs(params?: {

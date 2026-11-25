@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useState } from "react";
 import { getNotifications, markNotificationRead, markAllNotificationsRead, type Notification } from "@/lib/api";
 import { usePaginated } from "@/lib/use-page";
@@ -10,6 +11,20 @@ const EVENT_LABEL: Record<Notification["event_type"], string> = {
   lesson_reminder: "تذكير بحصة", subscription_expiring: "اشتراك قارب على الانتهاء",
   subscription_expired: "اشتراك منتهي", payment_received: "دفعة مستلمة",
   makeup_created: "حصة تعويضية", trial_reminder: "تذكير بتقييم تجريبي",
+  subscription_renewed: "تجديد اشتراك",
+  subscription_paused: "إيقاف اشتراك مؤقتًا",
+  subscription_resumed: "استئناف اشتراك",
+  announcement: "إعلان",
+  lesson_completed: "اكتمال حصة",
+  invoice_overdue: "فاتورة متأخرة",
+  invoice_issued: "فاتورة جديدة",
+  student_absence: "غياب طالب",
+  teacher_absence: "غياب معلم",
+  salary_paid: "صرف راتب",
+  lesson_canceled: "إلغاء حصة",
+  student_request_created: "طلب جديد",
+  student_request_approved: "الموافقة على الطلب",
+  student_request_rejected: "رفض الطلب",
 };
 
 const CHANNEL_LABEL: Record<Notification["channel"], string> = {
@@ -88,9 +103,17 @@ export default function NotificationsPage() {
           <h1 className="text-lg font-semibold text-slate-800">الإشعارات</h1>
           {unreadCount > 0 && <p className="text-sm text-slate-500">{unreadCount} غير مقروء</p>}
         </div>
-        {unreadCount > 0 && (
-          <button onClick={handleMarkAllRead} className="rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">تعليم الكل كمقروء</button>
-        )}
+        <div className="flex items-center gap-2">
+          <Link
+            href="/notification-preferences"
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            تفضيلات الإشعارات
+          </Link>
+          {unreadCount > 0 && (
+            <button onClick={handleMarkAllRead} className="rounded-lg bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">تعليم الكل كمقروء</button>
+          )}
+        </div>
       </div>
 
       {/* فلاتر */}

@@ -178,14 +178,14 @@ When finished: write the PR description (what changed, how it was tested, risks)
 
 **Phase 4 — Notifications and Portals**
 
-- [ ] PR 4.1 — Notification infrastructure (queue, channels, templates)
-- [ ] PR 4.2 — Scheduled event dispatchers
-- [ ] PR 4.3 — Arabic email template + WhatsApp adapter
-- [ ] PR 4.4 — Teacher portal (Frontend, mobile first)
-- [ ] PR 4.5 — Parent portal v2
-- [ ] PR 4.6 — Student portal
+- [x] PR 4.1 — Notification infrastructure (queue, channels, templates)
+- [x] PR 4.2 — Scheduled event dispatchers
+- [x] PR 4.3 — Arabic email template + WhatsApp adapter
+- [x] PR 4.4 — Teacher portal (Frontend, mobile first)
+- [x] PR 4.5 — Parent portal v2
+- [x] PR 4.6 — Student portal
 - [ ] PR 4.7 — Employee portal
-- [ ] PR 4.8 — Online payment (Stripe) and webhooks
+- [ ] PR 4.8 — Online payment (Stripe) and webhooks (**deferred**)
 
 **Phase 5 — Design System and UI Rebuild**
 
@@ -1715,6 +1715,17 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** A provider failure leaves `failed` with a reason and is retried; no record has `sent_at` without delivery.
 **Depends on:** 3.12
 
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-24):**
+> - `NotificationService::dispatch(event, recipient, data, ?channels)` البوابة الوحيدة: صف صندوق في `notifications` بـ`sent_at=now()` (الوصول للصندوق نفسه هو تسليم `in_app` وسببه صادق) + صف `notification_deliveries` لكل قناة خارجية بحالة `queued` بلا ساعة — `sent_at` يُكتب فقط بعد نجاح مزود حقيقي في `attemptDelivery` (القبول).
+> - تفضيلات المستخدم (`notification_preferences` — غياب الصف = القناة مفعّلة) + ساعات الهدوء بمفتاحي `notifications.quiet_hours_start`/`end` في سجل الإعدادات (نافذة تعبر منتصف الليل) — التأجيل يبقى `queued` بلا عدّ محاولات.
+> - فشل المزود ⇒ `failed` مع نص السبب (مقتطع إلى 200 حرف — لا رسالات الاستثناء للعميل) + `DeliveryRetryableException` تُرمى **خارج أي معاملة**: الرمي من داخل المعاملة كان يرجّع كتابة الحالة أصلاً — علّة أثبتها اختبار ثم أصلحت بمرحلتين (قفل وحسم بمعاملة، اتصال المزود خارج القفل ثم إتمام بمعاملة قصيرة). سقف 3 محاولات: عامل الطابور (tries/backoff) أو `notifications:retry-queued` كل 5 دقائق.
+> - القنوات: `database` (الصندوق) · `email` عبر `Mail::raw` · `push`/`sms` بلا مزود ⇒ فشل صريح بنصه (بلا نجاح تقريبي) · `whatsapp` مؤجلة بمواصفة المرحلة (تبقى `queued` — واجهتها في 4.3).
+> - تطبيع `notifications.event_type`: إرجاع `subscription_renewed` التي سقطت من آخر كشف enum (PR 3.8) رغم أن `DailySubscriptionService` يستخدمها فعلياً — كل إشعار تجديد اشتراك كان سيفشل إدراجه.
+> - إصلاح `bulkNotify`: العمل عبر الخدمة + عزل المؤسسة (أي طالب خارج نطاق المُرسِل يرفض الطلب كلياً بـ422 — لا إشعار جزئي صامت) + إصلاح `select` حول `full_name` (accessor يحتاج أعمدة الاسم الثلاثة) — الصندوق مشروط بـ`user_id` (قيد NOT NULL): مستلم بلا حساب يحصل على تسليمات قناته الخارجية فقط، بلا صف صندوق يتيم.
+> - 10 اختبارات في `NotificationInfrastructureTest.php` (49 تأكيداً) — طابور مزيف `Queue::fake` في `setUp` حتى لا ينفَّذ الجوب ضمنياً تحت sync؛ مزودات الاختبار مدارة عبر `config()`. Backend: 940 → **950** passed (نفس 1 risky + 3 skipped pgsql).
+> - **ما لم يُتحقق**: عامل Redis/Horizon حقيقي (لا ext-redis محلياً — الإنجاز كله عبر الطابور sync/المزيف وإعداداته جاهزة للهورايزن في 7.1) · مزود whatsapp (4.3) · شاشة عارض للتسليمات في الواجهة (الجداول جاهزة).
+
 ### PR 4.2 — Scheduled event dispatchers
 **Goal:** Reminders and core alerts work.
 **Tasks:**
@@ -1724,6 +1735,19 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** Running the job twice does not send twice; the lesson reminder arrives at the recipient's local time.
 **Depends on:** 4.1 · 3.7
 
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-28):**
+> - **مفتاح منع التكرار** `notifications.dedup_key` (فهرس فريد، nullable): الصيغة `event|bearer|reference` — المستلم بلا حساب يحمل `s{student_id}`. الحسم في القاعدة: فحص مسبق + التقاط `UniqueConstraintViolationException` (سباق كاتبين) — تفريغ الكاش لا يفتح باب التكرار، والصفوف بلا مفتاح (الإشعار اليدوي) لا تتصادم أبداً.
+> - **مدخلا كتابة**: `dispatch(event, recipient, data, channels, writeInbox, referenceKey)` للصندوق + التسليمات الخارجية (أحداث)، و`dispatchInbox()` للصندوق فقط بإرجاع `bool` مع حفظ الـpayload الخام (استمرارية الصفوف التاريخية) — أُعيد توجيه `DailySubscriptionService::notify()` و`invoices:notify-overdue` و`SubscriptionPauseService` إليه.
+> - **`lessons:send-reminders`** (كل ١٠ دقائق): المدد من `notifications.lesson_reminder_offsets` (نوع list، افتراضي `['60']`) لكل مؤسسة؛ الحالات `scheduled`/`confirmed`؛ الاستحقاق `now ≥ start − offset` و`now < start`؛ لكل مستلم نص بتوقيته المحلي (`user.timezone` ← `org.default_timezone` ← UTC)؛ المفتاح `lesson:{id}:o{offset}`.
+> - **`subscriptions:notify-expiring`** (09:30): أمر رفيع يستدعي `notifyExpiringOnly()` وحده (بلا تجديد/إقفال/فواتير) — التجديد يبقى في `subscriptions:process-day`.
+> - **الأحداث اللحظية** عبر `safeDispatch` (فشل الإشعار لا يُفشل معاملة مالية): `invoice_issued` (نقطتا الإصدار الإداري: `InvoiceController::issue` و`StudentController::bulkCreateInvoices`، مفتاح `invoice:{id}`) · `payment_received` (`PaymentService::record`، مفتاح `payment:{id}`) · `student_absence` (`recordAttendance`، مفتاح `lesson:{id}:absence:{student}`) · `teacher_absence`/`lesson_canceled` (`transition`، إلغاء الحصة يوصل للطالب وولي الأمر والمعلم) · `salary_paid` (صرف سطر معلم/موظف، مفتاحا `teacher_line:{id}`/`employee_line:{id}`). مستقبلات الطالب = حسابه + أولياء الأمر المؤكدين فقط.
+> - **إيقاف/استئناف الاشتراك** بلا مفتاح مرجعي عمداً — كل دورة إيقاف/استئناف يجب أن تُشعِر من جديد.
+> - **`Notification::$fillable`**: أُضيف `dedup_key` و`subscription_id` (الثاني كان يُسقَط بصمت عند الإنشاء).
+> - **`DeliverNotification` لم يعد يرمي `DeliveryRetryableException`**: تحت `QUEUE_CONNECTION=sync` كان فشل مزود يُسقط مسار الدفع؛ الإعادة الآن حصراً عبر `notifications:retry-queued` المجدول (5 دقائق).
+> - **إصلاحات اختبار (بلا إضعاف تأكيد)**: سطور المرتب تحتاج `payroll_period_id` (فيكسشر ناقص)؛ غياب المعلم يتطلب `confirmed` أولاً (جدول التحويلات يمنعه من `scheduled`)؛ `dispatch` يُرجع صفوف التسليمات **الخارجية** فقط (قناة `database` صفها هو الصندوق)، فأُبدل تأكيد الفراغ بتأكيد «صندوق واحد للنداءين». اختبار الاشتراكات يقارن ثبات العدد (المستقبلات تشمل الأدمن) بدل رقم افتراضي.
+> - **الاختبارات**: 12 اختباراً في `ScheduledEventDispatchTest.php` (62 تأكيداً) — RED مثبت (11/12 فشل) ثم GREEN. Backend: 950 → **962** passed (نفس 1 risky + 3 skipped pgsql). Frontend: `tsc` و`npm test` (167) و`npm run build` تنجح؛ lint كما هو (10 errors + 1 warning سابقة). الترحيل قابل للرجوع: `migrate` ← `migrate:rollback --step=1` ← `migrate` محلياً على SQLite.
+> - **ما لم يُتحقق**: Postgres محلياً (3 skipped) · عامل Redis/Horizon حقيقي · مزود whatsapp (4.3) · لا شاشة واجهة تعرض الإشعارات بعد · مسارات إصدار الفواتير عبر الاشتراكات (التفعيل/المجموعات/الترويج) غير موصولة بـ`invoice_issued` (المقصود: نقطتا الإصدار الإداري فقط) · `down()` يحذف صفوف الأحداث الخمسة الجديدة (غير صالحة في الإلنوم الراجع) — مقصود وموثّق.
+
 ### PR 4.3 — Arabic email template + WhatsApp adapter
 **Goal:** The first-phase and second-phase channels.
 **Tasks:**
@@ -1732,6 +1756,16 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** Email is sent with correct Arabic; the adapter is disabled unless enabled; a webhook with a wrong signature = 401.
 **Depends on:** 4.1
 
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-28):**
+> - **بريد عربي موحّد**: `NotificationMail` + `resources/views/emails/notification.blade.php` بدل `Mail::raw`: `dir="rtl" lang="ar"`، ترويسة `#0f766e` وشريط ذهبي `#d4af37`، شعار حرفي (بلا صورة خارجية قد تحجبها عملاء البريد)، وتذييل يشرح كيف يعدّل المستخدم تفضيلاته. كل نص من الـpayload يمر على `{{ }}`/`e()` فلا حقن HTML.
+> - **واتساب خلف علم**: `notifications.whatsapp_enabled` (env: `NOTIFICATIONS_WHATSAPP_ENABLED`، افتراضي `false`) — لا إعداد قاعدة بيانات جديد. `NotificationService::isChannelDeferred()` يعتبر القناة مؤجلة طالما العلم مقفول، فيبقى الصف `queued` بلا محاولة (عقد 4.1 كما هو)، والتفعيل يرفع التأجيل عنها وحدها.
+> - **قوالب معتمدة فقط**: `config/notifications.php` يربط الحدث باسم قالب Meta ولغته وترتيب معاملاته — `lesson_reminder_ar` و`invoice_issued_ar` فقط. حدث بلا قالب = استثناء صريح، لا نص حر (شرط Meta خارج نافذة 24 ساعة).
+> - **المحوّل** `WhatsAppBusinessAdapter`: Meta Cloud API، تطبيع الرقم لأرقام دولية بلا `+`، ومصدر الرقم حساب المستخدم ثم بيانات الطالب ثم هواتف الطالب المعلّمة واتساب (فاتورة ولي الأمر تُجلب من `payload.student_id`). الاعتماد على `messages[0].id` وحده كـ`external_id`، وفشل HTTP يُسجَّل `failed` بـ`HTTP <code>: <reason>` بلا token.
+> - **Webhook**: GET يتحقق من `hub.verify_token` ويرجّع `hub.challenge` وإلا 403؛ POST يتحقق من HMAC-SHA256 على **الجسم الخام** (`X-Hub-Signature-256`) — مفتاح مفقود أو توقيع غلط = 401 قبل قراءة الحمولة. التحديث بـ`external_id`، والحالة تُحفظ في `payload.whatsapp_status`، و`failed` تجعل الصف `failed` بسبب مقروء، والرسالة المجهولة تُرد 200 عمداً حتى لا تعيد Meta بلا نهاية. المساران عامّان في `RouteProtectionTest::EXCEPTIONS` بسبب مكتوب.
+> - **تفضيلات ذاتية**: `GET/PUT /notification-preferences` — القنوات `email|whatsapp|sms` فقط، و`database` ليست خياراً (الصندوق يُقرأ دائماً). غياب الصف = مفعّل، والواجهة ترسل **الفروق فقط**؛ القناة غير الجاهزة تُحفظ مع ملاحظة عربية وتُطبَّق عند تفعيلها. الحماية بالملكية (`user_id` من التوكن) لا بصلاحية إدارية — والمساران في `EXCEPTIONS` بسبب مكتوب.
+> - **الاختبارات**: 14 اختباراً في `NotificationChannelsTest.php` (بريد + تفضيلات) و`WhatsAppChannelTest.php` (قناة + webhook) — 55 تأكيداً، RED مثبت (13/14 فشل: القالب/المسارات/المحوّل غير موجودة) ثم GREEN. Backend: 962 → **976** passed (1 risky + 3 skipped pgsql). الجولة الأولى أظهرت flake قديماً واحداً في `GroupWaitingListTest:190` (فارق ثانية بين `now()`ين، يمر منفرداً) ثم مرّت الجولة الكاملة نظيفة. Frontend: 4 اختبارات Vitest جديدة (171 إجمالاً) و`tsc` و`npm run build` تنجح (الصفحة `/notification-preferences` في المخرجات)؛ lint كما هو (10 errors + 1 warning سابقة). لا ترحيل جديد في هذا الـPR.
+> - **ما لم يُتحقق**: Postgres محلياً · مزود Meta حقيقي (كل الإرسال عبر `Http::fake` — القوالب يجب اعتمادها فعلياً على Meta قبل التفعيل) · عامل طابور حقيقي · اختبار Playwright لصفحة التفضيلات — الفحص يدوي: GET 200، الصفحة 200، ثلاث قنوات وزر حفظ معطّل بلا تغيير.
+
 ### PR 4.4 — Teacher portal (Frontend, mobile first)
 **Goal:** The teacher does their whole day from their phone.
 **Tasks:**
@@ -1739,6 +1773,17 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - Built on the PR 5.2 components if they are ready, otherwise simple components that are migrated later.
 **Acceptance:** Playwright test: a teacher records attendance and completes a lesson from a 390px viewport; no admin link appears for them.
 **Depends on:** 3.10 · 1.2
+
+> ✅ **ملاحظات التنفيذ الفعلي (2026-10-28):**
+> - **شاشة واحدة، خمسة تبويبات**: `/teacher` = اليوم / الأسبوع / كل الحصص / مستحقاتي / مواعيدي، بشريط تنقّل سفلي ثابت (`min-h-14`) مناسب للموبايل. و`/my-schedule` صار تحويلاً إلى `/teacher` بدل صفحة تستهلك مسارات إدارية — فلا رابط محفوظ ينكسر.
+> - **منطق الشاشة مختبَر بلا متصفح**: `lib/teacher-portal.ts` (التبويبات، أزرار الحصة حسب آلة حالات PR 3.1، آلة الحضور، تجميع الأسبوع، ملخص المستحقات، تحقق الحفظ، حارس فتح البوابة) و`tests/teacher-portal.test.ts` (28 اختباراً). الصفحة تستهلك الدوال دي — مفيش قرار في JSX بيتاخد من غير اختبار.
+> - **الحضور بنقرتين (القبول ①)**: نقرة على الحصة = `choose`، ونقرة على الحالة = `confirm` وساعتها فقط تُبنى الحمولة وتُرسل. «حاضر» يكمّل الحصة ويخصم رصيداً — فالنقرتان حماية من أثر مالي بنقرة غلط.
+> - **نقص في عقد PR 3.10 أُصلح — قائمة السور**: لم يكن هناك أي راو يرجّع `quran_surahs` للواجهة، فنموذج الحفظ كان مستحيلاً بلا كتابة 114 سورة يدوياً. أُضيف `GET /teacher/surahs` (صلاحية `teacher.portal` + بروفايل معلم، والترتيب من السيرفر).
+> - **نقص ثانٍ — رابط الحصة**: `present()` كان ينسى `meeting_url`/`meeting_provider`، فزر «انضم» ما كان ليقدر يعمل. أُضيفا للرد مع اختبار يثبتهما.
+> - **صفر روابط إدارية (القبول ②)**: التبويبات أزرار لا `href`، والـlayout يرجّع صفر مجموعات لمعلم-فقط (`filterNavGroups`)، وحارس الصفحة `canOpenTeacherPortal` يشترط بروفايل معلم **و**صلاحية `teacher.portal` — فمافيش شاشة مكسورة كل طلباتها 403.
+> - **مكوّنات PR 5.2 لم تكن جاهزة** (كما تنص المهمة)، فبُنيت مكوّنات بسيطة تحت `components/teacher/` — كل ملف أقل من 300 سطر، وتُرحَّل لاحقاً.
+> - **الخلفية**: `TeacherPortalTest` 11 اختباراً (80 assertion)، والراو الجديد داخل مصفوفة `RouteProtectionTest`.
+> - **ما لم يُتحقق**: **Playwright غير مثبّت في المشروع** (ولا `playwright.config.ts`)، فاختبار القبول الآلي عند 390px **لم يُنفّذ**؛ البديل دوال منطق خالصة مغطاة بـVitest + فحص حي لحارس الصفحة (مستخدم بلا بروفايل معلم يُحوَّل إلى `/dashboard` بلا أخطاء console). **جلسة معلم-فقط لم تُفحص بصرياً**: قاعدة التطوير المحلية لا تحتوي أي سجل `teachers`، ولم يُشغَّل `RealisticDataSeeder` لأنه يغيّر بيانات التطوير بلا موافقة. «إعادة الجدولة» (`rescheduled`) غير قابلة للاختيار من البوابة — تبقى عمل الإدارة.
 
 ### PR 4.5 — Parent portal v2
 **Goal:** Go beyond the "list of children".
@@ -1749,6 +1794,16 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 **Acceptance:** A parent does not see their child's finances if `can_view_finance=false`; a cancellation request appears in the administration inbox.
 **Depends on:** 1.8 · 3.8 · 4.1
 
+> **حالة التنفيذ (PR 4.5):**
+> - **الباكإند**: جدول `student_requests` (+ توسيع `notification_event_types` لـ`student_request_created/approved/rejected`)، `StudentRequestType`/`StudentRequestStatus`، و`StudentRequestService` (إنشاء/سحب/قرار + إشعار + `audit_logs` داخل معاملة واحدة). الولي بيقدّم/يسحب من `ParentRequestController`، والإدارة بتراجع من `StudentRequestController` — صلاحيتان منفصلتان: `student_requests.view` للصندوق و`student_requests.manage` للقرار.
+> - **كل البيانات عبر `ParentChildScope`**: `GET /parent/children/{student}` + attendance/progress/lessons/invoices/payments، والحراسة `parent.only` + `ResolvesParentChild` (parentOrFail/childOrFail/requireProgress/requireFinance/requireRequestChanges). الابن غير المؤكَّد أو ابن عائلة تانية = 404، والمال بـ`can_view_finance=false` = 403.
+> - **البوابة (الواجهة)**: شاشة واحدة بستة تبويبات (نظرة عامة/الحضور/التقدم/الحصص/الفواتير/طلباتي) وشريط تنقّل سفلي ثابت. التبويبات **أزرار لا روابط**، وتُشتق من أعلام الرابط (`visibleParentTabs`/`resolveParentTab`)، والتبديل بين الأبناء فوري (`nextChildId`). أُزيل زر الخروج القديم (كان يوجّه إلى `/login` المحذوف).
+> - **صندوق الإدارة** `/student-requests`: فلتر حالة + عدّادات، موافقة/رفض عبر `useUI().prompt`، وقرار الرفض يستلزم سبباً. **الموافقة قرار مسجّل + إشعار فقط — لا تُطبَّق تلقائياً على الحصة/الاشتراك**؛ التطبيق خطوة منفصلة لاحقة.
+> - **أخطاء أُصلحت أثناء التنفيذ**: `outstanding.total` كان يخلط القرش بالجنيه (١٠٠×) — صار عبر `MoneyCast::fromAggregate`؛ و`PermissionCatalogTest` كان يقرأ `student` من `student_requests.view` (regex توقف عند `_`)؛ و`SettingsGrepTest` رفض `'EGP'` المحبوس — صار `config('currencies.default')`.
+> - **تغيير fixture مطلوب**: `RoleIsolationTest::parentProfileFor` أضاف `'status' => 'verified'` — فلتر PR 1.11 بيرجّع المؤكَّد فقط، والاختبار كان بيفترض غير كده. ده تغيير سلوك مقصود، مش إصلاح اختبار.
+> - **الاختبارات**: باكإند **960 passed · 1 risky (قائم) · 3 skipped** — منهم `ParentPortalV2Test` (8) و`StudentRequestTest` (10). واجهة **217 passed / 18 ملف** — منهم `tests/parent-portal.test.ts` (21). `tsc` و`npm run build` نضيفان، و`lint` = خط الأساس (10 errors + 1 warning).
+> - **ما لم يُتحقق**: Playwright غير مثبّت، فقبول «ولي أمر يتنقّل بين ابنين ويقدّم طلباً من 390px» لم يُنفَّذ آلياً — البديل دوال منطق خالصة + فحص يدوي. **جلسة ولي أمر-فقط لم تُفحص بصرياً**: قاعدة التطوير لا تحتوي سجلات أولياء أمور، ولم يُشغَّل `RealisticDataSeeder` بلا موافقة. تنفيذ الطلب الموافَق عليه على الحصة/الاشتراك خارج نطاق هذا الـPR.
+
 ### PR 4.6 — Student portal
 **Goal:** A simplified interface for the student.
 **Tasks:**
@@ -1756,6 +1811,14 @@ Laravel 11 بيجيب `redirectGuestsTo(fn () => route('login'))` كـdefault، 
 - A read-only API for the student themselves.
 **Acceptance:** The student does not see another student or any financial path; a child with a PIN cannot change their data.
 **Depends on:** 1.12 · 3.11
+
+> **✅ As implemented (2026-11-01).** 14 اختباراً في `tests/Feature/StudentPortalTest.php` — الباكإند **940 → 954 passed** (1 risky + 3 skipped زي الأساس).
+> - **العزل**: مفيش `{student}` في أي راو؛ الطالب بيتحدد من `students.user_id` (`StudentPortalView::studentFor`)، والحصص فردية + مجموعات (`lesson_students`)، وزر الانضمام بيفحص الملكية (404 لغير حصته).
+> - **صلاحية ودور**: `student.portal` في `config/permissions.php` ودور `student` في الـseeder؛ `profile()` بقى يرجّع `is_student`/`student` بنفس استثناء الأدمن، وبأعمدة محددة (تقرير المال بيراقب `select *` على `students`).
+> - **الدخول**: `LessonJoinService` هي المصدر الوحيد (`isJoinable` = scheduled/confirmed/in_progress + رابط)، و`POST /student/lessons/{lesson}/join` بيسجّل `lesson_participants` (source `student_portal`) ويرجّع الرابط؛ الملغاة/بلا رابط = 422.
+> - **الطفل < 13**: `GET /api/join/{token}` عام بمعاينة **بلا أي بيانات شخصية** (معلم/برنامج/مستوى/مواعيد/حالة فقط)، و`LessonJoinTokenService::redeem` بقى يسجّل مشارك (source `pin`) ويرجّع `meeting_url` باستهلاك ذرّي (`UPDATE ... WHERE used_at IS NULL`)؛ استعمال واحد ولا تعديل لبيانات الطفل.
+> - **الواجهة**: `/student` بتلاتة تبويبات (نظرة عامة/جدولي/تقدمي) + خريطة حفظ بالمقاطع + الواجبات `available:false` (مفيش جدول)، وصفحتا `/join` و`/join/{token}` عامّتان في `PUBLIC_PATHS`، و`ROLE_HOME.student = "/student"` مع إخفاء القائمة الإدارية. 30 اختبار منطق جديد + 9 في `route-access`/`nav-filter` — **167 → 206 passed** في 16 ملفاً، `tsc` و`build` نضيفان، وlint عند الأساس (10 أخطاء + 1 تحذير).
+> - **ما لم يُتحقق**: Playwright غير مثبّت فقبول الواجهة مغطّى بمنطق خالص + مراجعة يدوية؛ لا مزوّد اجتماع حقيقي (روابط نصية فقط)؛ Postgres لم يُشغّل محلياً (3 skipped)؛ الواجبات مؤجلة لغياب جدول؛ حساب طالب+ولي أمر بيتوجّه لبوابة ولي الأمر (أولوية الأدوار الحالية) — يحتاج قراراً في PR لاحق.
 
 ### PR 4.7 — Employee portal
 **Goal:** The employee sees their attendance and salaries.

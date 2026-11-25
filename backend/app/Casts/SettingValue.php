@@ -50,6 +50,11 @@ class SettingValue implements CastsAttributes
      */
     public function set($model, string $key, $value, array $attributes): mixed
     {
+        // PostgreSQL validates JSON in settings; version snapshots are text columns.
+        if ($key === 'value' && is_string($value) && $model->getConnection()->getDriverName() === 'pgsql') {
+            return json_encode($value, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        }
+
         if (is_array($value)) {
             return json_encode(array_values($value), JSON_UNESCAPED_UNICODE);
         }
