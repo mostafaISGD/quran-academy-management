@@ -29,6 +29,7 @@ class WhatsAppChannelTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        $this->travelTo(\Illuminate\Support\Carbon::parse('2026-10-24 12:00:00', 'UTC'));
 
         Queue::fake();
 
