@@ -27,18 +27,18 @@ export default function EmployeePage() {
     <main dir="rtl" className="mx-auto max-w-5xl space-y-6 p-4 sm:p-8">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">بوابة الموظف</h1>
-          {attendance.data && <p className="text-slate-600">{attendance.data.employee.name}</p>}
+          <h1 className="text-2xl font-bold text-primary">بوابة الموظف</h1>
+          {attendance.data && <p className="text-muted">{attendance.data.employee.name}</p>}
         </div>
-        <Link href="/notifications" className="text-sky-700 underline">إشعاراتي</Link>
+        <Link href="/notifications" className="text-primary underline">إشعاراتي</Link>
       </header>
 
-      <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+      <section className="space-y-4 rounded-card border border-border bg-surface p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">الحضور الشهري</h2>
           <label className="flex items-center gap-2">
             <span>الشهر</span>
-            <input type="month" value={month} className="rounded border border-slate-300 px-2 py-1"
+            <input type="month" value={month} className="rounded-field border border-border px-2 py-1"
               onChange={(event) => { if (event.target.value) setMonth(event.target.value); }} />
           </label>
         </div>
@@ -49,7 +49,7 @@ export default function EmployeePage() {
             <p>الحضور {attendance.data.stats.present} يوم · الغياب {attendance.data.stats.absent} يوم · الإجازات {attendance.data.stats.on_leave} يوم</p>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               {attendance.data.days.map(({ date: day, day: number, record }) => (
-                <div key={day} className="rounded border border-slate-200 p-2 text-sm">
+                <div key={day} className="rounded-field border border-border p-2 text-sm">
                   <strong>{number}</strong> · {record ? statusLabels[record.status] : "بلا تسجيل"}
                 </div>
               ))}
@@ -58,13 +58,13 @@ export default function EmployeePage() {
         )}
       </section>
 
-      <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+      <section className="space-y-4 rounded-card border border-border bg-surface p-4">
         <h2 className="text-lg font-semibold">الرواتب المعتمدة</h2>
         {salaries.loading && <p role="status">جارٍ تحميل الرواتب…</p>}
         {salaries.error && <p role="alert">{salaries.error}</p>}
         {!salaries.loading && !salaries.error && (
           salaries.items.length ? (
-            <ul className="divide-y divide-slate-200">
+            <ul className="divide-y divide-border">
               {salaries.items.map((salary) => (
                 <li key={salary.id} className="flex flex-wrap justify-between gap-2 py-3">
                   <span>{date(salary.period_start)} – {date(salary.period_end)}</span>

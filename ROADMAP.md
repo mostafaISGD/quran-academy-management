@@ -189,7 +189,7 @@ When finished: write the PR description (what changed, how it was tested, risks)
 
 **Phase 5 — Design System and UI Rebuild**
 
-- [ ] PR 5.1 — Tokens and fonts
+- [x] PR 5.1 — Tokens and fonts
 - [ ] PR 5.2 — Core component library
 - [ ] PR 5.3 — `DataTable` and export
 - [ ] PR 5.4 — Data layer

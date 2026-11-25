@@ -213,8 +213,8 @@ function toggleGroup(label: string) {
   if (teacherOnly || parentOnly || studentOnly || isEmployeeOnly(user)) {
     return (
       <UIProvider>
-        <div dir="rtl" className="min-h-screen bg-slate-50">
-          <nav aria-label="بوابة الأكاديمية" className="flex gap-4 border-b border-slate-200 bg-white px-4 py-3 text-sm">
+        <div dir="rtl" className="min-h-screen bg-paper">
+          <nav aria-label="بوابة الأكاديمية" className="flex gap-4 border-b border-border bg-surface px-4 py-3 text-sm">
             <Link href={home} aria-current={pathname === home ? "page" : undefined}>البوابة</Link>
             <Link href="/notifications" aria-current={pathname === "/notifications" ? "page" : undefined}>الإشعارات</Link>
           </nav>
@@ -226,9 +226,9 @@ function toggleGroup(label: string) {
 
   return (
     <UIProvider>
-      <div dir="rtl" className="flex min-h-screen bg-slate-50">
-      <aside className="w-60 shrink-0 border-l border-slate-200 bg-white p-3">
-        <p className="mb-4 px-2 text-sm font-bold text-slate-800">أكاديمية القرآن</p>
+      <div dir="rtl" className="flex min-h-screen bg-paper">
+      <aside className="w-60 shrink-0 border-l border-border bg-surface p-3">
+        <p className="mb-4 px-2 text-sm font-bold text-primary">أكاديمية القرآن</p>
         <nav className="space-y-1">
           {/**
            * ⭐⭐⭐ **الـSkeleton جوه الـ`nav` نفسه.**
@@ -257,7 +257,7 @@ function toggleGroup(label: string) {
             <div key={group.label}>
               <button
                 onClick={() => toggleGroup(group.label)}
-                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium text-ink hover:bg-primary-tint"
               >
                 <span>{group.icon} {group.label}</span>
                 <span className="flex items-center gap-1.5">
@@ -268,7 +268,7 @@ function toggleGroup(label: string) {
                       ⭐ وبيتبني على «فيه رابط المجموعات» مش على اسم القسم،
                       عشان لو نقلنا رابط المجموعات لقسم تاني الجرس يروح معاه. */}
                   {hasGroupsLink && groupAlerts > 0 && (
-                    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                    <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-gold-tint px-1 text-xs font-bold text-warning-ink">
                       {num(groupAlerts, 0)}
                     </span>
                   )}
@@ -276,7 +276,7 @@ function toggleGroup(label: string) {
                 </span>
               </button>
               {expandedGroups[group.label] && (
-                <div className="mr-4 space-y-0.5 border-r border-slate-200 pr-2">
+                <div className="mr-4 space-y-0.5 border-r border-border pr-2">
                   {group.items.map((item) => {
                     const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
                     return (
@@ -285,13 +285,13 @@ function toggleGroup(label: string) {
                         href={item.href}
                         className={`block rounded-lg px-3 py-1.5 text-sm transition-colors ${
                           isActive
-                            ? "bg-slate-800 text-white"
-                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                            ? "bg-primary text-surface hover:bg-primary-hover"
+                            : "text-muted hover:bg-primary-tint hover:text-primary"
                         }`}
                       >
                         {/* ⭐ الجرس: «فيه ناس مستنية وفيه مقعد فاضي» */}
                         {item.href === "/groups" && groupAlerts > 0 && (
-                          <span className="mr-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-amber-500 px-1 text-[10px] font-bold text-white">
+                          <span className="mr-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-gold-tint px-1 text-xs font-bold text-warning-ink">
                             {/* ⭐ `num` مش الرقم الخام — التطبيق كله عربي */}
                             {num(groupAlerts, 0)}
                           </span>
